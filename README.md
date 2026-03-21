@@ -4,20 +4,22 @@ A modern Angular-based frontend for TVHeadend optimized for Google TV and D-pad 
 
 ## Features
 
-- **Phase 1-3 Implemented** ✅
-  - TV Shell Layout with collapsing sidebar
-  - Spatial navigation (D-pad/arrow keys)
-  - Material Design Dark Theme
-  - Home screen with hero banner & content shelves
-  - Channels screen with grid & detail panel
+- **Google TV-first shell**
+  - Collapsing sidebar and D-pad-first layout
+  - Spatial navigation with focus restoration across routes
+  - Playback return context for Home, Channels, Guide, and Recordings
 
-- **Planned (Phase 4+)**
-  - EPG/Guide view with timeline navigation
-  - Recordings management (upcoming, finished, failed)
-  - Auto-recording & timer recording rules
-  - Server status monitoring
-  - Full playback with media controls
-  - On-screen keyboard for search
+- **Live TV browsing**
+  - Home screen with hero banner and content shelves
+  - Channels screen with grid selection, detail strip, favorites, and direct playback on select
+  - Full player route with transport diagnostics and return navigation
+
+- **Guide and DVR workflows**
+  - TV-first EPG with timeline and vertical guide modes
+  - Quick timeline jumps, channel paging, and remote-friendly shortcuts
+  - Recordings management for upcoming, finished, and failed entries
+  - Auto-record rule management
+  - Status and server diagnostics views
 
 ## Development
 
@@ -33,7 +35,7 @@ or use the symlinked node_modules from the source project.
 Run development server:
 
 ```bash
-ng serve
+./node_modules/.bin/ng serve --port 4200
 ```
 
 Navigate to `http://localhost:4200/`. The app will auto-reload when you change source files.
@@ -41,7 +43,7 @@ Navigate to `http://localhost:4200/`. The app will auto-reload when you change s
 Build for production:
 
 ```bash
-ng build --prod
+./node_modules/.bin/ng build
 ```
 
 ## Navigation
@@ -54,7 +56,7 @@ ng build --prod
 
 - **Services**: `TvheadendService` (API client), `SpatialNavService` (keyboard navigation)
 - **Directives**: `TvFocusableDirective` (makes elements spatially navigable)
-- **Components**: Shell layout, Home screen, Channels screen
+- **Components**: Shell layout, Home, Channels, Guide, Recordings, Auto-Rec, Status, Player
 - **Styling**: SCSS with CSS custom properties for theming
 
 ## Proxy Configuration
