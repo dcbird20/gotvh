@@ -1,4 +1,4 @@
-package com.dcbird20.gotvh;
+package io.gotvh.app;
 
 import android.net.Uri;
 import android.os.Bundle;
@@ -61,7 +61,7 @@ public class NativeVideoActivity extends AppCompatActivity {
         android.util.Log.d("NativeVideo", "Loading stream: " + url + " | mimeType: " + mimeType + " | auth: " + (authHeader != null ? "yes" : "no"));
 
         playerView.setUseController(true);
-        
+
         retriedWithoutMime = false;
         retriedDirectStream = false;
         mimeTypeRetryCount = 0;
@@ -96,7 +96,6 @@ public class NativeVideoActivity extends AppCompatActivity {
             httpFactory.setDefaultRequestProperties(headers);
         }
 
-        // Aggressive buffering for live streams to simulate DVR behavior
         player = new ExoPlayer.Builder(this)
             .setMediaSourceFactory(new DefaultMediaSourceFactory(httpFactory))
             .build();
@@ -119,41 +118,33 @@ public class NativeVideoActivity extends AppCompatActivity {
             public void onPlayerError(PlaybackException error) {
                 String codeName = error.getErrorCodeName();
                 android.util.Log.w("NativeVideo", "Playback error: " + codeName + " | URL: " + currentUrl + " | MIME: " + currentMimeType);
-                
+
                 if (codeName != null && codeName.contains("PARSING_CONTAINER_UNSUPPORTED")) {
-                    // Retry 1: Without forced MIME type (auto-detect)
                     if (!retriedWithoutMime && currentMimeType != null && !currentMimeType.trim().isEmpty()) {
                         retriedWithoutMime = true;
                         android.util.Log.d("NativeVideo", "Retry 1: Trying without forced MIME type...");
-                        // Toast.makeText(NativeVideoActivity.this, "Retrying without forced MIME type...", Toast.LENGTH_SHORT).show();
                         preparePlayback(currentUrl, null);
                         return;
                     }
 
-                    // Retry 2: Try direct stream endpoint instead of buffered
                     if (allowLiveFallback && !retriedDirectStream && currentUrl != null && currentUrl.contains("/play/stream/channel/")) {
                         retriedDirectStream = true;
                         String liveUrl = currentUrl.replace("/play/stream/channel/", "/stream/channel/");
                         android.util.Log.d("NativeVideo", "Retry 2: Trying direct stream endpoint: " + liveUrl);
-                        // Toast.makeText(NativeVideoActivity.this, "Retrying with direct stream...", Toast.LENGTH_SHORT).show();
                         preparePlayback(liveUrl, null);
                         return;
                     }
 
-                    // Retry 3: Try mp2t MIME type explicitly
                     if (mimeTypeRetryCount == 0 && !MimeTypes.VIDEO_MP2T.equals(currentMimeType)) {
                         mimeTypeRetryCount = 1;
                         android.util.Log.d("NativeVideo", "Retry 3: Trying mp2t MIME type...");
-                        // Toast.makeText(NativeVideoActivity.this, "Retrying with mp2t format...", Toast.LENGTH_SHORT).show();
                         preparePlayback(currentUrl, MimeTypes.VIDEO_MP2T);
                         return;
                     }
 
-                    // Retry 4: Try matroska MIME type explicitly
                     if (mimeTypeRetryCount == 1 && !MimeTypes.VIDEO_MATROSKA.equals(currentMimeType)) {
                         mimeTypeRetryCount = 2;
                         android.util.Log.d("NativeVideo", "Retry 4: Trying matroska MIME type...");
-                        // Toast.makeText(NativeVideoActivity.this, "Retrying with matroska format...", Toast.LENGTH_SHORT).show();
                         preparePlayback(currentUrl, MimeTypes.VIDEO_MATROSKA);
                         return;
                     }

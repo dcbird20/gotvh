@@ -1,10 +1,16 @@
 apply plugin: 'com.android.application'
 
+def releaseStoreFile = findProperty('GOTVH_RELEASE_STORE_FILE') ?: System.getenv('GOTVH_RELEASE_STORE_FILE')
+def releaseStorePassword = findProperty('GOTVH_RELEASE_STORE_PASSWORD') ?: System.getenv('GOTVH_RELEASE_STORE_PASSWORD')
+def releaseKeyAlias = findProperty('GOTVH_RELEASE_KEY_ALIAS') ?: System.getenv('GOTVH_RELEASE_KEY_ALIAS')
+def releaseKeyPassword = findProperty('GOTVH_RELEASE_KEY_PASSWORD') ?: System.getenv('GOTVH_RELEASE_KEY_PASSWORD')
+def hasReleaseSigning = releaseStoreFile && releaseStorePassword && releaseKeyAlias && releaseKeyPassword
+
 android {
-    namespace "com.dcbird20.gotvh"
+    namespace "io.gotvh.app"
     compileSdk rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "com.dcbird20.gotvh"
+        applicationId "io.gotvh.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
@@ -16,15 +22,19 @@ android {
     }
     signingConfigs {
         release {
-            storeFile file('gotvh-release.keystore')
-            storePassword 'gotvh2026'
-            keyAlias 'gotvh'
-            keyPassword 'gotvh2026'
+            if (hasReleaseSigning) {
+                storeFile file(releaseStoreFile)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
         }
     }
     buildTypes {
         release {
-            signingConfig signingConfigs.release
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
+            }
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }

@@ -1,4 +1,4 @@
-package com.dcbird20.gotvh;
+package io.gotvh.app;
 
 import android.content.Intent;
 import android.net.Uri;
@@ -51,20 +51,17 @@ public class NativeVideoPlugin extends Plugin {
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
 
         try {
-            // Try Kodi specifically first.
             Intent kodiIntent = new Intent(intent);
             kodiIntent.setPackage("org.xbmc.kodi");
             getActivity().startActivity(kodiIntent);
         } catch (Exception kodiError) {
             android.util.Log.w("NativeVideo", "Kodi not found or failed to handle htsp://, error: " + kodiError.getMessage());
 
-            // Try generic handler for htsp://.
             try {
                 getActivity().startActivity(intent);
             } catch (Exception genericError) {
                 android.util.Log.w("NativeVideo", "No app handles htsp:// URL, error: " + genericError.getMessage());
 
-                // Fallback to provided HTTP URL if available.
                 if (fallbackUrl != null && !fallbackUrl.trim().isEmpty()) {
                     try {
                         Intent fallbackIntent = new Intent(Intent.ACTION_VIEW, Uri.parse(fallbackUrl));

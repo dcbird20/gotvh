@@ -1,4 +1,4 @@
-package com.dcbird20.gotvh;
+package io.gotvh.app;
 
 import android.os.Bundle;
 import android.view.KeyEvent;

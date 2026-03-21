@@ -1,7 +1,7 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.dcbird20.gotvh',
+  appId: 'io.gotvh.app',
   appName: 'GoTVH',
   webDir: 'dist/gotvh',
   android: {
