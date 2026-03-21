@@ -1,0 +1,90 @@
+<section class="panel-screen">
+  <header class="panel-screen__header">
+    <div>
+      <div class="panel-screen__eyebrow">Automation</div>
+      <h1 class="panel-screen__title">Auto-Rec</h1>
+      <p class="panel-screen__subtitle">Create title-based recording rules and review the ones already running on TVHeadend.</p>
+    </div>
+
+    <button class="tv-btn" type="button" tvFocusable data-autorec-refresh (click)="rememberRefreshFocus(); refresh()">Refresh</button>
+  </header>
+
+  <div class="panel-screen__stats" *ngIf="!loading && !error">
+    <article class="metric-card">
+      <span class="metric-card__label">Rules</span>
+      <strong class="metric-card__value">{{ rules.length }}</strong>
+    </article>
+    <article class="metric-card">
+      <span class="metric-card__label">Enabled</span>
+      <strong class="metric-card__value">{{ getEnabledCount() }}</strong>
+    </article>
+    <article class="metric-card">
+      <span class="metric-card__label">Scoped</span>
+      <strong class="metric-card__value">{{ getScopedCount() }}</strong>
+    </article>
+  </div>
+
+  <div class="composer-card">
+    <div class="composer-card__header">
+      <div>
+        <h2 class="composer-card__title">Quick Rule</h2>
+        <p class="composer-card__subtitle">Leave channel blank to match across the full lineup.</p>
+      </div>
+    </div>
+
+    <div class="composer-card__grid">
+      <label class="composer-field">
+        <span>Title Match</span>
+        <input type="text" [(ngModel)]="form.title" tvFocusable placeholder="Formula 1" />
+      </label>
+
+      <label class="composer-field">
+        <span>Channel UUID</span>
+        <input type="text" [(ngModel)]="form.channel" tvFocusable placeholder="Optional channel UUID" />
+      </label>
+    </div>
+
+    <label class="composer-field composer-field--full">
+      <span>Comment</span>
+      <input type="text" [(ngModel)]="form.comment" tvFocusable placeholder="Optional note for this rule" />
+    </label>
+
+    <div class="composer-card__actions">
+      <button class="tv-btn tv-btn--primary" type="button" tvFocusable data-autorec-create [disabled]="saving" (click)="createRule()">
+        {{ saving ? 'Saving…' : 'Create Rule' }}
+      </button>
+    </div>
+  </div>
+
+  <div class="status status--loading" *ngIf="loading">Loading autorec rules…</div>
+  <div class="status status--error" *ngIf="error">{{ error }}</div>
+
+  <div class="empty-state" *ngIf="!loading && !error && rules.length === 0">
+    <h2>No rules yet</h2>
+    <p>Create a title match above to seed your first automatic recording rule.</p>
+  </div>
+
+  <div class="stack-list" *ngIf="!loading && !error && rules.length > 0">
+    <article class="stack-card" *ngFor="let rule of rules; trackBy: trackByUuid">
+      <div class="stack-card__body">
+        <div class="stack-card__title-row">
+          <h2 class="stack-card__title">{{ rule.title || rule.name || 'Untitled Rule' }}</h2>
+          <span class="stack-card__badge" [class.stack-card__badge--muted]="!rule.enabled">{{ rule.enabled ? 'Enabled' : 'Disabled' }}</span>
+        </div>
+
+        <div class="stack-card__meta">
+          <span class="stack-card__meta-pill">{{ formatChannel(rule) }}</span>
+          <span class="stack-card__meta-pill">{{ describeMatchMode(rule) }}</span>
+          <span class="stack-card__meta-pill" *ngIf="rule.config_name">{{ rule.config_name }}</span>
+          <span class="stack-card__meta-pill" *ngIf="rule.maxsched">Max {{ rule.maxsched }} scheduled</span>
+        </div>
+
+        <p class="stack-card__summary" *ngIf="rule.comment">{{ rule.comment }}</p>
+      </div>
+
+      <div class="stack-card__actions">
+        <button class="tv-btn" type="button" tvFocusable [attr.data-autorec-delete-uuid]="rule.uuid" (click)="deleteRule(rule)">Delete</button>
+      </div>
+    </article>
+  </div>
+</section>

@@ -1,0 +1,90 @@
+<div class="home">
+
+  <!-- Loading -->
+  <div class="loading" *ngIf="loading">
+    <div class="loading__spinner"></div>
+    <p>Loading…</p>
+  </div>
+
+  <!-- Error -->
+  <div class="home__error" *ngIf="error && !loading">
+    <p>⚠️ {{ errorMessage }}</p>
+  </div>
+
+  <ng-container *ngIf="!loading && !error">
+
+    <!-- ── Hero Banner ──────────────────────────────────────────── -->
+    <div class="hero" *ngIf="heroChannel">
+      <div class="hero__bg"></div>
+      <div class="hero__content">
+        <span class="hero__live-badge">LIVE</span>
+        <div class="hero__channel-name">{{ heroChannel.name }}</div>
+        <h1 class="hero__title">{{ heroProgram?.title || 'Live TV' }}</h1>
+        <p class="hero__time" *ngIf="heroProgram">
+          {{ formatTime(heroProgram.start * 1000) }} – {{ formatTime(heroProgram.stop * 1000) }}
+        </p>
+        <div class="hero__actions">
+          <button class="tv-btn tv-btn--primary hero__watch-btn" tvFocusable (click)="watchChannel(heroChannel, 'hero')">
+            ▶ Watch Live
+          </button>
+          <button class="tv-btn" tvFocusable (click)="goToChannels()">
+            📺 All Channels
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── On Now ───────────────────────────────────────────────── -->
+    <section class="shelf" *ngIf="onNowItems.length">
+      <h2 class="shelf__header">On Now</h2>
+      <div class="shelf__row">
+        <app-tv-card
+          *ngFor="let item of onNowItems"
+          [attr.data-channel-uuid]="item.channel.uuid"
+          [title]="item.channel.name"
+          [subtitle]="item.program?.title || 'Live'"
+          [channelNumber]="item.channel.number"
+          [badge]="'LIVE'"
+          tvFocusable
+          (click)="watchChannel(item.channel, 'on-now')"
+        ></app-tv-card>
+      </div>
+    </section>
+
+    <!-- ── Upcoming Recordings ──────────────────────────────────── -->
+    <section class="shelf" *ngIf="upcomingRecordings.length">
+      <h2 class="shelf__header">Upcoming Recordings</h2>
+      <div class="shelf__row">
+        <app-tv-card
+          *ngFor="let rec of upcomingRecordings"
+          [title]="rec.disp_title || rec.title || 'Recording'"
+          [subtitle]="rec.channelname || ''"
+          [meta]="formatRecordingTime(rec)"
+          [badge]="'⏺'"
+          tvFocusable
+        ></app-tv-card>
+      </div>
+    </section>
+
+    <!-- ── Recently Recorded ────────────────────────────────────── -->
+    <section class="shelf" *ngIf="finishedRecordings.length">
+      <h2 class="shelf__header">Recently Recorded</h2>
+      <div class="shelf__row">
+        <app-tv-card
+          *ngFor="let rec of finishedRecordings"
+          [title]="rec.disp_title || rec.title || 'Recording'"
+          [subtitle]="rec.channelname || ''"
+          [meta]="formatDuration(rec)"
+          [badge]="'✓'"
+          tvFocusable
+        ></app-tv-card>
+      </div>
+    </section>
+
+    <!-- Empty state -->
+    <div class="home__empty" *ngIf="!onNowItems.length && !upcomingRecordings.length">
+      <p>No content found. Make sure TVHeadend is running and channels are configured.</p>
+    </div>
+
+  </ng-container>
+</div>

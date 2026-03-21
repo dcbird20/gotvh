@@ -1,0 +1,152 @@
+/* ============================================================
+   GoTVH — Google TV Theme
+   Global CSS custom properties + base reset
+   ============================================================ */
+
+:root {
+  /* Colours */
+  --tv-bg:             #0D0D0D;
+  --tv-surface:        #1C1C1C;
+  --tv-surface-high:   #272727;
+  --tv-surface-hover:  #303030;
+  --tv-text:           #FFFFFF;
+  --tv-text-muted:     #9E9E9E;
+  --tv-text-subtle:    #616161;
+  --tv-accent:         #1A73E8;
+  --tv-accent-dark:    #1558B0;
+  --tv-record:         #E53935;
+  --tv-live:           #43A047;
+  --tv-warning:        #FB8C00;
+
+  /* Geometry */
+  --tv-radius:         8px;
+  --tv-radius-lg:      12px;
+  --tv-sidebar-w:      72px;
+  --tv-sidebar-w-exp:  220px;
+
+  /* Focus ring */
+  --tv-focus-ring:     0 0 0 3px var(--tv-accent);
+  --tv-focus-scale:    1.05;
+
+  /* Typography */
+  --tv-font:           'Roboto', 'Google Sans', Arial, sans-serif;
+}
+
+/* Base reset */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background: var(--tv-bg);
+  color: var(--tv-text);
+  font-family: var(--tv-font);
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+app-root {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Global focus ring for keyboard-focused elements */
+.tv-focused {
+  outline: none;
+  box-shadow: var(--tv-focus-ring) !important;
+  transform: scale(var(--tv-focus-scale));
+  z-index: 10;
+  position: relative;
+}
+
+/* Utility: reusable button */
+.tv-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border-radius: 24px;
+  border: 2px solid rgba(255,255,255,0.2);
+  background: transparent;
+  color: var(--tv-text);
+  font-family: var(--tv-font);
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 150ms, border-color 150ms, transform 120ms;
+
+  &:hover,
+  &.tv-focused {
+    background: rgba(255,255,255,0.1);
+    border-color: var(--tv-accent);
+  }
+
+  &--primary {
+    background: var(--tv-accent);
+    border-color: var(--tv-accent);
+    color: #fff;
+
+    &:hover,
+    &.tv-focused {
+      background: var(--tv-accent-dark);
+      border-color: var(--tv-accent-dark);
+    }
+  }
+}
+
+/* Loading spinner */
+.loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 16px;
+  color: var(--tv-text-muted);
+
+  &__spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid rgba(255,255,255,0.1);
+    border-top-color: var(--tv-accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Shelf row utility */
+.shelf {
+  padding: 0 24px 32px;
+
+  &__header {
+    font-size: 20px;
+    font-weight: 500;
+    color: var(--tv-text);
+    margin-bottom: 16px;
+    letter-spacing: 0.2px;
+  }
+
+  &__row {
+    display: flex;
+    gap: 16px;
+    overflow-x: auto;
+    padding-bottom: 12px;
+    scroll-behavior: smooth;
+
+    &::-webkit-scrollbar { height: 4px; }
+    &::-webkit-scrollbar-track { background: transparent; }
+    &::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
+  }
+}

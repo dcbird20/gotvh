@@ -1,0 +1,85 @@
+<div class="shell">
+  <!-- Collapsing sidebar -->
+  <nav class="sidebar"
+       [class.sidebar--expanded]="sidebarExpanded"
+       (mouseenter)="sidebarExpanded = true"
+       (mouseleave)="sidebarExpanded = false">
+
+    <div class="sidebar__logo">
+      <span class="sidebar__logo-icon">📡</span>
+      <span class="sidebar__logo-text">GoTVH</span>
+    </div>
+
+    <ul class="sidebar__nav">
+      <li *ngFor="let item of navItems"
+          class="sidebar__item"
+          [class.sidebar__item--active]="isActive(item.route)"
+          tvFocusable
+          (click)="navigate(item.route)">
+        <span class="sidebar__item-icon">{{ item.icon }}</span>
+        <span class="sidebar__item-label">{{ item.label }}</span>
+      </li>
+    </ul>
+
+    <div class="sidebar__footer">
+      <button class="sidebar__auth-btn" type="button" tvFocusable (click)="openAuthDialog()">
+        <span class="sidebar__auth-icon">🔐</span>
+        <span class="sidebar__auth-label">{{ authState.authenticated ? 'Switch TVH Login' : 'TVH Login' }}</span>
+      </button>
+
+      <div class="sidebar__auth-status" *ngIf="authState.authenticated">
+        <span class="sidebar__auth-status-label">Signed in as</span>
+        <strong class="sidebar__auth-status-user">{{ authState.username }}</strong>
+        <button class="sidebar__auth-reset" type="button" (click)="resetAuth()">Reset Credentials</button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Main content -->
+  <main class="shell__content">
+    <router-outlet></router-outlet>
+  </main>
+</div>
+
+<div class="auth-modal" *ngIf="authDialogState.open">
+  <div class="auth-modal__backdrop" (click)="cancelAuth()"></div>
+
+  <section class="auth-modal__panel" aria-label="TVHeadend Login">
+    <div class="auth-modal__eyebrow">TVHeadend Authentication</div>
+    <h2 class="auth-modal__title">Sign In To Watch</h2>
+    <p class="auth-modal__reason">{{ authDialogState.reason }}</p>
+
+    <form class="auth-form" [formGroup]="authForm" (ngSubmit)="submitAuth()">
+      <label class="auth-form__field">
+        <span class="auth-form__label">Username</span>
+        <input
+          #authUsernameInput
+          class="auth-form__input"
+          type="text"
+          formControlName="username"
+          autocomplete="username"
+          tvFocusable
+        >
+      </label>
+
+      <label class="auth-form__field">
+        <span class="auth-form__label">Password</span>
+        <input
+          #authPasswordInput
+          class="auth-form__input"
+          type="password"
+          formControlName="password"
+          autocomplete="current-password"
+          tvFocusable
+        >
+      </label>
+
+      <p class="auth-form__error" *ngIf="authError">{{ authError }}</p>
+
+      <div class="auth-form__actions">
+        <button #authCancelButton class="tv-btn" type="button" tvFocusable (click)="cancelAuth()">Cancel</button>
+        <button #authContinueButton class="tv-btn tv-btn--primary" type="submit" tvFocusable>Continue</button>
+      </div>
+    </form>
+  </section>
+</div>

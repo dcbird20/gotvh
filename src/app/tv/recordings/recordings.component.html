@@ -1,0 +1,71 @@
+<section class="panel-screen">
+  <header class="panel-screen__header">
+    <div>
+      <div class="panel-screen__eyebrow">DVR</div>
+      <h1 class="panel-screen__title">Recordings</h1>
+      <p class="panel-screen__subtitle">Manage upcoming jobs, inspect failures, and clean up completed recordings.</p>
+    </div>
+
+    <button class="tv-btn" type="button" tvFocusable (click)="refresh()">Refresh</button>
+  </header>
+
+  <div class="panel-screen__stats">
+    <article class="metric-card">
+      <span class="metric-card__label">Upcoming</span>
+      <strong class="metric-card__value">{{ upcoming.length }}</strong>
+    </article>
+    <article class="metric-card">
+      <span class="metric-card__label">Finished</span>
+      <strong class="metric-card__value">{{ finished.length }}</strong>
+    </article>
+    <article class="metric-card metric-card--warn">
+      <span class="metric-card__label">Failed</span>
+      <strong class="metric-card__value">{{ failed.length }}</strong>
+    </article>
+  </div>
+
+  <div class="panel-screen__tabs">
+    <button class="tv-btn" type="button" tvFocusable [class.tv-btn--primary]="activeTab === 'upcoming'" (click)="selectTab('upcoming')">Upcoming</button>
+    <button class="tv-btn" type="button" tvFocusable [class.tv-btn--primary]="activeTab === 'finished'" (click)="selectTab('finished')">Finished</button>
+    <button class="tv-btn" type="button" tvFocusable [class.tv-btn--primary]="activeTab === 'failed'" (click)="selectTab('failed')">Failed</button>
+  </div>
+
+  <div class="panel-screen__context" *ngIf="!loading && !error">
+    <span class="context-pill">{{ getActiveTabLabel() }}</span>
+    <span class="context-pill context-pill--muted">{{ getActiveEntries().length }} visible</span>
+  </div>
+
+  <div class="status status--loading" *ngIf="loading">Loading recordings…</div>
+  <div class="status status--error" *ngIf="!loading && error">{{ error }}</div>
+  <div class="status status--error" *ngIf="!loading && actionError">{{ actionError }}</div>
+
+  <div class="empty-state" *ngIf="!loading && !error && getActiveEntries().length === 0">
+    <h2>No entries</h2>
+    <p>The selected DVR view is currently empty.</p>
+  </div>
+
+  <div class="stack-list" *ngIf="!loading && !error && getActiveEntries().length > 0">
+    <article class="stack-card" *ngFor="let entry of getActiveEntries(); trackBy: trackByUuid">
+      <div class="stack-card__body">
+        <div class="stack-card__title-row">
+          <h2 class="stack-card__title">{{ entry.disp_title || entry.title || 'Untitled Recording' }}</h2>
+          <span class="stack-card__badge" [ngClass]="'stack-card__badge--' + getEntryTone(entry)">{{ getEntryStateLabel(entry) }}</span>
+        </div>
+
+        <div class="stack-card__meta">
+          <span class="stack-card__meta-pill">{{ entry.channelname || 'Unknown Channel' }}</span>
+          <span class="stack-card__meta-pill">{{ formatDateTime(entry.start) }}</span>
+          <span class="stack-card__meta-pill" *ngIf="formatDuration(entry)">{{ formatDuration(entry) }}</span>
+        </div>
+
+        <p class="stack-card__summary" *ngIf="getSummary(entry)">{{ getSummary(entry) }}</p>
+      </div>
+
+      <div class="stack-card__actions">
+        <button class="tv-btn" type="button" tvFocusable *ngIf="canWatch(entry)" [attr.data-recording-watch-uuid]="entry.uuid" (click)="watchRecording(entry)">Open Channel</button>
+        <button class="tv-btn" type="button" tvFocusable *ngIf="activeTab === 'upcoming'" [disabled]="isBusy(entry)" (click)="cancelRecording(entry)">Cancel</button>
+        <button class="tv-btn" type="button" tvFocusable *ngIf="activeTab !== 'upcoming'" [disabled]="isBusy(entry)" (click)="removeRecording(entry)">Remove</button>
+      </div>
+    </article>
+  </div>
+</section>

@@ -1,0 +1,59 @@
+<section class="panel-screen">
+  <header class="panel-screen__header">
+    <div>
+      <div class="panel-screen__eyebrow">Diagnostics</div>
+      <h1 class="panel-screen__title">Status</h1>
+      <p class="panel-screen__subtitle">Inspect server metadata, active streams, and currently connected clients from TVHeadend.</p>
+    </div>
+
+    <button class="tv-btn" type="button" tvFocusable data-status-refresh (click)="rememberRefreshFocus(); refresh()">Refresh</button>
+  </header>
+
+  <div class="status status--loading" *ngIf="loading">Loading server status…</div>
+  <div class="status status--error" *ngIf="!loading && error">{{ error }}</div>
+
+  <div class="panel-grid" *ngIf="!loading && !error">
+    <section class="panel-card">
+      <h2 class="panel-card__title">Server Info</h2>
+      <div class="kv-list" *ngIf="serverInfo; else noServerInfo">
+        <div class="kv-list__row" *ngFor="let item of entriesOf(serverInfo)">
+          <span class="kv-list__key">{{ item.key }}</span>
+          <span class="kv-list__value">{{ item.value }}</span>
+        </div>
+      </div>
+      <ng-template #noServerInfo>
+        <p class="panel-card__empty">No server metadata returned.</p>
+      </ng-template>
+    </section>
+
+    <section class="panel-card">
+      <h2 class="panel-card__title">Subscriptions</h2>
+      <p class="panel-card__count">{{ subscriptions.length }} active</p>
+      <div class="list-table" *ngIf="subscriptions.length > 0; else noSubscriptions">
+        <article class="list-table__row" *ngFor="let item of subscriptions; trackBy: trackByIndex">
+          <strong>{{ item.channel || item.channelname || item.title || 'Unknown stream' }}</strong>
+          <span>{{ item.state || item.status || 'active' }}</span>
+          <span>{{ item.service || item.hostname || item.username || 'Unknown source' }}</span>
+        </article>
+      </div>
+      <ng-template #noSubscriptions>
+        <p class="panel-card__empty">No active subscriptions.</p>
+      </ng-template>
+    </section>
+
+    <section class="panel-card panel-card--wide">
+      <h2 class="panel-card__title">Connections</h2>
+      <p class="panel-card__count">{{ connections.length }} active</p>
+      <div class="list-table" *ngIf="connections.length > 0; else noConnections">
+        <article class="list-table__row" *ngFor="let item of connections; trackBy: trackByIndex">
+          <strong>{{ item.peer || item.peername || item.hostname || item.username || 'Unknown client' }}</strong>
+          <span>{{ item.username || 'anonymous' }}</span>
+          <span>{{ item.type || item.proto || 'connection' }}</span>
+        </article>
+      </div>
+      <ng-template #noConnections>
+        <p class="panel-card__empty">No active client connections.</p>
+      </ng-template>
+    </section>
+  </div>
+</section>

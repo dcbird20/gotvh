@@ -1,0 +1,141 @@
+<div class="player-screen">
+  <header class="player-screen__header">
+    <div>
+      <div class="player-screen__eyebrow">Live Playback</div>
+      <h1 class="player-screen__title">{{ channelName }}</h1>
+    </div>
+
+    <div class="player-screen__actions">
+      <button class="tv-btn" type="button" tvFocusable (click)="goBack()">← Back</button>
+      <button class="tv-btn" type="button" tvFocusable (click)="openExternal()">Open Raw Stream</button>
+      <button class="tv-btn" type="button" tvFocusable (click)="openInVLC()" *ngIf="hasAc3Audio">🎬 Open in VLC</button>
+    </div>
+  </header>
+
+  <div class="player-screen__viewport">
+    <video
+      *ngIf="!isCapacitorNative()"
+      #playerVideo
+      class="player-screen__video"
+      controls
+      autoplay
+      muted
+      playsinline
+      (error)="onVideoError()"
+    ></video>
+  </div>
+
+  <ng-container *ngIf="!isCapacitorNative()">
+  <section class="player-screen__transports">
+    <div class="player-screen__transports-copy">
+      <h2 class="player-screen__transports-title">Transport Mode</h2>
+      <p class="player-screen__transports-text">Switch between direct TVHeadend fetches, the Angular proxy path, and native raw playback without leaving the player.</p>
+    </div>
+
+    <div class="player-screen__transport-actions">
+      <button
+        class="tv-btn player-screen__transport-btn"
+        type="button"
+        tvFocusable
+        [class.player-screen__transport-btn--active]="isTransportSelected('direct')"
+        (click)="selectTransport('direct')"
+      >
+        Direct
+      </button>
+      <button
+        class="tv-btn player-screen__transport-btn"
+        type="button"
+        tvFocusable
+        [class.player-screen__transport-btn--active]="isTransportSelected('proxy')"
+        (click)="selectTransport('proxy')"
+      >
+        Proxy
+      </button>
+      <button
+        class="tv-btn player-screen__transport-btn"
+        type="button"
+        tvFocusable
+        [class.player-screen__transport-btn--active]="isTransportSelected('native')"
+        (click)="selectTransport('native')"
+      >
+        Native / Raw
+      </button>
+    </div>
+  </section>
+
+  <section class="player-screen__diagnostics">
+    <h2 class="player-screen__diagnostics-title">Playback Diagnostics</h2>
+    <div class="player-screen__diagnostics-grid">
+      <div class="player-screen__diagnostic" *ngFor="let item of diagnostics">
+        <span class="player-screen__diagnostic-label">{{ item.label }}</span>
+        <strong class="player-screen__diagnostic-value">{{ item.value }}</strong>
+      </div>
+    </div>
+  </section>
+
+  <section class="player-screen__health">
+    <div class="player-screen__health-header">
+      <div>
+        <h2 class="player-screen__health-title">Stream Health Check</h2>
+        <p class="player-screen__health-text">Run quick probes for direct and proxy stream paths to identify timeout, CORS, or permission failures.</p>
+      </div>
+
+      <div class="player-screen__health-actions">
+        <button
+          class="tv-btn"
+          type="button"
+          tvFocusable
+          [disabled]="runningHealthCheck"
+          (click)="runStreamHealthCheck()"
+        >
+          {{ runningHealthCheck ? 'Running…' : 'Run Checks' }}
+        </button>
+
+        <button
+          class="tv-btn"
+          type="button"
+          tvFocusable
+          [disabled]="copyingDebugReport"
+          (click)="copyDebugReport()"
+        >
+          {{ copyingDebugReport ? 'Copying…' : 'Copy Debug Report' }}
+        </button>
+
+        <button
+          class="tv-btn"
+          type="button"
+          tvFocusable
+          [disabled]="downloadingDebugReport"
+          (click)="downloadDebugReport()"
+        >
+          {{ downloadingDebugReport ? 'Preparing…' : 'Download Report' }}
+        </button>
+      </div>
+    </div>
+
+    <p class="player-screen__health-summary" *ngIf="healthSummary">{{ healthSummary }}</p>
+    <p class="player-screen__health-copy-note" *ngIf="debugReportCopied">Debug report copied to clipboard.</p>
+
+    <div class="player-screen__health-grid" *ngIf="healthChecks.length">
+      <article
+        class="player-screen__health-item"
+        [class.player-screen__health-item--pass]="item.outcome === 'pass'"
+        [class.player-screen__health-item--warn]="item.outcome === 'warn'"
+        [class.player-screen__health-item--fail]="item.outcome === 'fail'"
+        *ngFor="let item of healthChecks"
+      >
+        <h3>{{ item.label }}</h3>
+        <p>{{ item.detail }}</p>
+      </article>
+    </div>
+  </section>
+
+  </ng-container>
+
+  <section class="player-screen__autoplay-gate" *ngIf="awaitingNativeInteraction">
+    <p class="player-screen__health-text">Autoplay was blocked by the device. Press this button to start the stream.</p>
+    <button class="tv-btn" type="button" tvFocusable (click)="startPlaybackAfterInteraction()">Start Playback</button>
+  </section>
+
+  <p class="player-screen__error" *ngIf="playerError">⚠️ {{ playerError }}</p>
+</div>

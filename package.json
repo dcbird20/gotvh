@@ -1,0 +1,37 @@
+{
+  "name": "gotvh",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "ng": "ng",
+    "start": "ng serve --proxy-config proxy.conf.json",
+    "build": "ng build",
+    "build:apk": "ng build --configuration=production && npx cap sync android && cd android && ANDROID_SDK_ROOT=$HOME/Android/Sdk JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew assembleRelease",
+    "test": "ng test"
+  },
+  "dependencies": {
+    "@angular/animations": "19.2.7",
+    "@angular/common": "19.2.7",
+    "@angular/compiler": "19.2.7",
+    "@angular/core": "19.2.7",
+    "@angular/forms": "19.2.7",
+    "@angular/platform-browser": "19.2.7",
+    "@angular/platform-browser-dynamic": "19.2.7",
+    "@angular/router": "19.2.7",
+    "@capacitor/android": "8.2.0",
+    "@capacitor/cli": "8.2.0",
+    "@capacitor/core": "8.2.0",
+    "mpegts.js": "1.8.0",
+    "ora": "6.1.2",
+    "rxjs": "6.6.0",
+    "tslib": "2.3.0",
+    "zone.js": "0.15.1"
+  },
+  "devDependencies": {
+    "@angular-devkit/build-angular": "19.2.7",
+    "@angular/cli": "19.2.7",
+    "@angular/compiler-cli": "19.2.7",
+    "@types/node": "12.11.1",
+    "typescript": "5.8.3"
+  }
+}

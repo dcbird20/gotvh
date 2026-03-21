@@ -1,0 +1,370 @@
+<section class="epg-view">
+  <header class="epg-section-header">
+    <div>
+      <h2 class="epg-title">Electronic Program Guide</h2>
+      <p class="epg-subtitle">TV-first layout with larger focus targets and lighter grid rendering.</p>
+    </div>
+    <div class="epg-header-controls">
+      <label class="epg-filter">
+        <input
+          type="text"
+          class="epg-filter-input"
+          [(ngModel)]="filterQuery"
+          (ngModelChange)="onFilterQueryChange()"
+          placeholder="Filter channels or programs"
+          #filterInput
+          tvFocusable
+        />
+        <button
+          *ngIf="filterQuery"
+          type="button"
+          class="epg-filter-clear"
+          aria-label="Clear filter"
+          (click)="clearFilterQuery(filterInput)"
+          tvFocusable
+        >&#10005;</button>
+      </label>
+
+      <div class="epg-header-controls-scroll">
+        <div class="epg-category-chips">
+          <button
+            *ngFor="let option of categoryOptions; trackBy: trackByValue"
+            type="button"
+            class="epg-category-chip"
+            tvFocusable
+            [class.active]="isCategorySelected(option)"
+            (click)="toggleCategory(option)"
+          >
+            {{ option | titlecase }}
+          </button>
+          <button
+            type="button"
+            class="epg-category-chip epg-category-chip-clear"
+            tvFocusable
+            [disabled]="selectedCategories.length === 0"
+            (click)="clearCategoryFilters()"
+          >
+            Clear
+          </button>
+        </div>
+
+        <div class="range-switch" aria-label="Timeline range">
+          <button
+            *ngFor="let hours of rangeOptions; trackBy: trackByValue"
+            type="button"
+            class="range-btn"
+            tvFocusable
+            [class.active]="visibleHours === hours"
+            (click)="setVisibleHours(hours)"
+          >
+            {{ hours }}h
+          </button>
+        </div>
+
+        <button
+          type="button"
+          class="epg-toggle-btn"
+          tvFocusable
+          [class.active]="showScheduledOnly"
+          (click)="toggleScheduledOnly()"
+        >
+          Scheduled
+        </button>
+
+        <button
+          type="button"
+          class="epg-toggle-btn"
+          tvFocusable
+          [class.active]="useVerticalGuide"
+          (click)="toggleGuideOrientation()"
+        >
+          {{ useVerticalGuide ? 'List View' : 'Timeline View' }}
+        </button>
+
+        <div class="epg-window-controls" *ngIf="filteredChannels.length">
+          <button type="button" class="epg-toggle-btn" tvFocusable (click)="shiftTimelineWindow(-1)">Earlier</button>
+          <button #nowButton type="button" class="epg-toggle-btn epg-toggle-btn--accent" tvFocusable (click)="jumpToNow()">Now</button>
+          <button type="button" class="epg-toggle-btn" tvFocusable (click)="shiftTimelineWindow(1)">Later</button>
+          <span class="badge badge--muted">{{ getTimelineWindowLabel() }}</span>
+        </div>
+
+        <div class="epg-window-controls" *ngIf="filteredChannels.length > currentChannelPageSize()">
+          <button type="button" class="epg-toggle-btn" tvFocusable [disabled]="!hasPreviousChannelPage()" (click)="shiftChannelWindow(-1)">Prev Page</button>
+          <span class="badge badge--muted">{{ getChannelWindowLabel() }}</span>
+          <button type="button" class="epg-toggle-btn" tvFocusable [disabled]="!hasNextChannelPage()" (click)="shiftChannelWindow(1)">Next Page</button>
+        </div>
+
+        <span class="badge" *ngIf="filteredChannels.length">{{ getProgramCountLabel() }}</span>
+        <span class="badge badge--muted" *ngIf="filteredChannels.length">PgUp/PgDn channels · Home now</span>
+      </div>
+    </div>
+  </header>
+
+  <div *ngIf="loading" class="status status--loading">Loading EPG data…</div>
+  <div *ngIf="error" class="status status--error">{{ error }}</div>
+
+  <div class="epg-empty-state" *ngIf="!loading && !error && filteredChannels.length === 0">
+    <h3>No channels match the current filters</h3>
+    <p>Clear the filter or switch back to timeline view to broaden the results.</p>
+  </div>
+
+  <!-- ── Horizontal Timeline ─────────────────────────────────── -->
+  <div
+    #timelineOuter
+    *ngIf="!loading && !error && filteredChannels.length > 0 && !useVerticalGuide"
+    class="epg-timeline-outer"
+  >
+    <div class="epg-timeline-header">
+      <div class="epg-channel-col-header">Channel</div>
+      <div class="epg-header-right" [style.width.px]="getTimelineWidthPx()">
+        <div class="epg-day-banner">
+          <div
+            *ngFor="let day of dayBanners; trackBy: trackByValue"
+            class="epg-day-banner-chip"
+            [style.left.px]="day.offsetPx"
+          >
+            {{ day.label }}
+          </div>
+        </div>
+        <div class="epg-hours">
+          <div
+            *ngFor="let hour of hourTicks; trackBy: trackByValue"
+            class="epg-hour"
+            [class.day-boundary]="hour.isDayBoundary"
+          >
+            <span class="epg-hour-label">{{ hour.label }}</span>
+            <span class="epg-hour-date" *ngIf="hour.isDayBoundary">{{ hour.dateLabel }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="epg-timeline-body">
+      <div
+        *ngFor="let channel of renderedChannels; trackBy: trackByChannelId"
+        class="epg-timeline-row epg-focus-row"
+        [class.focused]="isFocusedChannel(channel.id)"
+        [attr.data-channel-id]="channel.id"
+      >
+        <button
+          type="button"
+          class="epg-channel-col epg-channel-col-clickable"
+          tvFocusable
+          title="Open vertical view for this channel"
+          [attr.data-channel-button-id]="channel.id"
+          (focus)="handleChannelFocus(channel.id)"
+          (click)="openChannelVerticalView(channel)"
+        >
+          <div class="epg-channel-main">
+            <ng-container *ngIf="channel.icon !== undefined && channel.icon !== ''">
+              <img
+                class="epg-channel-icon"
+                [src]="channel.icon"
+                [alt]="channel.name"
+              />
+            </ng-container>
+            <ng-container *ngIf="!channel.icon || channel.icon === ''">
+              <span class="epg-channel-icon epg-channel-icon-placeholder" title="No icon">📺</span>
+            </ng-container>
+            <div class="epg-channel-name">{{ channel.name }}</div>
+          </div>
+        </button>
+
+        <div class="epg-programs-row" [style.width.px]="getTimelineWidthPx()">
+          <div
+            *ngIf="isNowInWindow()"
+            class="epg-now-line"
+            [style.left.px]="getNowOffsetPx()"
+          ></div>
+          <div
+            *ngFor="let offset of dayBoundaryOffsetsPx; trackBy: trackByValue"
+            class="epg-day-separator"
+            [style.left.px]="offset"
+          ></div>
+
+          <ng-container *ngFor="let program of getProgramsForChannel(channel.id); trackBy: trackByProgram">
+            <button
+              type="button"
+              class="epg-program-bar"
+              *ngIf="isProgramVisible(program)"
+              [ngClass]="{ current: isCurrent(program) }"
+              tvFocusable
+              [style.left.px]="getProgramLeftPx(program)"
+              [style.width.px]="getProgramWidthPx(program)"
+              [style.background]="getProgramBackground(program)"
+              [attr.data-channel-id]="program.channel"
+              [attr.data-program-start]="parseEpgTime(program.startTime)"
+              [attr.data-program-end]="parseEpgTime(program.endTime)"
+              [attr.title]="getProgramTooltip(program)"
+              (focus)="handleProgramFocus(program)"
+              (click)="openProgramDetails(program)"
+            >
+              <span *ngIf="isProgramScheduled(program)" class="epg-program-recorded-badge">REC</span>
+              <div class="epg-program-title">{{ program.title }}</div>
+              <div class="epg-program-time">{{ program.startTime | date:'HH:mm' }} – {{ program.endTime | date:'HH:mm' }}</div>
+            </button>
+          </ng-container>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Vertical Guide ─────────────────────────────────────── -->
+  <div
+    #timelineOuter
+    *ngIf="!loading && !error && filteredChannels.length > 0 && useVerticalGuide"
+    class="epg-vertical-outer"
+  >
+    <div
+      *ngFor="let channel of renderedChannels; trackBy: trackByChannelId"
+      class="epg-vertical-channel epg-focus-row"
+      [class.focused]="isFocusedChannel(channel.id)"
+      [attr.data-channel-id]="channel.id"
+    >
+      <div class="epg-vertical-channel-header">
+        <div class="epg-vertical-channel-name">{{ channel.name }}</div>
+      </div>
+
+      <div
+        class="epg-vertical-program-list"
+        *ngIf="getProgramsForChannelVertical(channel.id).length; else noProgramsForChannel"
+      >
+        <button
+          type="button"
+          *ngFor="let program of getProgramsForChannelVertical(channel.id); trackBy: trackByProgram"
+          class="epg-vertical-program-item"
+          tvFocusable
+          [class.current]="isCurrent(program)"
+          [attr.data-channel-id]="program.channel"
+          [attr.data-program-start]="parseEpgTime(program.startTime)"
+          [attr.data-program-end]="parseEpgTime(program.endTime)"
+          (focus)="handleProgramFocus(program)"
+          (click)="openProgramDetails(program)"
+        >
+          <span class="epg-vertical-program-time">
+            {{ program.startTime | date:'EEE HH:mm' }} – {{ program.endTime | date:'HH:mm' }}
+          </span>
+          <span class="epg-vertical-program-title">{{ program.title }}</span>
+          <span *ngIf="isProgramScheduled(program)" class="epg-vertical-program-rec">REC</span>
+        </button>
+      </div>
+
+      <ng-template #noProgramsForChannel>
+        <div class="epg-vertical-empty">No programs in the selected window.</div>
+      </ng-template>
+    </div>
+  </div>
+
+  <!-- ── Program Details Modal ─────────────────────────────── -->
+  <div *ngIf="selectedProgram" class="epg-modal-backdrop" (click)="closeProgramDetails()">
+    <div
+      class="epg-program-modal-card"
+      role="dialog"
+      aria-modal="true"
+      tabindex="-1"
+      (click)="$event.stopPropagation()"
+    >
+      <div class="epg-modal-header">
+        <div class="epg-modal-header-info">
+          <h3>{{ selectedProgram.title }}</h3>
+          <p>{{ selectedProgram.startTime | date:'EEE d MMM, HH:mm' }} – {{ selectedProgram.endTime | date:'HH:mm' }}</p>
+        </div>
+        <button type="button" class="epg-close-btn" (click)="closeProgramDetails()">✕</button>
+      </div>
+
+      <div class="epg-modal-meta-row">
+        <p class="epg-modal-channel">{{ getChannelName(selectedProgram.channel) }}</p>
+        <div class="epg-modal-badges">
+          <span
+            *ngIf="selectedProgram.category"
+            class="epg-modal-cat-badge"
+            [ngStyle]="getProgramCategoryBadgeStyle(selectedProgram)"
+          >
+            {{ selectedProgram.category }}
+          </span>
+          <span *ngIf="isProgramScheduled(selectedProgram)" class="epg-modal-scheduled-tag">Scheduled</span>
+        </div>
+      </div>
+
+      <p class="epg-modal-desc" *ngIf="selectedProgram.desc; else noDescription">{{ selectedProgram.desc }}</p>
+      <ng-template #noDescription>
+        <p class="epg-modal-desc epg-modal-desc--empty">No description available.</p>
+      </ng-template>
+
+      <p class="epg-modal-shortcuts">Use ← → to browse programs when focus is outside action buttons.</p>
+
+      <div class="epg-modal-actions">
+        <button
+          type="button"
+          class="epg-modal-btn"
+          tvFocusable
+          (click)="showPreviousProgram()"
+          [disabled]="!hasPreviousProgram()"
+        >
+          ← Prev
+        </button>
+        <button
+          #watchLiveButton
+          type="button"
+          class="epg-modal-btn epg-modal-btn--play"
+          tvFocusable
+          (click)="playChannel(selectedProgram)"
+          [disabled]="!selectedProgram?.channel"
+        >
+          ▶ Watch Live
+        </button>
+        <button
+          type="button"
+          class="epg-modal-btn epg-modal-btn--record"
+          tvFocusable
+          (click)="recordProgram(selectedProgram)"
+          [disabled]="!selectedProgram?.channel || recordingAction !== null || autorecAction !== null || isProgramScheduled(selectedProgram)"
+        >
+          {{ isProgramScheduled(selectedProgram) ? '✓ Scheduled' : (recordingAction === 'schedule' ? 'Scheduling…' : '⏺ Record') }}
+        </button>
+        <button
+          type="button"
+          class="epg-modal-btn epg-modal-btn--autorec"
+          tvFocusable
+          (click)="autoRecordProgram(selectedProgram)"
+          [disabled]="!selectedProgram?.channel || recordingAction !== null || autorecAction !== null"
+        >
+          {{ autorecAction === 'create' ? 'Creating…' : '🔁 Auto-Rec' }}
+        </button>
+        <button
+          type="button"
+          class="epg-modal-btn epg-modal-btn--cancel"
+          *ngIf="isProgramScheduled(selectedProgram)"
+          tvFocusable
+          (click)="cancelProgram(selectedProgram)"
+          [disabled]="recordingAction !== null || autorecAction !== null"
+        >
+          {{ recordingAction === 'cancel' ? 'Cancelling…' : 'Cancel Rec' }}
+        </button>
+        <button
+          type="button"
+          class="epg-modal-btn"
+          tvFocusable
+          (click)="showNextProgram()"
+          [disabled]="!hasNextProgram()"
+        >
+          Next →
+        </button>
+      </div>
+
+      <p *ngIf="recordingMessage" class="epg-modal-feedback epg-modal-feedback--success">{{ recordingMessage }}</p>
+      <p *ngIf="recordingError" class="epg-modal-feedback epg-modal-feedback--error">{{ recordingError }}</p>
+      <p *ngIf="recordingStatusDetail" class="epg-modal-feedback epg-modal-feedback--detail">{{ recordingStatusDetail }}</p>
+      <span *ngIf="getRecordingMethodLabel(selectedProgram)" class="epg-modal-method-badge">
+        {{ getRecordingMethodLabel(selectedProgram) }}
+      </span>
+    </div>
+  </div>
+
+  <p *ngIf="!loading && !error && programs.length > 0 && filteredChannels.length === 0" class="status status--empty">
+    No channels or programmes match the current filter.
+  </p>
+  <p *ngIf="!loading && !error && programs.length === 0" class="status status--empty">
+    No programs available.
+  </p>
+</section>

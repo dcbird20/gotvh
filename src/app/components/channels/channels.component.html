@@ -1,0 +1,80 @@
+<div class="channels-screen">
+
+  <!-- Header -->
+  <div class="channels-screen__header">
+    <h1>Channels</h1>
+    <button class="tv-btn" tvFocusable (click)="toggleSearch()">
+      <span>🔍</span>
+      <span>Search</span>
+    </button>
+  </div>
+
+  <!-- Search bar -->
+  <div class="search-bar" *ngIf="searchVisible">
+    <input
+      class="search-input"
+      [(ngModel)]="searchQuery"
+      (input)="filterChannels()"
+      placeholder="Search channels…"
+      autofocus
+    />
+  </div>
+
+  <!-- Loading -->
+  <div class="loading" *ngIf="loading" style="margin-top: 60px;">
+    <div class="loading__spinner"></div>
+  </div>
+
+  <div class="home__error" *ngIf="!loading && errorMessage">
+    <p>⚠️ {{ errorMessage }}</p>
+  </div>
+
+  <!-- Channel grid -->
+  <div class="channel-grid" *ngIf="!loading && !errorMessage">
+    <div
+      *ngFor="let ch of filteredChannels"
+      class="channel-card"
+      [class.channel-card--focused]="ch === focusedChannel"
+      [class.channel-card--favorite]="isFavorite(ch)"
+      [attr.data-channel-uuid]="ch.uuid"
+      tvFocusable
+      (focus)="selectChannel(ch)"
+      (click)="activateChannel(ch)"
+    >
+      <div class="channel-card__badge" *ngIf="isFavorite(ch)">★</div>
+      <div class="channel-card__number">{{ ch.number }}</div>
+      <div class="channel-card__name">{{ ch.name }}</div>
+      <div class="channel-card__now">{{ getCurrentProgram(ch)?.title || '&nbsp;' }}</div>
+    </div>
+  </div>
+
+  <!-- Detail strip -->
+  <div class="detail-strip" *ngIf="focusedChannel && !loading && !errorMessage">
+    <div class="detail-strip__main">
+      <div class="detail-strip__name">{{ focusedChannel.name }}</div>
+      <div class="detail-strip__program" *ngIf="focusedChannelProgram">
+        <span class="detail-strip__prog-title">{{ focusedChannelProgram.title }}</span>
+        <span class="detail-strip__prog-time">{{ formatTimeRange(focusedChannelProgram) }}</span>
+      </div>
+      <div class="detail-strip__tags" *ngIf="focusedChannel.__resolvedTagNames?.length">
+        <span class="detail-strip__tag" *ngFor="let tag of focusedChannel.__resolvedTagNames">
+          {{ tag }}
+        </span>
+      </div>
+    </div>
+
+    <div class="detail-strip__actions">
+      <button class="tv-btn tv-btn--primary" tvFocusable (click)="watchChannel(focusedChannel)">
+        ▶ Watch
+      </button>
+      <button
+        class="tv-btn"
+        tvFocusable
+        (click)="toggleFavorite(focusedChannel)"
+      >
+        {{ isFavorite(focusedChannel) ? '★ Unfavourite' : '☆ Favourite' }}
+      </button>
+    </div>
+  </div>
+
+</div>
