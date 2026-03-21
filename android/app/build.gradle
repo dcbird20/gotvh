@@ -1,9 +1,19 @@
 apply plugin: 'com.android.application'
 
-def releaseStoreFile = findProperty('GOTVH_RELEASE_STORE_FILE') ?: System.getenv('GOTVH_RELEASE_STORE_FILE')
-def releaseStorePassword = findProperty('GOTVH_RELEASE_STORE_PASSWORD') ?: System.getenv('GOTVH_RELEASE_STORE_PASSWORD')
-def releaseKeyAlias = findProperty('GOTVH_RELEASE_KEY_ALIAS') ?: System.getenv('GOTVH_RELEASE_KEY_ALIAS')
-def releaseKeyPassword = findProperty('GOTVH_RELEASE_KEY_PASSWORD') ?: System.getenv('GOTVH_RELEASE_KEY_PASSWORD')
+def keystorePropertiesFile = rootProject.file('keystore.properties')
+def keystoreProperties = new Properties()
+
+if (keystorePropertiesFile.exists()) {
+    keystorePropertiesFile.withInputStream { stream ->
+        keystoreProperties.load(stream)
+    }
+}
+
+def releaseStoreFile = keystoreProperties.getProperty('storeFile') ?: findProperty('GOTVH_RELEASE_STORE_FILE') ?: System.getenv('GOTVH_RELEASE_STORE_FILE')
+def releaseStorePassword = keystoreProperties.getProperty('storePassword') ?: findProperty('GOTVH_RELEASE_STORE_PASSWORD') ?: System.getenv('GOTVH_RELEASE_STORE_PASSWORD')
+def releaseKeyAlias = keystoreProperties.getProperty('keyAlias') ?: findProperty('GOTVH_RELEASE_KEY_ALIAS') ?: System.getenv('GOTVH_RELEASE_KEY_ALIAS')
+def releaseKeyPassword = keystoreProperties.getProperty('keyPassword') ?: findProperty('GOTVH_RELEASE_KEY_PASSWORD') ?: System.getenv('GOTVH_RELEASE_KEY_PASSWORD')
+def releaseStorePath = releaseStoreFile ? (new File(releaseStoreFile).isAbsolute() ? file(releaseStoreFile) : rootProject.file(releaseStoreFile)) : null
 def hasReleaseSigning = releaseStoreFile && releaseStorePassword && releaseKeyAlias && releaseKeyPassword
 
 android {
@@ -23,7 +33,7 @@ android {
     signingConfigs {
         release {
             if (hasReleaseSigning) {
-                storeFile file(releaseStoreFile)
+                storeFile releaseStorePath
                 storePassword releaseStorePassword
                 keyAlias releaseKeyAlias
                 keyPassword releaseKeyPassword

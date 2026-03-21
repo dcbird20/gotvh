@@ -46,6 +46,21 @@ Build for production:
 ./node_modules/.bin/ng build
 ```
 
+## Android Release Signing
+
+Android release signing is intentionally local-only.
+
+- Copy [android/keystore.properties.example](android/keystore.properties.example) to `android/keystore.properties`
+- Point `storeFile` at your local keystore path
+- Keep the real `android/keystore.properties` file and any `*.keystore` file out of git
+
+The Android build also accepts these environment variables if you prefer not to use a local properties file:
+
+- `GOTVH_RELEASE_STORE_FILE`
+- `GOTVH_RELEASE_STORE_PASSWORD`
+- `GOTVH_RELEASE_KEY_ALIAS`
+- `GOTVH_RELEASE_KEY_PASSWORD`
+
 ## Navigation
 
 - **D-Pad / Arrow Keys**: Navigate between focusable elements
