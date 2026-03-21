@@ -26,7 +26,7 @@ A modern Angular-based frontend for TVHeadend optimized for Google TV and D-pad 
 Setup:
 
 ```bash
-cd /home/dcrow/Code/gotvh
+cd gotvh
 npm install
 ```
 

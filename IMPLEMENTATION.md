@@ -1,33 +1,39 @@
 # GoTVH Implementation Summary
 
-**Status:** ✅ **COMPLETE** — Phases 1-3 fully implemented and building successfully
+**Status:** ✅ Active Google TV-first Angular frontend with live playback, guide, DVR, and return-focus workflows
 
 ---
 
 ## Project Structure
 
 ```
-/home/dcrow/Code/gotvh/
+gotvh/
 ├── src/
 │   ├── app/
-│   │   ├── app.component.ts/html/scss        ← TV shell with sidebar + router
-│   │   ├── app.module.ts                      ← Main module (declarations, imports)
-│   │   ├── app-routing.module.ts              ← Routes for all screens
+│   │   ├── app.component.ts/html/scss        ← TV shell with sidebar + auth dialog
+│   │   ├── app.routes.ts                      ← Standalone route configuration
 │   │   ├── directives/                        
 │   │   │   └── tv-focusable.directive.ts      ← D-pad focus management
 │   │   ├── services/
-│   │   │   ├── tvheadend.service.ts           ← API client (copied from source)
+│   │   │   ├── tvheadend.service.ts           ← TVHeadend API client + auth flow
 │   │   │   └── spatial-nav.service.ts         ← Keyboard/D-pad navigation
+│   │   │   ├── return-navigation.service.ts   ← Playback return focus tokens
+│   │   │   └── view-state-cache.service.ts    ← Fast route hydration cache
 │   │   ├── shared/
 │   │   │   └── tv-card/                       ← Reusable large card component
 │   │   │       ├── tv-card.component.ts
 │   │   │       ├── tv-card.component.html
 │   │   │       └── tv-card.component.scss
-│   │   ├── tv/home/                           ← Home screen (Phase 2)
+│   │   ├── tv/home/                           ← Home screen
 │   │   │   ├── home.component.ts
 │   │   │   ├── home.component.html
 │   │   │   └── home.component.scss
-│   │   └── components/channels/               ← Channels screen (Phase 3)
+│   │   ├── tv/epg/                            ← Guide / EPG screen
+│   │   ├── tv/player/                         ← Playback diagnostics and transport selection
+│   │   ├── tv/recordings/                     ← DVR management
+│   │   ├── tv/autorec/                        ← Auto-record rules
+│   │   ├── tv/status/                         ← Server diagnostics
+│   │   └── components/channels/               ← Channels browser
 │   │       ├── channels.component.ts
 │   │       ├── channels.component.html
 │   │       └── channels.component.scss
@@ -51,68 +57,25 @@
 
 ---
 
-## Phases Implemented
+## Current Feature Set
 
-### **Phase 1: Foundation** ✅
-- **AppComponent (Shell Layout)**
-  - Collapsing sidebar with 6 nav items
-  - Main content router-outlet
-  - Global keyboard listener for D-pad events
-  
-- **SpatialNavService**
-  - Registers focusable elements globally
-  - Handles arrow key navigation with directional filtering
-  - Computes nearest-neighbor for spatial focus (d-pad semantics)
-  - Manages focus state and element transitions
-  
-- **TvFocusableDirective**
-  - Registers DOM elements with SpatialNavService
-  - Applies `.tv-focused` class on focus
-  - Handles mouse enter for auto-focus
-  - Implements Enter/Space → click() interop
-  
-- **TV Theme (styles.scss)**
-  - Dark theme with Google Material Design colors
-  - CSS custom properties for reusable tokens
-  - Global button `.tv-btn` with primary variant
-  - Loading spinner animation
-  - Shelf row component for horizontal scrolling
+### Shell and Navigation
+- Standalone Angular app bootstrapped through `bootstrapApplication`
+- Collapsing sidebar with D-pad-first focus behavior
+- Spatial navigation service plus `tvFocusable` directive
+- Auth dialog for TVHeadend credentials with remote-friendly focus order
 
-### **Phase 2: Home Screen** ✅
-- **HomeComponent**
-  - Hero banner with current program
-  - Auto-rotating through top 6 channels every 8 sec
-  - Hero actions: "Watch Live", "All Channels"
-  - Three shelves of content:
-    1. "On Now" — all channels with live indicators
-    2. "Upcoming Recordings" — scheduled recordings
-    3. "Recently Recorded" — finished recordings
-  - Uses forkJoin to load channels + EPG + recordings
-  - Time formatting and duration calculations
-  
-- **TvCardComponent**
-  - Large 190x116px cards with focus scaling
-  - Displays title, subtitle, metadata, badge
-  - Channel number support
-  - Responsive to `.tv-focused` state (ancestor)
+### Playback and Return Context
+- Player route with transport diagnostics and multiple playback modes
+- Route-aware return tokens for Home, Channels, Guide, and Recordings
+- Focus restoration after returning from playback
+- Cached route hydration to reduce empty/loading flashes on return and reload
 
-### **Phase 3: Channels Screen** ✅
-- **ChannelsComponent**
-  - Responsive grid layout (auto-fill columns)
-  - Channel cards with number, name, current program
-  - Favorite channels support (localStorage)
-  - Search functionality (name/number/tags)
-  - Detail strip at bottom showing:
-    - Channel name + current program title/time
-    - Category tags
-    - Actions: Watch + Favourite toggle
-  - Favorites sorted first
-  - Focus navigation within grid
-  
-- **Routing**
-  - `/home` → HomeComponent
-  - `/channels` → ChannelsComponent
-  - Phase 4+ placeholders: `/guide`, `/recordings`, `/autorec`, `/status`
+### Content Screens
+- Home hero plus live shelves and DVR shelves
+- Channels browser with favorites, detail strip, and direct playback on select
+- TV-first EPG with timeline and vertical layouts
+- Recordings, Auto-Rec, and Status screens backed by live TVHeadend data
 
 ---
 
@@ -135,6 +98,7 @@
 - Proxy configured for `/api`, `/play`, `/xmltv` endpoints
 - Error handling with visual fallbacks
 - Service methods already handle TVHeadend API v1/v2 compatibility
+- TVHeadend credentials are entered at runtime and stored client-side, not committed in the repository
 
 ### Styling
 - SCSS with nested hierarchy
@@ -166,7 +130,7 @@
 
 ### Run Dev Server
 ```bash
-cd /home/dcrow/Code/gotvh
+cd gotvh
 ng serve --proxy-config proxy.conf.json
 # Opens http://localhost:4200
 ```
