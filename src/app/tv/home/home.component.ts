@@ -32,6 +32,7 @@ export class HomeComponent implements OnInit, OnDestroy {
   loading = true;
   error = false;
   errorMessage = 'Could not connect to TVHeadend. Check your proxy config.';
+  epgStatusNotice = '';
 
   private heroIndex = 0;
   private heroTimer?: ReturnType<typeof setInterval>;
@@ -90,6 +91,10 @@ export class HomeComponent implements OnInit, OnDestroy {
           return { channel, program };
         });
 
+        this.epgStatusNotice = sorted.length > 0 && (!Array.isArray(epg) || epg.length === 0)
+          ? 'Programme listings are temporarily unavailable from TVHeadend right now.'
+          : '';
+
         this.upcomingRecordings = upcoming.slice(0, 10);
         this.finishedRecordings = finished.slice(0, 10);
 
@@ -110,6 +115,10 @@ export class HomeComponent implements OnInit, OnDestroy {
         this.errorMessage = this.resolveErrorMessage(error);
       }
     });
+  }
+
+  hasOnNowProgrammeData(): boolean {
+    return this.onNowItems.some(item => !!item.program);
   }
 
   private resolveErrorMessage(error: any): string {

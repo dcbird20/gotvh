@@ -5,7 +5,9 @@
   "scripts": {
     "ng": "ng",
     "start": "ng serve --proxy-config proxy.conf.json",
-    "build": "ng build",
+    "build": "ng build --configuration=production",
+    "build:dev": "ng build",
+    "build:debug-apk": "ng build --configuration=production && rm -rf android/app/src/main/assets/public/* && cp -R dist/gotvh/. android/app/src/main/assets/public/ && cd android && ANDROID_SDK_ROOT=$HOME/Android/Sdk JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew assembleDebug",
     "build:apk": "ng build --configuration=production && npx cap sync android && cd android && ANDROID_SDK_ROOT=$HOME/Android/Sdk JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew assembleRelease",
     "test": "ng test"
   },

@@ -1,4 +1,4 @@
-<section class="panel-screen">
+<section class="panel-screen" data-tv-scroll-page="true" data-tv-scroll-container="true" data-tv-nav-scope="autorec-page" data-tv-nav-mode="linear-vertical">
   <header class="panel-screen__header">
     <div>
       <div class="panel-screen__eyebrow">Automation</div>
@@ -6,7 +6,7 @@
       <p class="panel-screen__subtitle">Create title-based recording rules and review the ones already running on TVHeadend.</p>
     </div>
 
-    <button class="tv-btn" type="button" tvFocusable data-autorec-refresh (click)="rememberRefreshFocus(); refresh()">Refresh</button>
+    <button class="tv-btn" type="button" tvFocusable data-tv-linear-anchor="true" data-autorec-refresh (click)="rememberRefreshFocus(); refresh()">Refresh</button>
   </header>
 
   <div class="panel-screen__stats" *ngIf="!loading && !error">
@@ -35,22 +35,22 @@
     <div class="composer-card__grid">
       <label class="composer-field">
         <span>Title Match</span>
-        <input type="text" [(ngModel)]="form.title" tvFocusable placeholder="Formula 1" />
+        <input type="text" [(ngModel)]="form.title" placeholder="Formula 1" />
       </label>
 
       <label class="composer-field">
         <span>Channel UUID</span>
-        <input type="text" [(ngModel)]="form.channel" tvFocusable placeholder="Optional channel UUID" />
+        <input type="text" [(ngModel)]="form.channel" placeholder="Optional channel UUID" />
       </label>
     </div>
 
     <label class="composer-field composer-field--full">
       <span>Comment</span>
-      <input type="text" [(ngModel)]="form.comment" tvFocusable placeholder="Optional note for this rule" />
+      <input type="text" [(ngModel)]="form.comment" placeholder="Optional note for this rule" />
     </label>
 
     <div class="composer-card__actions">
-      <button class="tv-btn tv-btn--primary" type="button" tvFocusable data-autorec-create [disabled]="saving" (click)="createRule()">
+      <button class="tv-btn tv-btn--primary" type="button" tvFocusable data-tv-linear-anchor="true" data-autorec-create [disabled]="saving" (click)="createRule()">
         {{ saving ? 'Saving…' : 'Create Rule' }}
       </button>
     </div>
@@ -66,7 +66,12 @@
 
   <div class="stack-list" *ngIf="!loading && !error && rules.length > 0">
     <article class="stack-card" *ngFor="let rule of rules; trackBy: trackByUuid">
-      <div class="stack-card__body">
+      <div
+        class="stack-card__body stack-card__anchor"
+        tvFocusable
+        data-tv-linear-anchor="true"
+        [attr.data-autorec-row-uuid]="rule.uuid"
+      >
         <div class="stack-card__title-row">
           <h2 class="stack-card__title">{{ rule.title || rule.name || 'Untitled Rule' }}</h2>
           <span class="stack-card__badge" [class.stack-card__badge--muted]="!rule.enabled">{{ rule.enabled ? 'Enabled' : 'Disabled' }}</span>

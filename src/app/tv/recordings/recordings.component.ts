@@ -24,6 +24,7 @@ export class RecordingsComponent implements OnInit {
   activeTab: 'upcoming' | 'finished' | 'failed' = 'upcoming';
   pendingActionUuid = '';
   private pendingReturnContext: ReturnNavigationContext | null = null;
+  private shouldApplyInitialRowFocus = true;
 
   constructor(
     private tvh: TvheadendService,
@@ -53,6 +54,7 @@ export class RecordingsComponent implements OnInit {
         this.failed = failed;
         this.loading = false;
         this.restoreReturnFocusIfNeeded();
+        this.focusFirstRowOnEntryIfNeeded();
       },
       error: (error: any) => {
         this.loading = false;
@@ -161,6 +163,7 @@ export class RecordingsComponent implements OnInit {
     }
 
     this.pendingReturnContext = null;
+    this.shouldApplyInitialRowFocus = false;
     const tab = String(context.payload['tab'] || '').trim();
     const uuid = String(context.payload['uuid'] || '').trim();
 
@@ -174,7 +177,26 @@ export class RecordingsComponent implements OnInit {
 
     setTimeout(() => {
       const escapedUuid = uuid.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-      const target = document.querySelector(`button[data-recording-watch-uuid="${escapedUuid}"]`) as HTMLElement | null;
+      const target = document.querySelector(`[data-recording-row-uuid="${escapedUuid}"]`) as HTMLElement | null;
+      target?.focus();
+    }, 0);
+  }
+
+  private focusFirstRowOnEntryIfNeeded(): void {
+    if (!this.shouldApplyInitialRowFocus || this.pendingReturnContext) {
+      return;
+    }
+
+    const activeEntries = this.getActiveEntries();
+    const firstUuid = String(activeEntries[0]?.uuid || '').trim();
+    if (!firstUuid) {
+      return;
+    }
+
+    this.shouldApplyInitialRowFocus = false;
+    setTimeout(() => {
+      const escapedUuid = firstUuid.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+      const target = document.querySelector(`[data-recording-row-uuid="${escapedUuid}"]`) as HTMLElement | null;
       target?.focus();
     }, 0);
   }

@@ -1,4 +1,4 @@
-<div class="channels-screen">
+<div class="channels-screen" data-tv-nav-scope="channels-page">
 
   <!-- Header -->
   <div class="channels-screen__header">
@@ -28,11 +28,15 @@
   <div class="home__error" *ngIf="!loading && errorMessage">
     <p>⚠️ {{ errorMessage }}</p>
   </div>
+    <div class="epg-warning" *ngIf="epgWarning">
+      <p>⚠️ {{ epgWarning }}</p>
+    </div>
 
   <!-- Channel grid -->
-  <div class="channel-grid" *ngIf="!loading && !errorMessage">
-    <div
+  <div class="channel-grid" data-tv-scroll-container="true" *ngIf="!loading && !errorMessage">
+    <button
       *ngFor="let ch of filteredChannels"
+      type="button"
       class="channel-card"
       [class.channel-card--focused]="ch === focusedChannel"
       [class.channel-card--favorite]="isFavorite(ch)"
@@ -45,7 +49,7 @@
       <div class="channel-card__number">{{ ch.number }}</div>
       <div class="channel-card__name">{{ ch.name }}</div>
       <div class="channel-card__now">{{ getCurrentProgram(ch)?.title || '&nbsp;' }}</div>
-    </div>
+    </button>
   </div>
 
   <!-- Detail strip -->

@@ -50,7 +50,8 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
   filterQuery = '';
   showScheduledOnly = false;
   selectedCategories: string[] = [];
-  useVerticalGuide = true;
+  useVerticalGuide = false;
+  guideOptionsExpanded = false;
 
   readonly primaryCategories: PrimaryCategory[] = [
     {
@@ -110,6 +111,8 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
   verticalProgramsByChannel: { [channelId: string]: any[] } = {};
   renderedChannels: any[] = [];
   selectedProgram: any | null = null;
+  channelSpotlightId = '';
+  channelSpotlightName = '';
 
   /** Maps XMLTV channel.id → TVHeadend channel UUID for player navigation. */
   private channelUuidMap = new Map<string, string>();
@@ -132,17 +135,22 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
   hourTicks: HourTick[] = [];
   dayBoundaryOffsetsPx: number[] = [];
   dayBanners: DayBanner[] = [];
+  timelineWidthPx = 0;
+  isNowInTimelineWindow = false;
+  nowOffsetPx = 0;
   focusedChannelId = '';
+  private timelineAnchorTimeMs: number | null = null;
+  private preserveTimelineColumnAnchor = false;
 
   readonly rangeOptions = [3, 6, 12];
   readonly verticalChannelPageSize = 10;
-  readonly timelineChannelPageSize = 7;
+  readonly timelineChannelPageSize = 8;
   channelWindowStart = 0;
   private pendingReturnContext: ReturnNavigationContext | null = null;
   private readonly rangeStorageKey = 'epg.visibleHours.v2';
-  private readonly channelFilterStorageKey = 'epg.channelFilter';
   private readonly layoutStorageKey = 'epg.verticalGuide';
   private timeUpdateTimer: any;
+  private shouldApplyInitialGuideFocus = true;
 
   constructor(
     private tvheadendService: TvheadendService,
@@ -156,7 +164,7 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
   ngOnInit(): void {
     this.capturePendingReturnContext();
     this.restoreVisibleHoursPreference();
-    this.restoreChannelFilterPreference();
+    this.clearLegacyChannelFilterPreference();
     this.restoreGuideLayoutPreference();
     this.timelineSpanMs = this.visibleHours * 60 * 60 * 1000;
     this.generateHourTicks();
@@ -175,6 +183,7 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
   private startCurrentTimeUpdater(): void {
     this.timeUpdateTimer = setInterval(() => {
       this.currentTime = new Date();
+      this.refreshTimelineMetrics();
     }, 60000);
   }
 
@@ -185,11 +194,20 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     this.error = null;
 
     forkJoin({
-      xmltv: this.tvheadendService.getXmltv().pipe(catchError(() => of({ channels: [], programmes: [] }))),
-      tvheadendEpg: this.tvheadendService.getEpg().pipe(catchError(() => of([]))),
+      xmltv: this.tvheadendService.getXmltv().pipe(
+        catchError((error: any) => of({ channels: [], programmes: [], __error: error }))
+      ),
+      tvheadendEpg: this.tvheadendService.getEpg().pipe(
+        catchError((error: any) => of({ __entries: [], __error: error }))
+      ),
       tvhChannels: this.tvheadendService.getTvheadendChannelGrid().pipe(catchError(() => of([])))
     }).subscribe({
       next: ({ xmltv, tvheadendEpg, tvhChannels }: any) => {
+        const xmltvError = xmltv?.__error || null;
+        const tvheadendEpgError = tvheadendEpg?.__error || null;
+        const tvheadendEntries = Array.isArray(tvheadendEpg)
+          ? tvheadendEpg
+          : (tvheadendEpg?.__entries || []);
         const xmltvChannels = (xmltv?.channels || []).map((ch: any) => ({
           id: ch.id,
           name: ch.name || ch.id || 'Unknown Channel',
@@ -209,9 +227,13 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
           this.programs = xmltvPrograms;
           this.buildChannelUuidMap(tvhChannels || []);
           this.groupProgramsByChannel();
-          this.attachTvheadendEpgMetadata(tvheadendEpg || []);
+          this.attachTvheadendEpgMetadata(tvheadendEntries || []);
         } else {
-          this.mapTvheadendEpgFallback(tvheadendEpg || [], tvhChannels || []);
+          this.mapTvheadendEpgFallback(tvheadendEntries || [], tvhChannels || []);
+        }
+
+        if (this.programs.length === 0 && (xmltvError || tvheadendEpgError)) {
+          this.error = this.describeGuideDataError(xmltvError, tvheadendEpgError);
         }
 
         this.refreshScheduledRecordings();
@@ -219,10 +241,12 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
         this.loading = false;
 
         setTimeout(() => {
-          this.restoreReturnFocusIfNeeded();
+          const restored = this.restoreReturnFocusIfNeeded();
           this.scrollToCurrent();
           this.scrollToFocusedChannel();
-          // Removed auto-focus on program bar to prevent cell skipping issues.
+          if (!restored) {
+            this.focusGuideEntryIfNeeded();
+          }
         }, 0);
       },
       error: (error: any) => {
@@ -234,6 +258,31 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
         this.loading = false;
       }
     });
+  }
+
+  private describeGuideDataError(xmltvError: any, tvheadendEpgError: any): string {
+    const errors = [xmltvError, tvheadendEpgError].filter(Boolean);
+    const statuses = errors
+      .map(error => Number(error?.status || 0))
+      .filter(status => status > 0);
+
+    if (statuses.some(status => status === 401)) {
+      return 'Guide data requires authentication. Use TVH Login and reload the guide.';
+    }
+
+    if (statuses.some(status => status === 403)) {
+      return 'The current TVHeadend account cannot read guide data.';
+    }
+
+    if (statuses.some(status => status === 404)) {
+      return 'Guide data endpoints are unavailable on this TVHeadend setup.';
+    }
+
+    if (errors.some(error => Number(error?.status || 0) === 0)) {
+      return 'Guide data could not be reached. Check backend and proxy settings.';
+    }
+
+    return 'Guide data could not be loaded from XMLTV or TVHeadend EPG sources.';
   }
 
   private async requestAuth(): Promise<void> {
@@ -321,7 +370,7 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
       };
     }).filter((program: any) => program.startTime > 0 && program.endTime > 0);
 
-    this.channels = Array.from(channelIndex.values()).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    this.channels = Array.from(channelIndex.values()).sort((a, b) => this.compareChannels(a, b));
     this.groupProgramsByChannel();
   }
 
@@ -365,6 +414,8 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
         this.dayBanners.push({ label: dateLabel, offsetPx: h * this.hourWidthPx });
       }
     }
+
+    this.refreshTimelineMetrics();
   }
 
   private getBoundaryLabel(tick: Date, todayStartMs: number): string {
@@ -377,7 +428,7 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   getTimelineWidthPx(): number {
-    return (this.timelineSpanMs / (60 * 60 * 1000)) * this.hourWidthPx;
+    return this.timelineWidthPx;
   }
 
   setVisibleHours(hours: number): void {
@@ -414,16 +465,23 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   isNowInWindow(): boolean {
-    const now = this.currentTime.getTime();
-    const windowStart = this.timelineStart.getTime();
-    const windowEnd = windowStart + this.timelineSpanMs;
-    return now >= windowStart && now <= windowEnd;
+    return this.isNowInTimelineWindow;
   }
 
   getNowOffsetPx(): number {
-    const elapsedMs = this.currentTime.getTime() - this.timelineStart.getTime();
+    return this.nowOffsetPx;
+  }
+
+  private refreshTimelineMetrics(): void {
+    this.timelineWidthPx = (this.timelineSpanMs / (60 * 60 * 1000)) * this.hourWidthPx;
+    const now = this.currentTime.getTime();
+    const windowStart = this.timelineStart.getTime();
+    const windowEnd = windowStart + this.timelineSpanMs;
+    this.isNowInTimelineWindow = now >= windowStart && now <= windowEnd;
+
+    const elapsedMs = now - windowStart;
     const elapsedHours = elapsedMs / (60 * 60 * 1000);
-    return Math.max(0, Math.min(this.getTimelineWidthPx(), elapsedHours * this.hourWidthPx));
+    this.nowOffsetPx = Math.max(0, Math.min(this.timelineWidthPx, elapsedHours * this.hourWidthPx));
   }
 
   private scrollToCurrent(): void {
@@ -438,9 +496,26 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     const row = container.querySelector(`.epg-focus-row[data-channel-id="${escaped}"]`) as HTMLElement | null;
     if (!row) { return; }
     const header = container.querySelector('.epg-timeline-header') as HTMLElement | null;
-    const headerHeight = header?.offsetHeight || 0;
-    const targetTop = Math.max(0, row.offsetTop - headerHeight - 4);
-    container.scrollTo({ top: targetTop, left: 0, behavior: 'smooth' });
+    const stickyHeaderHeight = header?.offsetHeight || 0;
+    const safetyGap = 10;
+    const containerRect = container.getBoundingClientRect();
+    const rowRect = row.getBoundingClientRect();
+    const visibleTop = containerRect.top + stickyHeaderHeight + safetyGap;
+    const visibleBottom = containerRect.bottom - safetyGap;
+
+    let nextTop = container.scrollTop;
+    if (rowRect.top < visibleTop) {
+      nextTop -= visibleTop - rowRect.top;
+    } else if (rowRect.bottom > visibleBottom) {
+      nextTop += rowRect.bottom - visibleBottom;
+    }
+
+    const clampedTop = Math.max(0, Math.min(nextTop, container.scrollHeight - container.clientHeight));
+    if (Math.abs(clampedTop - container.scrollTop) < 1) {
+      return;
+    }
+
+    container.scrollTo({ top: clampedTop, left: 0, behavior: 'auto' });
   }
 
   currentChannelPageSize(): number {
@@ -477,27 +552,35 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   private focusFirstRenderedChannel(): void {
-    const container = this.timelineOuter?.nativeElement;
-    if (!container) {
+    const channelId = String(this.renderedChannels[0]?.id || '').trim();
+    if (!channelId) {
       return;
     }
-    const firstFocusable = container.querySelector('.epg-focus-row button[tvFocusable], .epg-focus-row [tvFocusable]') as HTMLElement | null;
-    firstFocusable?.focus();
+
+    this.focusChannelButtonForChannel(channelId);
   }
 
   private focusCurrentProgramInView(): void {
-    const container = this.timelineOuter?.nativeElement;
-    if (!container) {
+    if (this.focusedChannelId && this.focusChannelButtonForChannel(this.focusedChannelId)) {
       return;
     }
 
-    const currentProgram = container.querySelector('.epg-program-bar.current, .epg-vertical-program-item.current') as HTMLElement | null;
-    if (currentProgram) {
-      currentProgram.focus();
+    const currentProgram = this.findCurrentProgramChannelId();
+    if (currentProgram && this.focusChannelButtonForChannel(currentProgram)) {
       return;
     }
 
     this.focusFirstRenderedChannel();
+  }
+
+  private findCurrentProgramChannelId(): string {
+    const container = this.timelineOuter?.nativeElement;
+    if (!container) {
+      return '';
+    }
+
+    const currentProgram = container.querySelector('.epg-program-bar.current, .epg-vertical-program-item.current') as HTMLElement | null;
+    return String(currentProgram?.getAttribute('data-channel-id') || '').trim();
   }
 
   private focusGuideHeaderControls(): void {
@@ -523,13 +606,14 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     });
   }
 
-  private restoreReturnFocusIfNeeded(): void {
+  private restoreReturnFocusIfNeeded(): boolean {
     const context = this.pendingReturnContext;
     if (!context) {
-      return;
+      return false;
     }
 
     this.pendingReturnContext = null;
+    this.shouldApplyInitialGuideFocus = false;
     const channelId = String(context.payload['channelId'] || '').trim();
     const start = String(context.payload['startTime'] || '').trim();
     const end = String(context.payload['endTime'] || '').trim();
@@ -555,12 +639,25 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
       }
 
       if (!target && channelId) {
-        target = container.querySelector(`.epg-channel-col-clickable[data-channel-button-id="${escapedChannelId}"]`) as HTMLElement | null;
+        target = this.queryChannelButton(container, channelId);
       }
 
       target?.focus();
       this.scrollToFocusedChannel();
     }, 0);
+    return true;
+  }
+
+  private focusGuideEntryIfNeeded(): void {
+    if (!this.shouldApplyInitialGuideFocus || this.loading || this.error || this.filteredChannels.length === 0) {
+      return;
+    }
+
+    this.shouldApplyInitialGuideFocus = false;
+    if (this.timelineOuter?.nativeElement) {
+      this.timelineOuter.nativeElement.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    }
+    this.focusFirstRenderedChannel();
   }
 
   private getTimelineStepHours(): number {
@@ -568,35 +665,12 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   private ensureFocusedChannelVisible(): void {
-    if (!this.focusedChannelId) {
-      this.rebuildRenderedChannels();
-      return;
-    }
-
-    const index = this.filteredChannels.findIndex(channel => String(channel?.id || '').trim() === this.focusedChannelId);
-    if (index < 0) {
-      this.channelWindowStart = 0;
-      this.rebuildRenderedChannels();
-      return;
-    }
-
-    const pageSize = this.currentChannelPageSize();
-    if (index < this.channelWindowStart) {
-      this.channelWindowStart = index;
-    } else if (index >= this.channelWindowStart + pageSize) {
-      this.channelWindowStart = Math.max(0, index - pageSize + 1);
-    }
-
     this.rebuildRenderedChannels();
   }
 
   private rebuildRenderedChannels(): void {
-    const pageSize = this.currentChannelPageSize();
-    const maxStart = Math.max(0, this.filteredChannels.length - pageSize);
-    if (this.channelWindowStart > maxStart) {
-      this.channelWindowStart = maxStart;
-    }
-    this.renderedChannels = this.filteredChannels.slice(this.channelWindowStart, this.channelWindowStart + pageSize);
+    this.channelWindowStart = 0;
+    this.renderedChannels = [...this.filteredChannels];
   }
 
   private escapeForAttributeSelector(value: string): string {
@@ -606,6 +680,10 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
   // ── Program positioning ───────────────────────────────────────
 
   getProgramLeftPx(program: any): number {
+    if (typeof program?.__leftPx === 'number') {
+      return program.__leftPx;
+    }
+
     const start = this.parseEpgTime(program.startTime);
     const windowStart = this.timelineStart.getTime();
     const windowEnd = windowStart + this.timelineSpanMs;
@@ -624,6 +702,10 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   getProgramWidthPx(program: any): number {
+    if (typeof program?.__widthPx === 'number') {
+      return program.__widthPx;
+    }
+
     const start = this.parseEpgTime(program.startTime);
     const end = this.parseEpgTime(program.endTime);
     const windowStart = this.timelineStart.getTime();
@@ -637,6 +719,10 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   isProgramVisible(program: any): boolean {
+    if (typeof program?.__isVisible === 'boolean') {
+      return program.__isVisible;
+    }
+
     const start = this.parseEpgTime(program.startTime);
     const end = this.parseEpgTime(program.endTime);
     const windowStart = this.timelineStart.getTime();
@@ -645,12 +731,18 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   isCurrent(program: any): boolean {
-    if (!program?.startTime || !program?.endTime) { return false; }
+    const startMs = typeof program?.__startMs === 'number' ? program.__startMs : this.parseEpgTime(program?.startTime);
+    const endMs = typeof program?.__endMs === 'number' ? program.__endMs : this.parseEpgTime(program?.endTime);
+    if (!startMs || !endMs) { return false; }
     const now = this.currentTime.getTime();
-    return now >= this.parseEpgTime(program.startTime) && now < this.parseEpgTime(program.endTime);
+    return now >= startMs && now < endMs;
   }
 
   getProgramTooltip(program: any): string {
+    if (typeof program?.__tooltip === 'string') {
+      return program.__tooltip;
+    }
+
     const start = new Date(this.parseEpgTime(program.startTime));
     const end = new Date(this.parseEpgTime(program.endTime));
     const startLabel = start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
@@ -676,7 +768,6 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   onFilterQueryChange(): void {
-    this.persistChannelFilter(this.filterQuery);
     this.focusedChannelId = '';
     this.channelWindowStart = 0;
     this.rebuildGuideViewModel();
@@ -707,13 +798,48 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     this.useVerticalGuide = true;
     this.persistGuideLayoutPreference(true);
     this.focusedChannelId = channelId;
-    this.filterQuery = String(channel?.name || channelId).trim();
-    this.persistChannelFilter(this.filterQuery);
+    this.channelSpotlightId = channelId;
+    this.channelSpotlightName = String(channel?.name || channelId).trim();
     this.rebuildGuideViewModel();
     setTimeout(() => {
       this.scrollToFocusedChannel();
       this.focusCurrentProgramInView();
     }, 0);
+  }
+
+  clearChannelSpotlight(): void {
+    this.channelSpotlightId = '';
+    this.channelSpotlightName = '';
+    this.rebuildGuideViewModel();
+    setTimeout(() => this.focusCurrentProgramInView(), 0);
+  }
+
+  clearTransientFilters(): void {
+    this.filterQuery = '';
+    this.selectedCategories = [];
+    this.showScheduledOnly = false;
+    this.channelSpotlightId = '';
+    this.channelSpotlightName = '';
+    this.focusedChannelId = '';
+    this.channelWindowStart = 0;
+    this.rebuildGuideViewModel();
+    setTimeout(() => this.focusCurrentProgramInView(), 0);
+  }
+
+  enterChannelRow(channelId: string): void {
+    const normalized = String(channelId || '').trim();
+    if (!normalized) {
+      return;
+    }
+
+    this.handleChannelFocus(normalized);
+    setTimeout(() => {
+      this.focusFirstProgramForChannel(normalized);
+    }, 0);
+  }
+
+  toggleGuideOptions(): void {
+    this.guideOptionsExpanded = !this.guideOptionsExpanded;
   }
 
   handleChannelFocus(channelId: string): void {
@@ -731,7 +857,38 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     if (!channelId) {
       return;
     }
-    this.handleChannelFocus(channelId);
+    const activeElement = document.activeElement as HTMLElement | null;
+    if (!this.preserveTimelineColumnAnchor) {
+      this.updateTimelineAnchor(activeElement);
+    }
+    this.preserveTimelineColumnAnchor = false;
+    this.focusedChannelId = channelId;
+  }
+
+  private updateTimelineAnchor(element: HTMLElement | null): void {
+    const programCell = element?.closest('.epg-program-bar, .epg-vertical-program-item') as HTMLElement | null;
+    if (!programCell) {
+      return;
+    }
+
+    const timeRange = this.getProgramTimeRange(programCell);
+    if (!timeRange) {
+      return;
+    }
+
+    const duration = Math.max(1, timeRange.end - timeRange.start);
+    this.timelineAnchorTimeMs = timeRange.start + duration * 0.33;
+  }
+
+  private getProgramTimeRange(element: HTMLElement | null): { start: number; end: number } | null {
+    const programCell = element?.closest('.epg-program-bar, .epg-vertical-program-item') as HTMLElement | null;
+    const start = Number(programCell?.getAttribute('data-program-start') || NaN);
+    const end = Number(programCell?.getAttribute('data-program-end') || NaN);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
+      return null;
+    }
+
+    return { start, end };
   }
 
   private hasActiveCategoryFilter(): boolean {
@@ -760,13 +917,73 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     this.rebuildGuideViewModel();
   }
 
+  hasActiveGuideFilters(): boolean {
+    return !!this.filterQuery.trim()
+      || this.showScheduledOnly
+      || this.selectedCategories.length > 0
+      || !!this.channelSpotlightId;
+  }
+
+  getActiveFilterLabels(): string[] {
+    const labels: string[] = [];
+    const query = this.filterQuery.trim();
+
+    if (query) {
+      labels.push(`Search: ${query}`);
+    }
+
+    if (this.showScheduledOnly) {
+      labels.push('Scheduled only');
+    }
+
+    if (this.channelSpotlightId) {
+      labels.push(`Channel: ${this.channelSpotlightName || this.getChannelName(this.channelSpotlightId)}`);
+    }
+
+    for (const category of this.selectedCategories) {
+      labels.push(`Category: ${this.toTitleCase(category)}`);
+    }
+
+    return labels;
+  }
+
+  hasChannelDataWithoutPrograms(): boolean {
+    return this.channels.length > 0 && this.programs.length === 0;
+  }
+
+  getGuideSummaryLabel(): string {
+    const channelCount = this.filteredChannels.length;
+    const programCount = this.filteredChannels.reduce((count, channel) => count + this.getProgramsForChannel(channel.id).length, 0);
+    return `${channelCount} channels • ${programCount} items`;
+  }
+
+  resetGuideFilters(): void {
+    this.clearTransientFilters();
+  }
+
   isCategorySelected(category: string): boolean {
     return this.selectedCategories.includes(String(category || '').toLowerCase());
+  }
+
+  private toTitleCase(value: string): string {
+    return String(value || '')
+      .split(/\s+/)
+      .filter(Boolean)
+      .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ');
   }
 
   // ── Program colours ───────────────────────────────────────────
 
   getProgramBackground(program: any): string {
+    if (typeof program?.__background === 'string') {
+      return program.__background;
+    }
+
+    return this.resolveProgramBackground(program);
+  }
+
+  private resolveProgramBackground(program: any): string {
     const matched = this.getMatchedPrimaryCategory(program);
     const category = this.primaryCategories.find(item => item.label.toLowerCase() === matched);
     if (category) { return category.background; }
@@ -837,25 +1054,28 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
 
   @HostListener('document:keydown.pageup', ['$event'])
   handlePageUp(event: KeyboardEvent): void {
-    if (this.selectedProgram || this.shouldIgnoreGlobalGuideKeys(event)) {
+    const target = this.getGuideKeyTarget(event);
+    if (this.selectedProgram || this.shouldIgnoreGlobalGuideKeys(target)) {
       return;
     }
     event.preventDefault();
-    this.shiftChannelWindow(-1);
+    this.shiftTimelineWindow(-1);
   }
 
   @HostListener('document:keydown.pagedown', ['$event'])
   handlePageDown(event: KeyboardEvent): void {
-    if (this.selectedProgram || this.shouldIgnoreGlobalGuideKeys(event)) {
+    const target = this.getGuideKeyTarget(event);
+    if (this.selectedProgram || this.shouldIgnoreGlobalGuideKeys(target)) {
       return;
     }
     event.preventDefault();
-    this.shiftChannelWindow(1);
+    this.shiftTimelineWindow(1);
   }
 
   @HostListener('document:keydown.home', ['$event'])
   handleHome(event: KeyboardEvent): void {
-    if (this.selectedProgram || this.shouldIgnoreGlobalGuideKeys(event)) {
+    const target = this.getGuideKeyTarget(event);
+    if (this.selectedProgram || this.shouldIgnoreGlobalGuideKeys(target)) {
       return;
     }
     event.preventDefault();
@@ -864,11 +1084,17 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
 
   @HostListener('document:keydown.arrowup', ['$event'])
   handleArrowUp(event: KeyboardEvent): void {
-    if (this.selectedProgram || this.shouldIgnoreGlobalGuideKeys(event)) {
+    const target = this.getGuideKeyTarget(event);
+    if (this.selectedProgram || this.shouldIgnoreGlobalGuideKeys(target)) {
       return;
     }
 
-    if (!this.isGuideGridTarget(event.target)) {
+    if (this.moveGuideFocusByRow(target, -1)) {
+      event.preventDefault();
+      return;
+    }
+
+    if (!this.isGuideGridTarget(target)) {
       return;
     }
 
@@ -878,11 +1104,17 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
 
   @HostListener('document:keydown.arrowdown', ['$event'])
   handleArrowDown(event: KeyboardEvent): void {
-    if (this.selectedProgram || this.shouldIgnoreGlobalGuideKeys(event)) {
+    const target = this.getGuideKeyTarget(event);
+    if (this.selectedProgram || this.shouldIgnoreGlobalGuideKeys(target)) {
       return;
     }
 
-    if (!this.isGuideHeaderTarget(event.target)) {
+    if (this.moveGuideFocusByRow(target, 1)) {
+      event.preventDefault();
+      return;
+    }
+
+    if (!this.isGuideHeaderTarget(target)) {
       return;
     }
 
@@ -892,6 +1124,19 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
 
   @HostListener('document:keydown.arrowleft', ['$event'])
   handleArrowLeft(event: KeyboardEvent): void {
+    const target = this.getGuideKeyTarget(event);
+    if (!this.selectedProgram) {
+      if (this.focusAdjacentProgramForTarget(target, -1)) {
+        event.preventDefault();
+        return;
+      }
+
+      if (this.focusChannelButtonForProgramTarget(target)) {
+        event.preventDefault();
+        return;
+      }
+    }
+
     if (!this.shouldHandleProgramArrowNavigation(event) || !this.hasPreviousProgram()) { return; }
     event.preventDefault();
     this.showPreviousProgram();
@@ -899,6 +1144,19 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
 
   @HostListener('document:keydown.arrowright', ['$event'])
   handleArrowRight(event: KeyboardEvent): void {
+    const target = this.getGuideKeyTarget(event);
+    if (!this.selectedProgram) {
+      if (this.focusAdjacentProgramForTarget(target, 1)) {
+        event.preventDefault();
+        return;
+      }
+
+      if (this.focusProgramForChannelTarget(target)) {
+        event.preventDefault();
+        return;
+      }
+    }
+
     if (!this.shouldHandleProgramArrowNavigation(event) || !this.hasNextProgram()) { return; }
     event.preventDefault();
     this.showNextProgram();
@@ -909,7 +1167,7 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
       return false;
     }
 
-    const target = event.target as HTMLElement | null;
+    const target = this.getGuideKeyTarget(event);
     if (!target) {
       return true;
     }
@@ -923,13 +1181,21 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     return true;
   }
 
-  private shouldIgnoreGlobalGuideKeys(event: KeyboardEvent): boolean {
-    const target = event.target as HTMLElement | null;
+  private shouldIgnoreGlobalGuideKeys(target: HTMLElement | null): boolean {
     if (!target) {
       return false;
     }
 
     return !!target.closest('input, textarea, select, [contenteditable="true"]');
+  }
+
+  private getGuideKeyTarget(event: KeyboardEvent): HTMLElement | null {
+    const activeElement = document.activeElement as HTMLElement | null;
+    if (activeElement && activeElement !== document.body) {
+      return activeElement;
+    }
+
+    return event.target as HTMLElement | null;
   }
 
   private isGuideGridTarget(target: EventTarget | null): boolean {
@@ -938,7 +1204,7 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
       return false;
     }
 
-    return !!element.closest('.epg-program-bar, .epg-vertical-program-item, .epg-channel-col-clickable');
+    return !!element.closest('.epg-program-bar, .epg-vertical-program-item, .epg-channel-col-clickable, .epg-vertical-channel-header-btn');
   }
 
   private isGuideHeaderTarget(target: EventTarget | null): boolean {
@@ -948,6 +1214,278 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     }
 
     return !!element.closest('.epg-header-controls-scroll, .epg-filter');
+  }
+
+  private focusProgramForChannelTarget(target: EventTarget | null): boolean {
+    const element = target as HTMLElement | null;
+    const channelButton = element?.closest('.epg-channel-col-clickable, .epg-vertical-channel-header-btn') as HTMLElement | null;
+    if (!channelButton) {
+      return false;
+    }
+
+    const channelId = String(channelButton.getAttribute('data-channel-button-id') || channelButton.getAttribute('data-channel-id') || '').trim();
+    if (!channelId) {
+      return false;
+    }
+
+    return this.focusFirstProgramForChannel(channelId);
+  }
+
+  private focusChannelButtonForProgramTarget(target: EventTarget | null): boolean {
+    const element = target as HTMLElement | null;
+    const programCell = element?.closest('.epg-program-bar, .epg-vertical-program-item') as HTMLElement | null;
+    if (!programCell) {
+      return false;
+    }
+
+    const channelId = String(programCell.getAttribute('data-channel-id') || '').trim();
+    if (!channelId) {
+      return false;
+    }
+
+    const container = this.timelineOuter?.nativeElement || document;
+    const channelButton = this.queryChannelButton(container, channelId);
+    if (!channelButton) {
+      return false;
+    }
+
+    channelButton.focus();
+    return true;
+  }
+
+  private focusAdjacentProgramForTarget(target: EventTarget | null, direction: -1 | 1): boolean {
+    const element = target as HTMLElement | null;
+    const programCell = element?.closest('.epg-program-bar, .epg-vertical-program-item') as HTMLElement | null;
+    if (!programCell) {
+      return false;
+    }
+
+    const channelId = String(programCell.getAttribute('data-channel-id') || '').trim();
+    if (!channelId) {
+      return false;
+    }
+
+    const container = this.timelineOuter?.nativeElement || document;
+    const escapedChannelId = this.escapeForAttributeSelector(channelId);
+    const selector = this.useVerticalGuide
+      ? `.epg-vertical-program-item[data-channel-id="${escapedChannelId}"]`
+      : `.epg-program-bar[data-channel-id="${escapedChannelId}"]`;
+    const items = Array.from(container.querySelectorAll(selector)) as HTMLElement[];
+    const currentIndex = items.indexOf(programCell);
+    if (currentIndex < 0) {
+      return false;
+    }
+
+    const nextIndex = currentIndex + direction;
+    if (nextIndex < 0 || nextIndex >= items.length) {
+      return false;
+    }
+
+    items[nextIndex].focus();
+    return true;
+  }
+
+  private focusFirstProgramForChannel(channelId: string): boolean {
+    const container = this.timelineOuter?.nativeElement || document;
+    const escapedChannelId = this.escapeForAttributeSelector(channelId);
+    const selector = this.useVerticalGuide
+      ? `.epg-vertical-program-item[data-channel-id="${escapedChannelId}"]`
+      : `.epg-program-bar[data-channel-id="${escapedChannelId}"]`;
+    const target = container.querySelector(selector) as HTMLElement | null;
+    if (!target) {
+      return false;
+    }
+
+    target.focus();
+    return true;
+  }
+
+  private focusChannelButtonForChannel(channelId: string): boolean {
+    const container = this.timelineOuter?.nativeElement || document;
+    const target = this.queryChannelButton(container, channelId);
+    if (!target) {
+      return false;
+    }
+
+    target.focus();
+    return true;
+  }
+
+  private queryChannelButton(container: ParentNode, channelId: string): HTMLElement | null {
+    const escapedChannelId = this.escapeForAttributeSelector(channelId);
+    return container.querySelector(
+      `.epg-channel-col-clickable[data-channel-button-id="${escapedChannelId}"], .epg-vertical-channel-header-btn[data-channel-button-id="${escapedChannelId}"]`
+    ) as HTMLElement | null;
+  }
+
+  private moveGuideFocusByRow(target: EventTarget | null, direction: -1 | 1): boolean {
+    const element = target as HTMLElement | null;
+    if (!element) {
+      return false;
+    }
+
+    const channelId = this.resolveGuideChannelIdFromTarget(element);
+    if (!channelId) {
+      return false;
+    }
+
+    const currentIndex = this.renderedChannels.findIndex(channel => String(channel?.id || '').trim() === channelId);
+    if (currentIndex < 0) {
+      return false;
+    }
+
+    if (this.useVerticalGuide) {
+      const nextIndex = currentIndex + direction;
+      if (nextIndex < 0 || nextIndex >= this.renderedChannels.length) {
+        return false;
+      }
+
+      const nextChannelId = String(this.renderedChannels[nextIndex]?.id || '').trim();
+      if (!nextChannelId) {
+        return false;
+      }
+
+      return this.focusVerticalGuideRowTarget(element, channelId, nextChannelId);
+    }
+
+    for (let nextIndex = currentIndex + direction; nextIndex >= 0 && nextIndex < this.renderedChannels.length; nextIndex += direction) {
+      const nextChannelId = String(this.renderedChannels[nextIndex]?.id || '').trim();
+      if (!nextChannelId) {
+        continue;
+      }
+
+      if (this.focusTimelineRowTarget(element, nextChannelId)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private resolveGuideChannelIdFromTarget(element: HTMLElement): string {
+    const programCell = element.closest('.epg-program-bar, .epg-vertical-program-item') as HTMLElement | null;
+    if (programCell) {
+      return String(programCell.getAttribute('data-channel-id') || '').trim();
+    }
+
+    const channelButton = element.closest('.epg-channel-col-clickable, .epg-vertical-channel-header-btn') as HTMLElement | null;
+    if (channelButton) {
+      return String(channelButton.getAttribute('data-channel-button-id') || channelButton.getAttribute('data-channel-id') || '').trim();
+    }
+
+    const row = element.closest('.epg-focus-row') as HTMLElement | null;
+    return String(row?.getAttribute('data-channel-id') || '').trim();
+  }
+
+  private focusTimelineRowTarget(currentElement: HTMLElement, nextChannelId: string): boolean {
+    const container = this.timelineOuter?.nativeElement || document;
+    const escapedChannelId = this.escapeForAttributeSelector(nextChannelId);
+    const nextChannelButton = this.queryChannelButton(container, nextChannelId);
+    const currentChannelButton = currentElement.closest('.epg-channel-col-clickable, .epg-vertical-channel-header-btn') as HTMLElement | null;
+
+    if (currentChannelButton) {
+      nextChannelButton?.focus();
+      return !!nextChannelButton;
+    }
+
+    const candidates = Array.from(container.querySelectorAll(`.epg-program-bar[data-channel-id="${escapedChannelId}"]`)) as HTMLElement[];
+    if (candidates.length === 0) {
+      return false;
+    }
+
+    const currentTimeRange = this.getProgramTimeRange(currentElement);
+    const currentAnchorTime = this.timelineAnchorTimeMs
+      ?? (currentTimeRange ? currentTimeRange.start + ((currentTimeRange.end - currentTimeRange.start) * 0.33) : null);
+
+    if (currentAnchorTime !== null) {
+      const bestByTime = candidates.reduce((closest, candidate) => {
+        const timeRange = this.getProgramTimeRange(candidate);
+        if (!timeRange) {
+          return closest;
+        }
+
+        const duration = Math.max(1, timeRange.end - timeRange.start);
+        const midpoint = timeRange.start + duration / 2;
+        const containsAnchor = timeRange.start <= currentAnchorTime && timeRange.end > currentAnchorTime;
+        const edgeDistance = containsAnchor
+          ? 0
+          : Math.min(Math.abs(timeRange.start - currentAnchorTime), Math.abs(timeRange.end - currentAnchorTime));
+        const midpointDistance = Math.abs(midpoint - currentAnchorTime);
+        const durationPenalty = duration * 0.05;
+        const score = containsAnchor
+          ? midpointDistance + durationPenalty
+          : edgeDistance * 1000 + midpointDistance + durationPenalty;
+
+        if (!closest || score < closest.score) {
+          return { element: candidate, score };
+        }
+        return closest;
+      }, null as { element: HTMLElement; score: number } | null);
+
+      const target = bestByTime?.element || nextChannelButton;
+      if (target?.matches('.epg-program-bar, .epg-vertical-program-item')) {
+        this.preserveTimelineColumnAnchor = true;
+      }
+      target?.focus();
+      return !!target;
+    }
+
+    const currentRect = currentElement.getBoundingClientRect();
+    const currentCenter = currentRect.left + currentRect.width / 2;
+    const best = candidates.reduce((closest, candidate) => {
+      const rect = candidate.getBoundingClientRect();
+      const center = rect.left + rect.width / 2;
+      const containsCurrentCenter = rect.left <= currentCenter && rect.right >= currentCenter;
+      const edgeDistance = containsCurrentCenter
+        ? 0
+        : Math.min(Math.abs(rect.left - currentCenter), Math.abs(rect.right - currentCenter));
+      const centerDistance = Math.abs(center - currentCenter);
+      const score = containsCurrentCenter
+        ? centerDistance * 0.2
+        : edgeDistance * 10 + centerDistance;
+
+      if (!closest || score < closest.score) {
+        return { element: candidate, score };
+      }
+      return closest;
+    }, null as { element: HTMLElement; score: number } | null);
+
+    const target = best?.element || nextChannelButton;
+    if (target?.matches('.epg-program-bar, .epg-vertical-program-item')) {
+      this.preserveTimelineColumnAnchor = true;
+    }
+    target?.focus();
+    return !!target;
+  }
+
+  private focusVerticalGuideRowTarget(currentElement: HTMLElement, currentChannelId: string, nextChannelId: string): boolean {
+    const container = this.timelineOuter?.nativeElement || document;
+    const currentEscapedChannelId = this.escapeForAttributeSelector(currentChannelId);
+    const nextEscapedChannelId = this.escapeForAttributeSelector(nextChannelId);
+    const currentItems = Array.from(container.querySelectorAll(`.epg-vertical-program-item[data-channel-id="${currentEscapedChannelId}"]`)) as HTMLElement[];
+    const nextItems = Array.from(container.querySelectorAll(`.epg-vertical-program-item[data-channel-id="${nextEscapedChannelId}"]`)) as HTMLElement[];
+    const nextChannelButton = this.queryChannelButton(container, nextChannelId);
+    const currentChannelButton = currentElement.closest('.epg-vertical-channel-header-btn') as HTMLElement | null;
+    if (currentChannelButton) {
+      nextChannelButton?.focus();
+      return !!nextChannelButton;
+    }
+
+    if (nextItems.length === 0) {
+      nextChannelButton?.focus();
+      return !!nextChannelButton;
+    }
+
+    const currentItem = currentElement.closest('.epg-vertical-program-item') as HTMLElement | null;
+    if (!currentItem) {
+      nextItems[0].focus();
+      return true;
+    }
+
+    const currentIndex = Math.max(0, currentItems.indexOf(currentItem));
+    const targetIndex = Math.min(currentIndex, nextItems.length - 1);
+    nextItems[targetIndex].focus();
+    return true;
   }
 
   hasPreviousProgram(): boolean { return this.getAdjacentProgram(-1) !== null; }
@@ -1279,33 +1817,35 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     const startMinutes = startDate.getHours() * 60 + startDate.getMinutes();
     const endMinutes = endDate.getHours() * 60 + endDate.getMinutes();
     const weekday = startDate.getDay() === 0 ? 7 : startDate.getDay();
+
     return {
       enabled: 1,
       name: `Auto: ${title}`,
       title,
-      fulltext: 0,
+      fulltext: 1,
       channel: channelUuid || '',
+      config_uuid: configUuid || '',
       weekdays: [weekday],
       start: startMinutes,
       start_window: endMinutes > startMinutes ? endMinutes : startMinutes,
       start_extra: 0,
       stop_extra: 0,
-      config_name: configUuid || '',
-      minduration: 0,
-      maxduration: 0,
-      comment: 'Created from EPG program details',
+      comment: `Auto-created from guide: ${title}`,
     };
   }
 
   private resolveAutorecChannelUuid(channels: any[], channelName: string): string {
     const target = String(channelName || '').trim().toLowerCase();
     if (!target) { return ''; }
+
     const exact = channels.find((ch: any) => String(ch?.name || '').trim().toLowerCase() === target);
     if (exact?.uuid) { return String(exact.uuid).trim(); }
+
     const partial = channels.find((ch: any) => {
       const name = String(ch?.name || '').trim().toLowerCase();
       return !!name && (name.includes(target) || target.includes(name));
     });
+
     return String(partial?.uuid || '').trim();
   }
 
@@ -1324,8 +1864,17 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
       }
       this.programsByChannel[program.channel].push(program);
     }
-    this.channels.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    this.channels.sort((a, b) => this.compareChannels(a, b));
     this.rebuildGuideViewModel();
+  }
+
+  private compareChannels(left: any, right: any): number {
+    const leftName = String(left?.name || left?.id || '').trim();
+    const rightName = String(right?.name || right?.id || '').trim();
+    return leftName.localeCompare(rightName, undefined, {
+      numeric: true,
+      sensitivity: 'base'
+    });
   }
 
   private rebuildGuideViewModel(): void {
@@ -1336,6 +1885,9 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
 
     for (const channel of this.channels) {
       const channelId = String(channel?.id || '').trim();
+      if (this.channelSpotlightId && channelId !== this.channelSpotlightId) {
+        continue;
+      }
       const allPrograms = this.programsByChannel[channelId] || [];
       const scheduled = this.showScheduledOnly
         ? allPrograms.filter(program => this.isProgramScheduled(program))
@@ -1358,11 +1910,12 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
       }
 
       nextFilteredChannels.push(channel);
-      nextVisibleProgramsByChannel[channelId] = visiblePrograms;
-
-      const sortedVisible = [...visiblePrograms].sort((a, b) => this.parseEpgTime(a.startTime) - this.parseEpgTime(b.startTime));
-      const inWindow = sortedVisible.filter(program => this.isProgramVisible(program));
-      nextVerticalProgramsByChannel[channelId] = inWindow.length > 0 ? inWindow : sortedVisible;
+      const preparedPrograms = [...visiblePrograms]
+        .sort((a, b) => this.parseEpgTime(a.startTime) - this.parseEpgTime(b.startTime))
+        .map(program => this.decorateProgramForGuide(program));
+      const inWindow = preparedPrograms.filter(program => program.__isVisible);
+      nextVisibleProgramsByChannel[channelId] = inWindow;
+      nextVerticalProgramsByChannel[channelId] = inWindow.length > 0 ? inWindow : preparedPrograms;
     }
 
     this.filteredChannels = nextFilteredChannels;
@@ -1371,10 +1924,37 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     this.ensureFocusedChannelVisible();
   }
 
-  getProgramCountLabel(): string {
-    const channelCount = this.filteredChannels.length;
-    const programCount = this.filteredChannels.reduce((count, channel) => count + this.getProgramsForChannel(channel.id).length, 0);
-    return `${channelCount} channels • ${programCount} items`;
+  private decorateProgramForGuide(program: any): any {
+    const startMs = this.parseEpgTime(program.startTime);
+    const endMs = this.parseEpgTime(program.endTime);
+    const windowStart = this.timelineStart.getTime();
+    const windowEnd = windowStart + this.timelineSpanMs;
+    const visibleStart = Math.max(startMs, windowStart);
+    const visibleEnd = Math.min(endMs, windowEnd);
+    const isVisible = visibleEnd > visibleStart;
+    const visibleHoursFromStart = (visibleStart - windowStart) / (60 * 60 * 1000);
+    const visibleHours = (visibleEnd - visibleStart) / (60 * 60 * 1000);
+    const leftPx = startMs <= windowStart ? 0 : Math.max(0, Math.min(this.timelineWidthPx, visibleHoursFromStart * this.hourWidthPx));
+    const widthPx = isVisible ? Math.max(8, visibleHours * this.hourWidthPx) : 0;
+    const startDate = new Date(startMs);
+    const endDate = new Date(endMs);
+    const startLabel = startDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+    const endLabel = endDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+    const desc = String(program?.desc || '').trim();
+    const tooltip = desc
+      ? `${program.title}\n${startLabel} - ${endLabel}\n${desc}`
+      : `${program.title}\n${startLabel} - ${endLabel}`;
+
+    return {
+      ...program,
+      __startMs: startMs,
+      __endMs: endMs,
+      __isVisible: isVisible,
+      __leftPx: leftPx,
+      __widthPx: widthPx,
+      __tooltip: tooltip,
+      __background: this.resolveProgramBackground(program)
+    };
   }
 
   trackByChannelId(_: number, channel: any): string {
@@ -1552,18 +2132,12 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   private restoreGuideLayoutPreference(): void {
-    try { this.useVerticalGuide = localStorage.getItem(this.layoutStorageKey) === '1'; } catch { /* ignore */ }
+    this.useVerticalGuide = false;
+    this.persistGuideLayoutPreference(false);
   }
 
-  private persistChannelFilter(value: string): void {
-    try { localStorage.setItem(this.channelFilterStorageKey, String(value || '').trim()); } catch { /* ignore */ }
-  }
-
-  private restoreChannelFilterPreference(): void {
-    try {
-      const stored = localStorage.getItem(this.channelFilterStorageKey);
-      if (stored != null) { this.filterQuery = stored; }
-    } catch { /* ignore */ }
+  private clearLegacyChannelFilterPreference(): void {
+    try { localStorage.removeItem('epg.channelFilter'); } catch { /* ignore */ }
   }
 
   @HostListener('document:keydown', ['$event'])

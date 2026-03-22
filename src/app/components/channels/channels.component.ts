@@ -1,9 +1,9 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnDestroy, OnInit } from '@angular/core';
+import { Component, HostListener, OnDestroy, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
-import { forkJoin, Subject } from 'rxjs';
-import { takeUntil } from 'rxjs/operators';
+import { forkJoin, of, Subject } from 'rxjs';
+import { catchError, takeUntil } from 'rxjs/operators';
 import { TvFocusableDirective } from '../../directives/tv-focusable.directive';
 import { ReturnNavigationContext, ReturnNavigationService } from '../../services/return-navigation.service';
 import { TvheadendService } from '../../services/tvheadend.service';
@@ -28,8 +28,10 @@ export class ChannelsComponent implements OnInit, OnDestroy {
   searchVisible = false;
   loading = true;
   errorMessage = '';
+  epgWarning = '';
   favorites: Set<string> = new Set();
   private pendingReturnContext: ReturnNavigationContext | null = null;
+  private activationInProgress = false;
 
   private destroy$ = new Subject<void>();
 
@@ -63,13 +65,23 @@ export class ChannelsComponent implements OnInit, OnDestroy {
   }
 
   private loadData(): void {
+    this.epgWarning = '';
+
     forkJoin({
       channels: this.tvh.getChannelsWithResolvedTags(),
-      epg: this.tvh.getEpg()
+      epg: this.tvh.getEpg().pipe(
+        catchError((error: any) => {
+          this.epgWarning = this.resolveEpgWarning(error);
+          return of([]);
+        })
+      )
     }).pipe(takeUntil(this.destroy$)).subscribe({
       next: ({ channels, epg }) => {
         this.channels = [...channels].sort((a, b) => (a.number ?? 0) - (b.number ?? 0));
         this.epgEvents = epg;
+        if (!this.epgWarning && this.channels.length > 0 && this.epgEvents.length === 0) {
+          this.epgWarning = 'Programme listings are temporarily unavailable from TVHeadend right now. Channels can still be opened.';
+        }
         this.filterChannels();
         this.loading = false;
         this.errorMessage = '';
@@ -109,6 +121,24 @@ export class ChannelsComponent implements OnInit, OnDestroy {
     return 'TVHeadend returned an unexpected error while loading channels.';
   }
 
+  private resolveEpgWarning(error: any): string {
+    const status = Number(error?.status || 0);
+
+    if (status === 401 || status === 403) {
+      return 'Current programme data is unavailable for this account. Channels can still be opened.';
+    }
+
+    if (status === 404) {
+      return 'Current programme data is unavailable on this TVHeadend build. Channels can still be opened.';
+    }
+
+    if (status === 0) {
+      return 'Current programme data could not be reached. Channels can still be opened.';
+    }
+
+    return 'Current programme data is temporarily unavailable. Channels can still be opened.';
+  }
+
   filterChannels(): void {
     const q = this.searchQuery.toLowerCase().trim();
     const filtered = q
@@ -146,13 +176,25 @@ export class ChannelsComponent implements OnInit, OnDestroy {
       return;
     }
 
+    if (this.activationInProgress) {
+      return;
+    }
+
     this.selectChannel(channel);
     void this.watchChannel(channel);
   }
 
   async watchChannel(channel: any): Promise<void> {
+    if (!channel || this.activationInProgress) {
+      return;
+    }
+
+    this.activationInProgress = true;
+
+    try {
     const hasAuth = await this.tvh.ensureBasicAuth('Enter your TVHeadend credentials to watch live TV.');
     if (!hasAuth) {
+      this.activationInProgress = false;
       return;
     }
 
@@ -170,6 +212,40 @@ export class ChannelsComponent implements OnInit, OnDestroy {
         returnToken
       }
     });
+    } finally {
+      setTimeout(() => {
+        this.activationInProgress = false;
+      }, 300);
+    }
+  }
+
+  @HostListener('document:keydown', ['$event'])
+  handleChannelTileSelect(event: KeyboardEvent): void {
+    this.captureRemoteKey(event);
+
+    if (!this.isSelectKey(event) || this.loading || !!this.errorMessage || this.activationInProgress) {
+      return;
+    }
+
+    const active = document.activeElement as HTMLElement | null;
+    const channelCard = active?.closest('.channel-card') as HTMLElement | null;
+    if (!channelCard) {
+      return;
+    }
+
+    const channelUuid = String(channelCard.getAttribute('data-channel-uuid') || '').trim();
+    if (!channelUuid) {
+      return;
+    }
+
+    const match = this.filteredChannels.find(channel => String(channel?.uuid || '').trim() === channelUuid);
+    if (!match) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    this.activateChannel(match);
   }
 
   private capturePendingReturnContext(): void {
@@ -295,5 +371,34 @@ export class ChannelsComponent implements OnInit, OnDestroy {
     const fmt = (t: number) =>
       new Date(t * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     return `${fmt(Number(program.start))} – ${fmt(Number(program.stop))}`;
+  }
+
+  private isSelectKey(event: KeyboardEvent): boolean {
+    const key = String(event.key || '');
+    const code = String((event as any).code || '');
+    const keyCode = Number((event as any).keyCode || (event as any).which || 0);
+
+    return key === 'Enter'
+      || key === 'BrowserSelect'
+      || key === 'NumpadEnter'
+      || key === 'Select'
+      || key === 'OK'
+      || key === ' '
+      || key === 'Spacebar'
+      || code === 'BrowserSelect'
+      || code === 'Enter'
+      || code === 'NumpadEnter'
+      || code === 'Space'
+      || keyCode === 13
+      || keyCode === 23
+      || keyCode === 32
+      || keyCode === 66
+      || keyCode === 160;
+  }
+
+  private captureRemoteKey(event: KeyboardEvent): void {
+    const key = String(event.key || '');
+    const code = String((event as any).code || '');
+    const keyCode = Number((event as any).keyCode || (event as any).which || 0);
   }
 }

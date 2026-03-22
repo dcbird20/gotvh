@@ -1,4 +1,4 @@
-<section class="panel-screen">
+<section class="panel-screen" data-tv-scroll-container="true" data-tv-nav-scope="recordings-page" data-tv-nav-mode="linear-vertical">
   <header class="panel-screen__header">
     <div>
       <div class="panel-screen__eyebrow">DVR</div>
@@ -6,7 +6,7 @@
       <p class="panel-screen__subtitle">Manage upcoming jobs, inspect failures, and clean up completed recordings.</p>
     </div>
 
-    <button class="tv-btn" type="button" tvFocusable (click)="refresh()">Refresh</button>
+    <button class="tv-btn" type="button" tvFocusable data-tv-linear-anchor="true" (click)="refresh()">Refresh</button>
   </header>
 
   <div class="panel-screen__stats">
@@ -25,9 +25,9 @@
   </div>
 
   <div class="panel-screen__tabs">
-    <button class="tv-btn" type="button" tvFocusable [class.tv-btn--primary]="activeTab === 'upcoming'" (click)="selectTab('upcoming')">Upcoming</button>
-    <button class="tv-btn" type="button" tvFocusable [class.tv-btn--primary]="activeTab === 'finished'" (click)="selectTab('finished')">Finished</button>
-    <button class="tv-btn" type="button" tvFocusable [class.tv-btn--primary]="activeTab === 'failed'" (click)="selectTab('failed')">Failed</button>
+    <button class="tv-btn" type="button" tvFocusable data-tv-linear-anchor="true" [class.tv-btn--primary]="activeTab === 'upcoming'" (click)="selectTab('upcoming')">Upcoming</button>
+    <button class="tv-btn" type="button" tvFocusable data-tv-linear-anchor="true" [class.tv-btn--primary]="activeTab === 'finished'" (click)="selectTab('finished')">Finished</button>
+    <button class="tv-btn" type="button" tvFocusable data-tv-linear-anchor="true" [class.tv-btn--primary]="activeTab === 'failed'" (click)="selectTab('failed')">Failed</button>
   </div>
 
   <div class="panel-screen__context" *ngIf="!loading && !error">
@@ -46,7 +46,12 @@
 
   <div class="stack-list" *ngIf="!loading && !error && getActiveEntries().length > 0">
     <article class="stack-card" *ngFor="let entry of getActiveEntries(); trackBy: trackByUuid">
-      <div class="stack-card__body">
+      <div
+        class="stack-card__body stack-card__anchor"
+        tvFocusable
+        data-tv-linear-anchor="true"
+        [attr.data-recording-row-uuid]="entry.uuid"
+      >
         <div class="stack-card__title-row">
           <h2 class="stack-card__title">{{ entry.disp_title || entry.title || 'Untitled Recording' }}</h2>
           <span class="stack-card__badge" [ngClass]="'stack-card__badge--' + getEntryTone(entry)">{{ getEntryStateLabel(entry) }}</span>

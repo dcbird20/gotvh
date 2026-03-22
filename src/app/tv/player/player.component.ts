@@ -4,9 +4,10 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { registerPlugin } from '@capacitor/core';
 import { TvFocusableDirective } from '../../directives/tv-focusable.directive';
 import { TvheadendService } from '../../services/tvheadend.service';
+import { environment } from '../../../environments/environment';
 
 const NativeVideo = registerPlugin<{
-  open(options: { url: string; title?: string; mimeType?: string; authHeader?: string; allowLiveFallback?: boolean }): Promise<{ launched: boolean }>;
+  open(options: { url: string; title?: string; mimeType?: string; authHeader?: string; allowLiveFallback?: boolean; fallbackProfiles?: string }): Promise<{ launched: boolean }>;
   openKodiHtsp(options: { url: string; title?: string; fallbackUrl?: string }): Promise<{ launched: boolean; fallback?: boolean }>;
 }>('NativeVideo');
 
@@ -63,18 +64,14 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
   hasAc3Audio = false;
   awaitingNativeInteraction = false;
   nativeProfileLabel = '';
+  readonly diagnosticsEnabled = false;
 
   private mpegtsPlayer: any | null = null;
   private activePlaybackMode = 'none';
   private nativeRetryVideo: HTMLVideoElement | null = null;
   private activeNativeProfileIndex = 0;
   private readonly mpegtsProfile = 'webtv-h264-aac-mpegts';
-  private nativeFallbackProfiles: string[] = [
-    'pass',
-    'webtv-h264-vorbis-mp4',
-    'webtv-h264-aac-mpegts',
-    'webtv-h264-aac-matroska'
-  ];
+  private nativeFallbackProfiles: string[] = [];
 
   constructor(
     private route: ActivatedRoute,
@@ -83,6 +80,8 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
   ) {
     this.channelId = this.route.snapshot.paramMap.get('channelId') || '';
     this.channelName = this.route.snapshot.queryParamMap.get('name') || 'Live TV';
+    this.nativeFallbackProfiles = this.buildNativeFallbackProfiles();
+    this.selectedTransport = this.isCapacitorNative() ? 'native' : 'direct';
     const requestedReturnTo = this.route.snapshot.queryParamMap.get('returnTo') || '';
     if (requestedReturnTo.startsWith('/')) {
       this.returnTo = requestedReturnTo;
@@ -211,6 +210,10 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
   }
 
   async runStreamHealthCheck(): Promise<void> {
+    if (!this.diagnosticsEnabled) {
+      return;
+    }
+
     if (this.runningHealthCheck) {
       return;
     }
@@ -246,6 +249,10 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
   }
 
   async copyDebugReport(): Promise<void> {
+    if (!this.diagnosticsEnabled) {
+      return;
+    }
+
     if (this.copyingDebugReport) {
       return;
     }
@@ -267,6 +274,10 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
   }
 
   downloadDebugReport(): void {
+    if (!this.diagnosticsEnabled) {
+      return;
+    }
+
     if (this.downloadingDebugReport) {
       return;
     }
@@ -522,6 +533,13 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
   }
 
   private refreshDiagnostics(): void {
+    if (!this.diagnosticsEnabled) {
+      this.diagnostics = [];
+      this.healthChecks = [];
+      this.healthSummary = '';
+      return;
+    }
+
     const nativeSupport = this.playerVideo?.nativeElement?.canPlayType('video/mp2t') || 'no';
     this.diagnostics = [
       { label: 'Transport', value: this.getTransportLabel() },
@@ -591,10 +609,11 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
     const useBufferedPlayback = this.tvh.shouldUseNativeBufferedPlayback();
     const allowLiveFallback = this.tvh.shouldAllowNativeLiveFallback();
     
-    // For native Android player, use direct stream endpoints (not playlist)
-    // Buffered: /play/stream/channel/ | Live: /stream/channel/
+    // For native Android playback, keep credentials in the URL as well as the
+    // Authorization header because some media stacks drop headers across
+    // redirects or secondary requests.
     const baseUrl = this.tvh.getChannelStreamUrl(this.channelId, {
-      includeAuth: false,
+      includeAuth: true,
       buffered: useBufferedPlayback,
       playlist: false  // CRITICAL: Don't use playlist for native player
     });
@@ -618,7 +637,8 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
         title: this.channelName,
         mimeType,
         authHeader,
-        allowLiveFallback
+        allowLiveFallback,
+        fallbackProfiles: this.nativeFallbackProfiles.join(',')
       });
     } catch (error: any) {
       this.playerError = `Failed to open native Android player: ${String(error?.message || error || 'unknown error')}`;
@@ -864,6 +884,14 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
   }
 
   private buildDebugReport(): string {
+    if (!this.diagnosticsEnabled) {
+      return [
+        'GoTVH Debug Report',
+        `Timestamp: ${new Date().toISOString()}`,
+        'Diagnostics are currently disabled in the player UI.'
+      ].join('\n');
+    }
+
     const diagnosticsLines = this.diagnostics.map(item => `- ${item.label}: ${item.value}`);
     const checksLines = this.healthChecks.length
       ? this.healthChecks.map(item => `- [${item.outcome.toUpperCase()}] ${item.label}: ${item.detail}`)
@@ -967,6 +995,49 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
       return 'video/mp2t';
     }
     return 'video/mp4';
+  }
+
+  private buildNativeFallbackProfiles(): string[] {
+    const envProfiles = (environment as any).nativePreferredProfiles;
+    const parsedProfiles = Array.isArray(envProfiles)
+      ? envProfiles
+      : String(envProfiles || '')
+          .split(',')
+          .map((profile: string) => profile.trim())
+          .filter((profile: string) => !!profile);
+
+    if (parsedProfiles.length) {
+      return this.dedupeProfiles(parsedProfiles);
+    }
+
+    if (this.isCapacitorNative()) {
+      return this.dedupeProfiles([
+        'pass',
+        'webtv-h264-aac-matroska',
+        'webtv-h264-vorbis-mp4',
+        'webtv-h264-aac-mpegts'
+      ]);
+    }
+
+    return this.dedupeProfiles([
+      'pass',
+      'webtv-h264-vorbis-mp4',
+      'webtv-h264-aac-mpegts',
+      'webtv-h264-aac-matroska'
+    ]);
+  }
+
+  private dedupeProfiles(profiles: string[]): string[] {
+    const uniqueProfiles = new Set<string>();
+
+    for (const profile of profiles) {
+      const normalized = String(profile || '').trim();
+      if (normalized) {
+        uniqueProfiles.add(normalized);
+      }
+    }
+
+    return Array.from(uniqueProfiles);
   }
 
   private isUnsupportedAc3Error(errorDetail: string, errorInfo?: MpegtsErrorInfo): boolean {

@@ -2,7 +2,7 @@ import { CommonModule } from '@angular/common';
 import { Component, ElementRef, HostListener, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { FormBuilder, Validators } from '@angular/forms';
 import { ReactiveFormsModule } from '@angular/forms';
-import { Router, RouterOutlet } from '@angular/router';
+import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { Subject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 import { TvFocusableDirective } from './directives/tv-focusable.directive';
@@ -18,7 +18,7 @@ interface NavItem {
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [CommonModule, ReactiveFormsModule, RouterOutlet, TvFocusableDirective],
+  imports: [CommonModule, ReactiveFormsModule, RouterOutlet, RouterLink, RouterLinkActive, TvFocusableDirective],
   templateUrl: './app.component.html',
   styleUrls: ['./app.component.scss']
 })
@@ -27,6 +27,7 @@ export class AppComponent implements OnInit, OnDestroy {
   @ViewChild('authPasswordInput') authPasswordInput?: ElementRef<HTMLInputElement>;
   @ViewChild('authCancelButton') authCancelButton?: ElementRef<HTMLButtonElement>;
   @ViewChild('authContinueButton') authContinueButton?: ElementRef<HTMLButtonElement>;
+  @ViewChild('shellContent') shellContent?: ElementRef<HTMLElement>;
 
   sidebarExpanded = false;
   authDialogState: TvheadendAuthDialogState = { open: false, reason: '' };
@@ -126,16 +127,103 @@ export class AppComponent implements OnInit, OnDestroy {
       || key === 'ArrowDown'
       || key === 'ArrowLeft'
       || key === 'ArrowRight'
-      || key === 'Enter';
+      || key === 'Enter'
+      || key === 'BrowserSelect'
+      || key === 'NumpadEnter'
+      || key === 'Select'
+      || key === 'OK'
+      || key === ' '
+      || key === 'Spacebar';
 
     if (isTypingTarget && !isNavKey) {
+      return;
+    }
+
+    if (this.shouldDeferDirectionalNavigation(event, active)) {
       return;
     }
 
     const consumed = this.spatialNav.handleKeydown(event);
     if (consumed) {
       event.preventDefault();
+      return;
     }
+
+    if (this.handleTvScrollFallback(event)) {
+      event.preventDefault();
+    }
+  }
+
+  private handleTvScrollFallback(event: KeyboardEvent): boolean {
+    const key = String(event.key || '');
+    const code = String((event as any).code || '');
+    const keyCode = Number((event as any).keyCode || (event as any).which || 0);
+    const direction = this.resolveScrollDirection(key, code, keyCode);
+    if (!direction) {
+      return false;
+    }
+
+    const activeElement = document.activeElement as HTMLElement | null;
+    const container = this.resolveActiveScrollContainer(activeElement);
+    if (!container) {
+      return false;
+    }
+
+    const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
+    if (maxScrollTop <= 0) {
+      return false;
+    }
+
+    const scrollAmount = Math.max(120, Math.round(container.clientHeight * 0.45));
+    const previousTop = container.scrollTop;
+    const nextTop = direction === 'down'
+      ? Math.min(maxScrollTop, previousTop + scrollAmount)
+      : Math.max(0, previousTop - scrollAmount);
+
+    if (nextTop === previousTop) {
+      return false;
+    }
+
+    container.scrollTo({
+      top: nextTop,
+      behavior: 'smooth'
+    });
+    return true;
+  }
+
+  private resolveActiveScrollContainer(activeElement: HTMLElement | null): HTMLElement | null {
+    const routeContainer = activeElement?.closest('[data-tv-scroll-container="true"]') as HTMLElement | null;
+    if (routeContainer) {
+      return routeContainer;
+    }
+
+    return this.shellContent?.nativeElement || null;
+  }
+
+  private resolveScrollDirection(key: string, code: string, keyCode: number): 'up' | 'down' | null {
+    if (key === 'ArrowDown' || code === 'ArrowDown' || keyCode === 20 || keyCode === 40) {
+      return 'down';
+    }
+
+    if (key === 'ArrowUp' || code === 'ArrowUp' || keyCode === 19 || keyCode === 38) {
+      return 'up';
+    }
+
+    return null;
+  }
+
+  private shouldDeferDirectionalNavigation(event: KeyboardEvent, activeElement: HTMLElement | null): boolean {
+    const key = String(event.key || '');
+    const isDirectional = key === 'ArrowUp'
+      || key === 'ArrowDown'
+      || key === 'ArrowLeft'
+      || key === 'ArrowRight';
+
+    if (!isDirectional) {
+      return false;
+    }
+
+    return activeElement?.closest('[data-tv-nav-scope="epg-page"]') != null;
   }
 
   private handleAuthDialogNavigation(event: KeyboardEvent): boolean {

@@ -120,8 +120,8 @@ export class AutorecComponent implements OnInit {
       }
 
       const escapedUuid = target.ruleUuid.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-      const sameRule = document.querySelector(`[data-autorec-delete-uuid="${escapedUuid}"]`) as HTMLElement | null;
-      const fallback = document.querySelector('[data-autorec-delete-uuid], [data-autorec-refresh]') as HTMLElement | null;
+      const sameRule = document.querySelector(`[data-autorec-row-uuid="${escapedUuid}"]`) as HTMLElement | null;
+      const fallback = document.querySelector('[data-autorec-row-uuid], [data-autorec-refresh]') as HTMLElement | null;
       (sameRule || fallback)?.focus();
     }, 0);
   }

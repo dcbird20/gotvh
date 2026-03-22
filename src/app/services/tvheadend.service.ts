@@ -1,6 +1,7 @@
 import { Injectable } from '@angular/core';
 import { HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
-import { BehaviorSubject, Observable, of, throwError } from 'rxjs';
+import { Capacitor, CapacitorHttp } from '@capacitor/core';
+import { BehaviorSubject, from, Observable, of, throwError } from 'rxjs';
 import { catchError, map, shareReplay, switchMap } from 'rxjs/operators';
 import { environment } from '../../environments/environment';
 
@@ -351,6 +352,33 @@ export class TvheadendService {
       headers = headers.set('Authorization', this.authHeader);
     }
     return { headers, withCredentials: true };
+  }
+
+  private getAnonymousRequestOptions() {
+    return {
+      headers: new HttpHeaders(),
+      withCredentials: false
+    };
+  }
+
+  private getAnonymousRequestOptionsWithCredentials() {
+    return {
+      headers: new HttpHeaders(),
+      withCredentials: true
+    };
+  }
+
+  private parseServerInfoPayload(body: unknown): any {
+    if (body && typeof body === 'object') {
+      return body;
+    }
+
+    const text = String(body || '').trim();
+    if (!text) {
+      return null;
+    }
+
+    return JSON.parse(text);
   }
 
   private getFormRequestOptions() {
@@ -934,8 +962,43 @@ export class TvheadendService {
   }
 
   getServerInfo(): Observable<any> {
-    return this.http.get<any>(this.buildUrl('serverinfo'), this.getRequestOptions()).pipe(
-      catchError(() => of(null))
+    const url = this.buildUrl('serverinfo');
+
+    const anonymousRequest = this.http.get(url, {
+      ...this.getAnonymousRequestOptions(),
+      responseType: 'text'
+    }).pipe(map(body => this.parseServerInfoPayload(body)));
+
+    const anonymousWithCredentialsRequest = this.http.get(url, {
+      ...this.getAnonymousRequestOptionsWithCredentials(),
+      responseType: 'text'
+    }).pipe(map(body => this.parseServerInfoPayload(body)));
+
+    const authenticatedRequest = this.http.get(url, {
+      ...this.getRequestOptions(),
+      responseType: 'text'
+    }).pipe(map(body => this.parseServerInfoPayload(body)));
+
+    if (Capacitor.isNativePlatform()) {
+      const nativeRequest = from(CapacitorHttp.get({
+        url,
+        headers: {},
+        connectTimeout: 8000,
+        readTimeout: 8000
+      })).pipe(
+        map(result => this.parseServerInfoPayload(result?.data))
+      );
+
+      return nativeRequest.pipe(
+        catchError(() => anonymousRequest),
+        catchError(() => anonymousWithCredentialsRequest),
+        catchError(() => authenticatedRequest)
+      );
+    }
+
+    return anonymousRequest.pipe(
+      catchError(() => anonymousWithCredentialsRequest),
+      catchError(() => authenticatedRequest)
     );
   }
 

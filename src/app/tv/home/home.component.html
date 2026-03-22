@@ -1,4 +1,4 @@
-<div class="home">
+<div class="home" data-tv-scroll-container="true" data-tv-nav-scope="home-page">
 
   <!-- Loading -->
   <div class="loading" *ngIf="loading">
@@ -23,6 +23,7 @@
         <p class="hero__time" *ngIf="heroProgram">
           {{ formatTime(heroProgram.start * 1000) }} – {{ formatTime(heroProgram.stop * 1000) }}
         </p>
+        <p class="hero__time" *ngIf="!heroProgram && epgStatusNotice">Programme guide data is currently unavailable.</p>
         <div class="hero__actions">
           <button class="tv-btn tv-btn--primary hero__watch-btn" tvFocusable (click)="watchChannel(heroChannel, 'hero')">
             ▶ Watch Live
@@ -37,6 +38,7 @@
     <!-- ── On Now ───────────────────────────────────────────────── -->
     <section class="shelf" *ngIf="onNowItems.length">
       <h2 class="shelf__header">On Now</h2>
+      <p class="home__empty" *ngIf="!hasOnNowProgrammeData() && epgStatusNotice">{{ epgStatusNotice }}</p>
       <div class="shelf__row">
         <app-tv-card
           *ngFor="let item of onNowItems"

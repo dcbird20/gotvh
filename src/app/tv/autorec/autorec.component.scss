@@ -44,6 +44,12 @@
   background: var(--tv-surface);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: var(--tv-radius);
+
+  &.tv-focused {
+    transform: none;
+    border-color: rgba(26, 115, 232, 0.7);
+    box-shadow: var(--tv-focus-ring) !important;
+  }
 }
 
 .metric-card {
@@ -127,6 +133,16 @@
 
   &__body {
     min-width: 0;
+  }
+
+  &__anchor {
+    border-radius: 12px;
+
+    &.tv-focused {
+      transform: none;
+      box-shadow: var(--tv-focus-ring) !important;
+      background: rgba(255, 255, 255, 0.04);
+    }
   }
 
   &__title-row {

@@ -1,6 +1,7 @@
 <div class="shell">
   <!-- Collapsing sidebar -->
-  <nav class="sidebar"
+    <nav class="sidebar"
+      data-tv-nav-scope="sidebar"
        [class.sidebar--expanded]="sidebarExpanded"
        (mouseenter)="sidebarExpanded = true"
        (mouseleave)="sidebarExpanded = false">
@@ -11,13 +12,20 @@
     </div>
 
     <ul class="sidebar__nav">
-      <li *ngFor="let item of navItems"
+      <li *ngFor="let item of navItems" class="sidebar__nav-entry">
+        <button
           class="sidebar__item"
-          [class.sidebar__item--active]="isActive(item.route)"
+          type="button"
           tvFocusable
-          (click)="navigate(item.route)">
-        <span class="sidebar__item-icon">{{ item.icon }}</span>
-        <span class="sidebar__item-label">{{ item.label }}</span>
+          [routerLink]="item.route"
+          routerLinkActive="sidebar__item--active"
+          [routerLinkActiveOptions]="{ exact: false }"
+          [attr.aria-current]="isActive(item.route) ? 'page' : null"
+          (click)="sidebarExpanded = false"
+        >
+          <span class="sidebar__item-icon">{{ item.icon }}</span>
+          <span class="sidebar__item-label">{{ item.label }}</span>
+        </button>
       </li>
     </ul>
 
@@ -36,7 +44,7 @@
   </nav>
 
   <!-- Main content -->
-  <main class="shell__content">
+  <main #shellContent class="shell__content" data-tv-nav-scope="shell-content">
     <router-outlet></router-outlet>
   </main>
 </div>

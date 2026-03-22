@@ -17,6 +17,7 @@ public class NativeVideoPlugin extends Plugin {
         String title = call.getString("title", "Live TV");
         String mimeType = call.getString("mimeType", "video/mp4");
         String authHeader = call.getString("authHeader");
+        String fallbackProfiles = call.getString("fallbackProfiles");
         Boolean allowLiveFallback = call.getBoolean("allowLiveFallback", false);
 
         if (url == null || url.trim().isEmpty()) {
@@ -29,6 +30,7 @@ public class NativeVideoPlugin extends Plugin {
         intent.putExtra(NativeVideoActivity.EXTRA_TITLE, title);
         intent.putExtra(NativeVideoActivity.EXTRA_MIME_TYPE, mimeType);
         intent.putExtra(NativeVideoActivity.EXTRA_AUTH_HEADER, authHeader);
+        intent.putExtra(NativeVideoActivity.EXTRA_FALLBACK_PROFILES, fallbackProfiles);
         intent.putExtra(NativeVideoActivity.EXTRA_ALLOW_LIVE_FALLBACK, allowLiveFallback != null && allowLiveFallback);
         getActivity().startActivity(intent);
 

@@ -42,8 +42,19 @@
   border-radius: var(--tv-radius);
   padding: 20px;
 
+  &.tv-focused {
+    transform: none;
+    border-color: rgba(26, 115, 232, 0.7);
+    box-shadow: var(--tv-focus-ring) !important;
+  }
+
   &--wide {
     grid-column: 1 / -1;
+  }
+
+  &--app {
+    grid-column: 1 / -1;
+    background: linear-gradient(180deg, rgba(26, 115, 232, 0.14), rgba(255, 255, 255, 0.02));
   }
 
   &__title {
@@ -65,6 +76,14 @@
     display: grid;
     grid-template-columns: minmax(140px, 200px) 1fr;
     gap: 12px;
+    padding: 10px 12px;
+    border-radius: 12px;
+
+    &.tv-focused {
+      transform: none;
+      background: rgba(255, 255, 255, 0.06);
+      box-shadow: var(--tv-focus-ring) !important;
+    }
   }
 
   &__key {
@@ -87,6 +106,12 @@
   padding: 14px 16px;
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.03);
+
+  &.tv-focused {
+    transform: none;
+    background: rgba(255, 255, 255, 0.08);
+    box-shadow: var(--tv-focus-ring) !important;
+  }
 
   strong {
     font-size: 16px;

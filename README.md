@@ -43,8 +43,16 @@ Navigate to `http://localhost:4200/`. The app will auto-reload when you change s
 Build for production:
 
 ```bash
-./node_modules/.bin/ng build
+npm run build
 ```
+
+Build a debug APK that uses the production TVHeadend backend URLs:
+
+```bash
+npm run build:debug-apk
+```
+
+Use `npm run build:dev` only for local browser builds that rely on the `/api` dev proxy.
 
 ## Android Release Signing
 

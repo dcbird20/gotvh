@@ -111,6 +111,16 @@
     min-width: 0;
   }
 
+  &__anchor {
+    border-radius: 12px;
+
+    &.tv-focused {
+      transform: none;
+      box-shadow: var(--tv-focus-ring) !important;
+      background: rgba(255, 255, 255, 0.04);
+    }
+  }
+
   &__title-row {
     display: flex;
     align-items: center;

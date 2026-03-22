@@ -1,4 +1,4 @@
-<section class="panel-screen">
+<section class="panel-screen" data-tv-scroll-page="true" data-tv-scroll-container="true" data-tv-nav-scope="status-page" data-tv-nav-mode="linear-vertical">
   <header class="panel-screen__header">
     <div>
       <div class="panel-screen__eyebrow">Diagnostics</div>
@@ -6,23 +6,34 @@
       <p class="panel-screen__subtitle">Inspect server metadata, active streams, and currently connected clients from TVHeadend.</p>
     </div>
 
-    <button class="tv-btn" type="button" tvFocusable data-status-refresh (click)="rememberRefreshFocus(); refresh()">Refresh</button>
+    <button class="tv-btn" type="button" tvFocusable data-tv-linear-anchor="true" data-status-refresh (click)="rememberRefreshFocus(); refresh()">Refresh</button>
   </header>
 
   <div class="status status--loading" *ngIf="loading">Loading server status…</div>
   <div class="status status--error" *ngIf="!loading && error">{{ error }}</div>
 
-  <div class="panel-grid" *ngIf="!loading && !error">
+  <div class="panel-grid">
+    <section class="panel-card panel-card--app">
+      <h2 class="panel-card__title">App Build</h2>
+      <div class="kv-list">
+        <div class="kv-list__row" tvFocusable data-tv-linear-anchor="true" *ngFor="let item of appEntries()">
+          <span class="kv-list__key">{{ item.key }}</span>
+          <span class="kv-list__value">{{ item.value }}</span>
+        </div>
+      </div>
+    </section>
+
+    <ng-container *ngIf="!loading && !error">
     <section class="panel-card">
       <h2 class="panel-card__title">Server Info</h2>
       <div class="kv-list" *ngIf="serverInfo; else noServerInfo">
-        <div class="kv-list__row" *ngFor="let item of entriesOf(serverInfo)">
+        <div class="kv-list__row" tvFocusable data-tv-linear-anchor="true" *ngFor="let item of entriesOf(serverInfo)">
           <span class="kv-list__key">{{ item.key }}</span>
           <span class="kv-list__value">{{ item.value }}</span>
         </div>
       </div>
       <ng-template #noServerInfo>
-        <p class="panel-card__empty">No server metadata returned.</p>
+        <p class="panel-card__empty">{{ serverInfoNotice || 'No server metadata returned.' }}</p>
       </ng-template>
     </section>
 
@@ -30,7 +41,7 @@
       <h2 class="panel-card__title">Subscriptions</h2>
       <p class="panel-card__count">{{ subscriptions.length }} active</p>
       <div class="list-table" *ngIf="subscriptions.length > 0; else noSubscriptions">
-        <article class="list-table__row" *ngFor="let item of subscriptions; trackBy: trackByIndex">
+        <article class="list-table__row" tvFocusable data-tv-linear-anchor="true" *ngFor="let item of subscriptions; trackBy: trackByIndex">
           <strong>{{ item.channel || item.channelname || item.title || 'Unknown stream' }}</strong>
           <span>{{ item.state || item.status || 'active' }}</span>
           <span>{{ item.service || item.hostname || item.username || 'Unknown source' }}</span>
@@ -45,7 +56,7 @@
       <h2 class="panel-card__title">Connections</h2>
       <p class="panel-card__count">{{ connections.length }} active</p>
       <div class="list-table" *ngIf="connections.length > 0; else noConnections">
-        <article class="list-table__row" *ngFor="let item of connections; trackBy: trackByIndex">
+        <article class="list-table__row" tvFocusable data-tv-linear-anchor="true" *ngFor="let item of connections; trackBy: trackByIndex">
           <strong>{{ item.peer || item.peername || item.hostname || item.username || 'Unknown client' }}</strong>
           <span>{{ item.username || 'anonymous' }}</span>
           <span>{{ item.type || item.proto || 'connection' }}</span>
@@ -55,5 +66,6 @@
         <p class="panel-card__empty">No active client connections.</p>
       </ng-template>
     </section>
+    </ng-container>
   </div>
 </section>
