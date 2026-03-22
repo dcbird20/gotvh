@@ -141,6 +141,8 @@ public class NativeVideoActivity extends AppCompatActivity {
         }
 
         android.util.Log.d("NativeVideo", "Loading stream: " + url + " | mimeType: " + mimeType + " | auth: " + (authHeader != null ? "yes" : "no"));
+        // Mirror the web player by surfacing the selected guide metadata
+        // briefly, then leaving the viewer uncluttered for full-screen playback.
         showProgramInfoOverlay();
         showStatusOverlay("Opening " + formatProfileLabel(getActiveProfileLabel()) + " playback", 2200);
 
@@ -415,6 +417,8 @@ public class NativeVideoActivity extends AppCompatActivity {
         lastChannelSurfAtMs = now;
         currentChannelId = nextChannel.uuid;
         currentUrl = nextUrl;
+        // Once the user surfs away, the original guide programme details would
+        // be stale, so drop them before the new stream is prepared.
         programTitle = "";
         programTime = "";
         programDescription = "";
@@ -594,6 +598,8 @@ public class NativeVideoActivity extends AppCompatActivity {
             return;
         }
 
+        // Re-showing the overlay should reset its lifetime instead of letting an
+        // earlier timeout hide freshly updated programme information.
         overlayHandler.removeCallbacks(hideProgramInfoOverlayRunnable);
 
         boolean hasProgramInfo = !programTitle.isEmpty() || !programTime.isEmpty() || !programCategory.isEmpty() || !programDescription.isEmpty();

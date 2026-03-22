@@ -308,6 +308,8 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
   }
 
   private showProgramInfoTemporarily(): void {
+    // Match the transient feel of player controls: show guide context briefly
+    // on entry, then clear it so playback remains the primary focus.
     this.clearProgramInfoHideTimer();
 
     if (!this.hasProgramContext()) {
@@ -490,6 +492,8 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
     this.channelId = nextChannelId;
     this.recordingRef = '';
     this.channelName = String(channel?.name || 'Live TV').trim() || 'Live TV';
+    // After channel surfing, the original EPG metadata no longer describes the
+    // stream on screen, so clear it before starting the next channel.
     this.programTitle = '';
     this.programTimeLabel = '';
     this.programDescription = '';
@@ -1106,6 +1110,8 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
     this.refreshDiagnostics();
 
     try {
+      // Native playback owns channel surfing and guide return behavior, so pass
+      // both the live channel list and the transient programme context with it.
       await NativeVideo.open({
         url,
         title: this.channelName,
@@ -1207,6 +1213,8 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
   }
 
   private buildProgramTimeLabel(programStart: string | null, programEnd: string | null): string {
+    // Route params carry epoch timestamps so Angular and Android can derive the
+    // same localized time label without duplicating formatter assumptions.
     const startMs = Number(programStart || 0);
     const endMs = Number(programEnd || 0);
     if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || startMs <= 0 || endMs <= 0) {

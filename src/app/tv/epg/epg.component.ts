@@ -1752,6 +1752,8 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
         endTime: this.parseEpgTime(program.endTime)
       }
     });
+    // Preserve both the guide return target and the selected programme details
+    // so the viewer can confirm it opened from the intended grid slot.
     this.router.navigate(['/player', uuid], {
       queryParams: {
         name: this.getChannelName(channelId),
