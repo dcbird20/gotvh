@@ -631,7 +631,7 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
 
     this.pendingReturnContext = null;
     this.shouldApplyInitialGuideFocus = false;
-    const channelId = String(context.payload['channelId'] || '').trim();
+    const channelId = this.resolveReturnChannelId(context);
     const start = String(context.payload['startTime'] || '').trim();
     const end = String(context.payload['endTime'] || '').trim();
 
@@ -663,6 +663,26 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
       this.scrollToFocusedChannel();
     }, 0);
     return true;
+  }
+
+  private resolveReturnChannelId(context: ReturnNavigationContext): string {
+    const directChannelId = String(context.payload['channelId'] || '').trim();
+    if (directChannelId) {
+      return directChannelId;
+    }
+
+    const playableChannelUuid = String(context.payload['playableChannelUuid'] || '').trim();
+    if (!playableChannelUuid) {
+      return '';
+    }
+
+    for (const [guideChannelId, playableUuid] of this.channelUuidMap.entries()) {
+      if (String(playableUuid || '').trim() === playableChannelUuid) {
+        return String(guideChannelId || '').trim();
+      }
+    }
+
+    return '';
   }
 
   private focusGuideEntryIfNeeded(): void {
@@ -1727,6 +1747,7 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
       source: 'epg',
       payload: {
         channelId,
+        playableChannelUuid: uuid,
         startTime: this.parseEpgTime(program.startTime),
         endTime: this.parseEpgTime(program.endTime)
       }

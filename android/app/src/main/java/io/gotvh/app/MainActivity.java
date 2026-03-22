@@ -1,5 +1,6 @@
 package io.gotvh.app;
 
+import android.content.Intent;
 import android.os.Bundle;
 import android.view.KeyEvent;
 import android.webkit.WebView;
@@ -11,6 +12,20 @@ public class MainActivity extends BridgeActivity {
 	public void onCreate(Bundle savedInstanceState) {
 		registerPlugin(NativeVideoPlugin.class);
 		super.onCreate(savedInstanceState);
+		handleNativeReturnIntent();
+	}
+
+	@Override
+	protected void onNewIntent(Intent intent) {
+		super.onNewIntent(intent);
+		setIntent(intent);
+		handleNativeReturnIntent();
+	}
+
+	@Override
+	public void onResume() {
+		super.onResume();
+		handleNativeReturnIntent();
 	}
 
 	@Override
@@ -97,5 +112,53 @@ public class MainActivity extends BridgeActivity {
 				+ "})();",
 			null
 		);
+	}
+
+	private void handleNativeReturnIntent() {
+		if (bridge == null) {
+			return;
+		}
+
+		Intent intent = getIntent();
+		if (intent == null) {
+			return;
+		}
+
+		String returnTo = normalizeIntentExtra(intent.getStringExtra(NativeVideoActivity.EXTRA_RETURN_TO));
+		String returnToken = normalizeIntentExtra(intent.getStringExtra(NativeVideoActivity.EXTRA_RETURN_TOKEN));
+		String returnChannelId = normalizeIntentExtra(intent.getStringExtra(NativeVideoActivity.EXTRA_RETURN_CHANNEL_ID));
+		if (!returnTo.startsWith("/")) {
+			return;
+		}
+
+		WebView webView = bridge.getWebView();
+		if (webView == null) {
+			return;
+		}
+
+		String escapedReturnTo = escapeJsString(returnTo);
+		String escapedReturnToken = escapeJsString(returnToken);
+		String escapedReturnChannelId = escapeJsString(returnChannelId);
+		webView.evaluateJavascript(
+			"(function(){"
+				+ "window.dispatchEvent(new CustomEvent('gotvh-native-return', { detail: { returnTo: '" + escapedReturnTo + "', returnToken: '" + escapedReturnToken + "', returnChannelId: '" + escapedReturnChannelId + "' } }));"
+				+ "})();",
+			null
+		);
+
+		intent.removeExtra(NativeVideoActivity.EXTRA_RETURN_TO);
+		intent.removeExtra(NativeVideoActivity.EXTRA_RETURN_TOKEN);
+		intent.removeExtra(NativeVideoActivity.EXTRA_RETURN_CHANNEL_ID);
+		setIntent(intent);
+	}
+
+	private String normalizeIntentExtra(String value) {
+		return value == null ? "" : value.trim();
+	}
+
+	private String escapeJsString(String value) {
+		return normalizeIntentExtra(value)
+			.replace("\\", "\\\\")
+			.replace("'", "\\'");
 	}
 }

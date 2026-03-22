@@ -7,6 +7,7 @@ import { Subject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 import { TvFocusableDirective } from './directives/tv-focusable.directive';
 import { RemoteKeyDebugService } from './services/remote-key-debug.service';
+import { ReturnNavigationService } from './services/return-navigation.service';
 import { SpatialNavService } from './services/spatial-nav.service';
 import { TvheadendService, TvheadendAuthDialogState, TvheadendAuthState } from './services/tvheadend.service';
 
@@ -41,6 +42,38 @@ export class AppComponent implements OnInit, OnDestroy {
   });
 
   private destroy$ = new Subject<void>();
+  private readonly nativeReturnHandler = (event: Event) => {
+    const detail = (event as CustomEvent<{ returnTo?: string; returnToken?: string; returnChannelId?: string }>).detail || {};
+    const returnTo = String(detail.returnTo || '').trim();
+    let returnToken = String(detail.returnToken || '').trim();
+    const returnChannelId = String(detail.returnChannelId || '').trim();
+
+    if (!returnTo.startsWith('/')) {
+      return;
+    }
+
+    if (returnTo === '/guide' && returnChannelId) {
+      returnToken = this.returnNavigation.createToken({
+        source: 'epg',
+        payload: {
+          playableChannelUuid: returnChannelId
+        }
+      });
+    }
+
+    try {
+      const returnTree = this.router.parseUrl(returnTo);
+      if (returnToken) {
+        returnTree.queryParams = {
+          ...returnTree.queryParams,
+          returnToken
+        };
+      }
+      void this.router.navigateByUrl(this.router.serializeUrl(returnTree));
+    } catch {
+      // Ignore malformed native return targets.
+    }
+  };
 
   navItems: NavItem[] = [
     { icon: '🏠', label: 'Home',       route: '/home'       },
@@ -55,6 +88,7 @@ export class AppComponent implements OnInit, OnDestroy {
     public router: Router,
     private spatialNav: SpatialNavService,
     private remoteKeyDebug: RemoteKeyDebugService,
+    private returnNavigation: ReturnNavigationService,
     private tvh: TvheadendService,
     private formBuilder: FormBuilder
   ) {
@@ -92,6 +126,9 @@ export class AppComponent implements OnInit, OnDestroy {
     // instead of exiting the Android WebView activity.
     this.pushBackGuardState();
     this.tvh.preloadGuideData();
+    if (typeof window !== 'undefined') {
+      window.addEventListener('gotvh-native-return', this.nativeReturnHandler as EventListener);
+    }
   }
 
   @HostListener('document:keydown', ['$event'])
@@ -513,6 +550,9 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('gotvh-native-return', this.nativeReturnHandler as EventListener);
+    }
     this.destroy$.next();
     this.destroy$.complete();
   }

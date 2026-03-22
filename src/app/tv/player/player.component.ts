@@ -6,11 +6,12 @@ import { take } from 'rxjs/operators';
 import { TvFocusableDirective } from '../../directives/tv-focusable.directive';
 import { RemoteKeyDebugService } from '../../services/remote-key-debug.service';
 import { RecordingPlaybackProgress, RecordingPlaybackProgressService } from '../../services/recording-playback-progress.service';
+import { ReturnNavigationService } from '../../services/return-navigation.service';
 import { TvheadendService } from '../../services/tvheadend.service';
 import { environment } from '../../../environments/environment';
 
 const NativeVideo = registerPlugin<{
-  open(options: { url: string; title?: string; mimeType?: string; authHeader?: string; allowLiveFallback?: boolean; fallbackProfiles?: string; currentChannelId?: string; liveChannelsJson?: string }): Promise<{ launched: boolean }>;
+  open(options: { url: string; title?: string; mimeType?: string; authHeader?: string; allowLiveFallback?: boolean; fallbackProfiles?: string; currentChannelId?: string; liveChannelsJson?: string; returnTo?: string; returnToken?: string }): Promise<{ launched: boolean }>;
   openKodiHtsp(options: { url: string; title?: string; fallbackUrl?: string }): Promise<{ launched: boolean; fallback?: boolean }>;
 }>('NativeVideo');
 
@@ -93,6 +94,7 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
     private route: ActivatedRoute,
     private router: Router,
     private remoteKeyDebug: RemoteKeyDebugService,
+    private returnNavigation: ReturnNavigationService,
     private tvh: TvheadendService,
     private recordingProgress: RecordingPlaybackProgressService
   ) {
@@ -451,6 +453,7 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
     this.pendingResumePositionSeconds = 0;
     this.hasAppliedResumePosition = false;
     this.lastPersistedPositionSeconds = -1;
+    this.updateGuideReturnToken(nextChannelId);
     this.refreshStreamUrls();
     this.playerStatus = `Switching to ${this.channelName}...`;
     this.refreshDiagnostics();
@@ -465,6 +468,24 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
     });
 
     await this.startPlayback();
+  }
+
+  private updateGuideReturnToken(currentChannelUuid: string): void {
+    if (this.returnTo !== '/guide') {
+      return;
+    }
+
+    const playableChannelUuid = String(currentChannelUuid || '').trim();
+    if (!playableChannelUuid) {
+      return;
+    }
+
+    this.returnToken = this.returnNavigation.createToken({
+      source: 'epg',
+      payload: {
+        playableChannelUuid
+      }
+    });
   }
 
   async selectTransport(transport: PlaybackTransport): Promise<void> {
@@ -1038,7 +1059,9 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
         allowLiveFallback,
         fallbackProfiles: this.nativeFallbackProfiles.join(','),
         currentChannelId: this.channelId,
-        liveChannelsJson
+        liveChannelsJson,
+        returnTo: this.returnTo,
+        returnToken: this.returnToken || undefined
       });
     } catch (error: any) {
       this.playerError = `Failed to open native Android player: ${String(error?.message || error || 'unknown error')}`;
@@ -1063,7 +1086,9 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
         title: this.channelName,
         mimeType,
         authHeader,
-        allowLiveFallback: false
+        allowLiveFallback: false,
+        returnTo: this.returnTo,
+        returnToken: this.returnToken || undefined
       });
     } catch (error: any) {
       this.playerError = `Failed to open native Android player: ${String(error?.message || error || 'unknown error')}`;

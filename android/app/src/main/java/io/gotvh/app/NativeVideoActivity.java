@@ -4,6 +4,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.content.Intent;
 import android.view.KeyEvent;
 import android.view.View;
 import android.widget.Toast;
@@ -37,6 +38,9 @@ public class NativeVideoActivity extends AppCompatActivity {
     public static final String EXTRA_ALLOW_LIVE_FALLBACK = "allowLiveFallback";
     public static final String EXTRA_CURRENT_CHANNEL_ID = "currentChannelId";
     public static final String EXTRA_LIVE_CHANNELS_JSON = "liveChannelsJson";
+    public static final String EXTRA_RETURN_TO = "returnTo";
+    public static final String EXTRA_RETURN_TOKEN = "returnToken";
+    public static final String EXTRA_RETURN_CHANNEL_ID = "returnChannelId";
 
     private static final class LiveChannelEntry {
         final String uuid;
@@ -62,6 +66,8 @@ public class NativeVideoActivity extends AppCompatActivity {
     private int activeProfileIndex = 0;
     private TextView statusOverlay;
     private String currentChannelId;
+    private String returnTo;
+    private String returnToken;
     private long lastChannelSurfAtMs = 0L;
     private final Handler overlayHandler = new Handler(Looper.getMainLooper());
     private final Runnable hideOverlayRunnable = () -> {
@@ -93,6 +99,8 @@ public class NativeVideoActivity extends AppCompatActivity {
         activeProfileIndex = resolveActiveProfileIndex(url, fallbackProfiles);
         allowLiveFallback = getIntent().getBooleanExtra(EXTRA_ALLOW_LIVE_FALLBACK, false);
         currentChannelId = normalizeValue(getIntent().getStringExtra(EXTRA_CURRENT_CHANNEL_ID));
+        returnTo = normalizeValue(getIntent().getStringExtra(EXTRA_RETURN_TO));
+        returnToken = normalizeValue(getIntent().getStringExtra(EXTRA_RETURN_TOKEN));
         liveChannels.clear();
         liveChannels.addAll(parseLiveChannels(getIntent().getStringExtra(EXTRA_LIVE_CHANNELS_JSON)));
 
@@ -137,6 +145,10 @@ public class NativeVideoActivity extends AppCompatActivity {
     public void onBackPressed() {
         if (playerView != null && playerView.isControllerFullyVisible()) {
             playerView.hideController();
+            return;
+        }
+
+        if (finishToReturnTarget()) {
             return;
         }
 
@@ -542,6 +554,25 @@ public class NativeVideoActivity extends AppCompatActivity {
         if (durationMs > 0) {
             overlayHandler.postDelayed(hideOverlayRunnable, durationMs);
         }
+    }
+
+    private boolean finishToReturnTarget() {
+        if (!returnTo.startsWith("/")) {
+            return false;
+        }
+
+        Intent intent = new Intent(this, MainActivity.class);
+        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        intent.putExtra(EXTRA_RETURN_TO, returnTo);
+        if (!returnToken.isEmpty()) {
+            intent.putExtra(EXTRA_RETURN_TOKEN, returnToken);
+        }
+        if (!currentChannelId.isEmpty()) {
+            intent.putExtra(EXTRA_RETURN_CHANNEL_ID, currentChannelId);
+        }
+        startActivity(intent);
+        finish();
+        return true;
     }
 
     private List<LiveChannelEntry> parseLiveChannels(String json) {
