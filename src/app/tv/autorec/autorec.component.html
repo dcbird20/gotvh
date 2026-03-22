@@ -39,6 +39,14 @@
       </label>
 
       <label class="composer-field">
+        <span>Match Mode</span>
+        <select [(ngModel)]="form.matchMode" (ngModelChange)="queueGuidePreview()" tvFocusable>
+          <option value="title">Title only</option>
+          <option value="fulltext">Full-text</option>
+        </select>
+      </label>
+
+      <label class="composer-field">
         <span>Filter Channels</span>
         <input type="text" [(ngModel)]="channelFilter" placeholder="Type channel number or name" />
       </label>
@@ -77,7 +85,7 @@
       <div class="composer-preview__header">
         <div>
           <h3 class="composer-preview__title">Guide Preview</h3>
-          <p class="composer-preview__subtitle">Uses TVHeadend full-text search and refreshes automatically as you type.</p>
+          <p class="composer-preview__subtitle">{{ describePreviewMatchMode() }}. Preview refreshes automatically as you type or change scope.</p>
         </div>
       </div>
 
@@ -119,7 +127,17 @@
   </div>
 
   <div class="stack-list" *ngIf="!loading && !error && rules.length > 0">
-    <article class="stack-card" *ngFor="let rule of rules; trackBy: trackByUuid">
+    <div class="stack-list__toolbar">
+      <label class="composer-field stack-list__filter">
+        <span class="composer-field__label-row">
+          <span>Filter Existing Rules</span>
+          <small class="composer-field__hint">{{ getRuleFilterSummary() }}</small>
+        </span>
+        <input type="text" [(ngModel)]="ruleFilter" placeholder="Type channel, title, comment, or profile" />
+      </label>
+    </div>
+
+    <article class="stack-card" *ngFor="let rule of getFilteredRules(); trackBy: trackByUuid">
       <div
         class="stack-card__body stack-card__anchor"
         tvFocusable
@@ -147,6 +165,14 @@
             <label class="composer-field">
               <span>Title</span>
               <input type="text" [(ngModel)]="editForm.title" />
+            </label>
+
+            <label class="composer-field">
+              <span>Match Mode</span>
+              <select [(ngModel)]="editForm.matchMode" tvFocusable>
+                <option value="title">Title only</option>
+                <option value="fulltext">Full-text</option>
+              </select>
             </label>
 
             <label class="composer-field">
@@ -203,5 +229,10 @@
         </ng-template>
       </div>
     </article>
+
+    <div class="empty-state empty-state--compact" *ngIf="getFilteredRules().length === 0">
+      <h2>No matching rules</h2>
+      <p>Try a channel name like Cozi or CNN, or search by title, comment, or profile.</p>
+    </div>
   </div>
 </section>

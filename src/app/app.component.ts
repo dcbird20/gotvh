@@ -142,6 +142,8 @@ export class AppComponent implements OnInit, OnDestroy {
       || active.tagName === 'TEXTAREA'
       || active.isContentEditable
     );
+    const isTextEntryInput = !!active && active.tagName === 'INPUT' && !['button', 'checkbox', 'color', 'file', 'hidden', 'image', 'radio', 'range', 'reset', 'submit'].includes((active as HTMLInputElement).type || 'text');
+    const isTextEntryTarget = !!active && (isTextEntryInput || active.tagName === 'TEXTAREA' || active.isContentEditable);
 
     if (key === 'BrowserBack' || key === 'GoBack' || (!isTypingTarget && key === 'Backspace')) {
       event.preventDefault();
@@ -175,6 +177,12 @@ export class AppComponent implements OnInit, OnDestroy {
       || key === 'OK'
       || key === ' '
       || key === 'Spacebar';
+
+    const isSpaceKey = key === ' ' || key === 'Spacebar' || String((event as any).code || '') === 'Space';
+
+    if (isTextEntryTarget && isSpaceKey) {
+      return;
+    }
 
     if (isTypingTarget && !isNavKey) {
       return;

@@ -1494,7 +1494,7 @@ export class TvheadendService {
     );
   }
 
-  searchAutorecPreview(title: string, channelUuid?: string, limit = 200): Observable<any[]> {
+  searchAutorecPreview(title: string, channelUuid?: string, fulltext = false, limit = 200): Observable<any[]> {
     const normalizedTitle = String(title || '').trim();
     if (!normalizedTitle) {
       return of([]);
@@ -1504,7 +1504,7 @@ export class TvheadendService {
       .set('start', '0')
       .set('limit', String(Math.max(1, limit)))
       .set('title', normalizedTitle)
-      .set('fulltext', '1');
+      .set('fulltext', fulltext ? '1' : '0');
 
     const normalizedChannelUuid = String(channelUuid || '').trim();
     if (normalizedChannelUuid) {

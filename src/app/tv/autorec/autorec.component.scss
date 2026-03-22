@@ -228,6 +228,15 @@
 .stack-list {
   display: grid;
   gap: 16px;
+
+  &__toolbar {
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  &__filter {
+    width: min(420px, 100%);
+  }
 }
 
 .stack-card {
@@ -320,6 +329,10 @@
 
 .empty-state {
   padding: 24px;
+
+  &--compact {
+    padding: 18px 20px;
+  }
 }
 
 @media (max-width: 900px) {

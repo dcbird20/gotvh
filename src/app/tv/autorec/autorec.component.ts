@@ -6,6 +6,8 @@ import { catchError, debounceTime, distinctUntilChanged, map, switchMap } from '
 import { TvFocusableDirective } from '../../directives/tv-focusable.directive';
 import { TvheadendService } from '../../services/tvheadend.service';
 
+type MatchMode = 'title' | 'fulltext';
+
 @Component({
   selector: 'app-autorec',
   standalone: true,
@@ -17,7 +19,7 @@ export class AutorecComponent implements OnInit, OnDestroy {
   private readonly previewLimit = 12;
   private readonly previewDebounceMs = 400;
   private readonly previewSearchLimit = 200;
-  private readonly guidePreviewQuery$ = new Subject<{ title: string; channel: string }>();
+  private readonly guidePreviewQuery$ = new Subject<{ title: string; channel: string; matchMode: MatchMode }>();
   private guidePreviewSubscription: Subscription | null = null;
   loading = true;
   saving = false;
@@ -31,6 +33,7 @@ export class AutorecComponent implements OnInit, OnDestroy {
   guidePreviewMatchCount = 0;
   guidePreviewResults: any[] = [];
   channelFilter = '';
+  ruleFilter = '';
   editChannelFilter = '';
   ruleActionUuid = '';
   editingRuleUuid = '';
@@ -38,12 +41,14 @@ export class AutorecComponent implements OnInit, OnDestroy {
   form = {
     title: '',
     channel: '',
+    matchMode: 'title' as MatchMode,
     config: '',
     comment: ''
   };
   editForm = {
     title: '',
     channel: '',
+    matchMode: 'title' as MatchMode,
     config: '',
     comment: ''
   };
@@ -94,7 +99,7 @@ export class AutorecComponent implements OnInit, OnDestroy {
     const conf: any = {
       enabled: 1,
       title,
-      fulltext: 1,
+      fulltext: this.form.matchMode === 'fulltext' ? 1 : 0,
       comment: String(this.form.comment || '').trim(),
     };
 
@@ -112,7 +117,7 @@ export class AutorecComponent implements OnInit, OnDestroy {
       next: () => {
         this.saving = false;
         this.pendingFocusTarget = 'create';
-        this.form = { title: '', channel: '', config: '', comment: '' };
+        this.form = { title: '', channel: '', matchMode: 'title', config: '', comment: '' };
         this.channelFilter = '';
         this.clearGuidePreview();
         this.refresh();
@@ -176,6 +181,7 @@ export class AutorecComponent implements OnInit, OnDestroy {
     this.editForm = {
       title: String(rule?.title || rule?.name || '').trim(),
       channel: String(rule?.channel || '').trim(),
+      matchMode: this.normalizeMatchMode(rule?.fulltext),
       config: this.normalizeConfigSelection(String(rule?.config_name || rule?.config || '').trim()),
       comment: String(rule?.comment || '').trim()
     };
@@ -184,7 +190,7 @@ export class AutorecComponent implements OnInit, OnDestroy {
   cancelEditRule(): void {
     this.editingRuleUuid = '';
     this.editChannelFilter = '';
-    this.editForm = { title: '', channel: '', config: '', comment: '' };
+    this.editForm = { title: '', channel: '', matchMode: 'title', config: '', comment: '' };
   }
 
   saveRuleEdits(rule: any): void {
@@ -203,6 +209,7 @@ export class AutorecComponent implements OnInit, OnDestroy {
 
     const changes: any = {
       title,
+      fulltext: this.editForm.matchMode === 'fulltext' ? 1 : 0,
       comment: String(this.editForm.comment || '').trim(),
       channel: String(this.editForm.channel || '').trim(),
       config_name: String(this.editForm.config || '').trim()
@@ -270,6 +277,24 @@ export class AutorecComponent implements OnInit, OnDestroy {
     return this.rules.filter(rule => !!String(rule?.channel || rule?.channelname || '').trim()).length;
   }
 
+  getFilteredRules(): any[] {
+    const query = String(this.ruleFilter || '').trim().toLowerCase();
+    if (!query) {
+      return this.rules;
+    }
+
+    return this.rules.filter(rule => {
+      const title = String(rule?.title || rule?.name || '').trim().toLowerCase();
+      const channel = String(rule?.channelname || rule?.channel || '').trim().toLowerCase();
+      const comment = String(rule?.comment || '').trim().toLowerCase();
+      const config = String(rule?.config_label || '').trim().toLowerCase();
+      return title.includes(query)
+        || channel.includes(query)
+        || comment.includes(query)
+        || config.includes(query);
+    });
+  }
+
   formatChannel(rule: any): string {
     return rule?.channelname || rule?.channel || 'Any channel';
   }
@@ -287,11 +312,12 @@ export class AutorecComponent implements OnInit, OnDestroy {
   queueGuidePreview(): void {
     const title = String(this.form.title || '').trim();
     const channel = String(this.form.channel || '').trim();
+    const matchMode = this.form.matchMode;
 
     this.guidePreviewError = '';
     this.guidePreviewSearched = !!title;
     this.guidePreviewLoading = !!title;
-    this.guidePreviewQuery$.next({ title, channel });
+    this.guidePreviewQuery$.next({ title, channel, matchMode });
 
     if (!title) {
       this.clearGuidePreview();
@@ -321,6 +347,20 @@ export class AutorecComponent implements OnInit, OnDestroy {
     }
 
     return `${this.guidePreviewMatchCount} guide match${this.guidePreviewMatchCount === 1 ? '' : 'es'} found.`;
+  }
+
+  describePreviewMatchMode(): string {
+    return this.form.matchMode === 'fulltext' ? 'Full-text preview' : 'Title-only preview';
+  }
+
+  getRuleFilterSummary(): string {
+    const total = this.rules.length;
+    const filtered = this.getFilteredRules().length;
+    if (!this.ruleFilter.trim()) {
+      return `${total} rule${total === 1 ? '' : 's'}`;
+    }
+
+    return `${filtered} of ${total} rules shown`;
   }
 
   getFilteredChannels(): any[] {
@@ -382,6 +422,10 @@ export class AutorecComponent implements OnInit, OnDestroy {
     return matchingConfig ? configValue : '';
   }
 
+  private normalizeMatchMode(fulltextValue: any): MatchMode {
+    return !!Number(fulltextValue || 0) ? 'fulltext' : 'title';
+  }
+
   private decorateRules(rules: any[], channels: any[], configs: any[]): any[] {
     const channelNameByUuid = new Map<string, string>();
     for (const channel of channels || []) {
@@ -422,13 +466,13 @@ export class AutorecComponent implements OnInit, OnDestroy {
   private bindGuidePreview(): void {
     this.guidePreviewSubscription = this.guidePreviewQuery$.pipe(
       debounceTime(this.previewDebounceMs),
-      distinctUntilChanged((left, right) => left.title === right.title && left.channel === right.channel),
-      switchMap(({ title, channel }) => {
+      distinctUntilChanged((left, right) => left.title === right.title && left.channel === right.channel && left.matchMode === right.matchMode),
+      switchMap(({ title, channel, matchMode }) => {
         if (!title) {
           return of({ total: 0, results: [], error: '', searched: false });
         }
 
-        return this.tvh.searchAutorecPreview(title, channel, this.previewSearchLimit).pipe(
+        return this.tvh.searchAutorecPreview(title, channel, matchMode === 'fulltext', this.previewSearchLimit).pipe(
           map(entries => ({ ...this.decorateGuidePreview(entries, title), searched: true })),
           catchError(() => of({ total: 0, results: [], error: 'Guide preview is unavailable right now. Check TVHeadend and try again.', searched: true }))
         );
