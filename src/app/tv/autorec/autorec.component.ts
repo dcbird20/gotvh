@@ -1,8 +1,8 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnInit } from '@angular/core';
+import { Component, OnDestroy, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { forkJoin, of } from 'rxjs';
-import { catchError } from 'rxjs/operators';
+import { Subject, Subscription, forkJoin, of } from 'rxjs';
+import { catchError, debounceTime, distinctUntilChanged, map, switchMap } from 'rxjs/operators';
 import { TvFocusableDirective } from '../../directives/tv-focusable.directive';
 import { TvheadendService } from '../../services/tvheadend.service';
 
@@ -13,24 +13,50 @@ import { TvheadendService } from '../../services/tvheadend.service';
   templateUrl: './autorec.component.html',
   styleUrls: ['./autorec.component.scss']
 })
-export class AutorecComponent implements OnInit {
+export class AutorecComponent implements OnInit, OnDestroy {
+  private readonly previewLimit = 12;
+  private readonly previewDebounceMs = 400;
+  private readonly previewSearchLimit = 200;
+  private readonly guidePreviewQuery$ = new Subject<{ title: string; channel: string }>();
+  private guidePreviewSubscription: Subscription | null = null;
   loading = true;
   saving = false;
   error = '';
   rules: any[] = [];
   channels: any[] = [];
+  configs: any[] = [];
+  guidePreviewLoading = false;
+  guidePreviewError = '';
+  guidePreviewSearched = false;
+  guidePreviewMatchCount = 0;
+  guidePreviewResults: any[] = [];
   channelFilter = '';
+  editChannelFilter = '';
+  ruleActionUuid = '';
+  editingRuleUuid = '';
   private pendingFocusTarget: 'refresh' | 'create' | { ruleUuid: string } | null = null;
   form = {
     title: '',
     channel: '',
+    config: '',
+    comment: ''
+  };
+  editForm = {
+    title: '',
+    channel: '',
+    config: '',
     comment: ''
   };
 
   constructor(private tvh: TvheadendService) {}
 
   ngOnInit(): void {
+    this.bindGuidePreview();
     this.refresh();
+  }
+
+  ngOnDestroy(): void {
+    this.guidePreviewSubscription?.unsubscribe();
   }
 
   refresh(): void {
@@ -43,8 +69,10 @@ export class AutorecComponent implements OnInit {
     }).subscribe({
       next: ({ rules, channels, configs }) => {
         this.channels = this.sortChannels(channels);
+        this.configs = this.sortConfigs(configs);
         this.rules = this.decorateRules(rules, channels, configs);
         this.loading = false;
+        this.queueGuidePreview();
         this.restoreFocusIfNeeded();
       },
       error: (error: any) => {
@@ -75,12 +103,18 @@ export class AutorecComponent implements OnInit {
       conf.channel = channel;
     }
 
+    const config = String(this.form.config || '').trim();
+    if (config) {
+      conf.config_name = config;
+    }
+
     this.tvh.createAutorec(conf).subscribe({
       next: () => {
         this.saving = false;
         this.pendingFocusTarget = 'create';
-        this.form = { title: '', channel: '', comment: '' };
+        this.form = { title: '', channel: '', config: '', comment: '' };
         this.channelFilter = '';
+        this.clearGuidePreview();
         this.refresh();
       },
       error: (error: any) => {
@@ -105,6 +139,94 @@ export class AutorecComponent implements OnInit {
         this.error = this.describeError(error);
       }
     });
+  }
+
+  toggleRuleEnabled(rule: any): void {
+    const uuid = String(rule?.uuid || '').trim();
+    if (!uuid || this.ruleActionUuid) {
+      return;
+    }
+
+    this.error = '';
+    this.ruleActionUuid = uuid;
+    this.pendingFocusTarget = { ruleUuid: uuid };
+    this.tvh.saveAutorec(uuid, {
+      enabled: rule?.enabled ? 0 : 1
+    }).subscribe({
+      next: () => {
+        this.ruleActionUuid = '';
+        this.refresh();
+      },
+      error: (error: any) => {
+        this.ruleActionUuid = '';
+        this.pendingFocusTarget = null;
+        this.error = this.describeError(error);
+      }
+    });
+  }
+
+  startEditRule(rule: any): void {
+    const uuid = String(rule?.uuid || '').trim();
+    if (!uuid || this.ruleActionUuid) {
+      return;
+    }
+
+    this.editingRuleUuid = uuid;
+    this.editChannelFilter = '';
+    this.editForm = {
+      title: String(rule?.title || rule?.name || '').trim(),
+      channel: String(rule?.channel || '').trim(),
+      config: this.normalizeConfigSelection(String(rule?.config_name || rule?.config || '').trim()),
+      comment: String(rule?.comment || '').trim()
+    };
+  }
+
+  cancelEditRule(): void {
+    this.editingRuleUuid = '';
+    this.editChannelFilter = '';
+    this.editForm = { title: '', channel: '', config: '', comment: '' };
+  }
+
+  saveRuleEdits(rule: any): void {
+    const uuid = String(rule?.uuid || '').trim();
+    const title = String(this.editForm.title || '').trim();
+    if (!uuid || !title || this.ruleActionUuid) {
+      if (!title) {
+        this.error = 'A rule title is required.';
+      }
+      return;
+    }
+
+    this.error = '';
+    this.ruleActionUuid = uuid;
+    this.pendingFocusTarget = { ruleUuid: uuid };
+
+    const changes: any = {
+      title,
+      comment: String(this.editForm.comment || '').trim(),
+      channel: String(this.editForm.channel || '').trim(),
+      config_name: String(this.editForm.config || '').trim()
+    };
+
+    this.tvh.saveAutorec(uuid, changes).subscribe({
+      next: () => {
+        this.ruleActionUuid = '';
+        this.cancelEditRule();
+        this.refresh();
+      },
+      error: (error: any) => {
+        this.ruleActionUuid = '';
+        this.error = this.describeError(error);
+      }
+    });
+  }
+
+  isRuleActionBusy(rule: any): boolean {
+    return !!this.ruleActionUuid && this.ruleActionUuid === String(rule?.uuid || '').trim();
+  }
+
+  isEditingRule(rule: any): boolean {
+    return this.editingRuleUuid === String(rule?.uuid || '').trim();
   }
 
   rememberRefreshFocus(): void {
@@ -158,8 +280,64 @@ export class AutorecComponent implements OnInit {
     return number ? `${number} ${name}`.trim() : name;
   }
 
+  formatConfigOption(config: any): string {
+    return String(config?.name || config?.title || '').trim() || 'Default DVR config';
+  }
+
+  queueGuidePreview(): void {
+    const title = String(this.form.title || '').trim();
+    const channel = String(this.form.channel || '').trim();
+
+    this.guidePreviewError = '';
+    this.guidePreviewSearched = !!title;
+    this.guidePreviewLoading = !!title;
+    this.guidePreviewQuery$.next({ title, channel });
+
+    if (!title) {
+      this.clearGuidePreview();
+      return;
+    }
+  }
+
+  clearGuidePreview(): void {
+    this.guidePreviewLoading = false;
+    this.guidePreviewError = '';
+    this.guidePreviewSearched = false;
+    this.guidePreviewMatchCount = 0;
+    this.guidePreviewResults = [];
+  }
+
+  getGuidePreviewSummary(): string {
+    if (!this.guidePreviewSearched || this.guidePreviewLoading || this.guidePreviewError) {
+      return '';
+    }
+
+    if (this.guidePreviewMatchCount === 0) {
+      return 'No current or upcoming guide matches found for this rule.';
+    }
+
+    if (this.guidePreviewMatchCount > this.guidePreviewResults.length) {
+      return `${this.guidePreviewMatchCount} guide matches found. Showing the first ${this.guidePreviewResults.length}.`;
+    }
+
+    return `${this.guidePreviewMatchCount} guide match${this.guidePreviewMatchCount === 1 ? '' : 'es'} found.`;
+  }
+
   getFilteredChannels(): any[] {
     const query = String(this.channelFilter || '').trim().toLowerCase();
+    if (!query) {
+      return this.channels;
+    }
+
+    return this.channels.filter(channel => {
+      const label = this.formatChannelOption(channel).toLowerCase();
+      const uuid = String(channel?.uuid || '').trim().toLowerCase();
+      return label.includes(query) || uuid.includes(query);
+    });
+  }
+
+  getFilteredEditChannels(): any[] {
+    const query = String(this.editChannelFilter || '').trim().toLowerCase();
     if (!query) {
       return this.channels;
     }
@@ -183,6 +361,25 @@ export class AutorecComponent implements OnInit {
       const rightName = String(right?.name || '').trim().toLowerCase();
       return leftName.localeCompare(rightName);
     });
+  }
+
+  private sortConfigs(configs: any[]): any[] {
+    return [...(configs || [])]
+      .filter(config => !!String(config?.name || config?.title || '').trim())
+      .sort((left, right) => {
+        const leftLabel = this.formatConfigOption(left).toLowerCase();
+        const rightLabel = this.formatConfigOption(right).toLowerCase();
+        return leftLabel.localeCompare(rightLabel);
+      });
+  }
+
+  private normalizeConfigSelection(configValue: string): string {
+    if (!configValue) {
+      return '';
+    }
+
+    const matchingConfig = this.configs.find(config => String(config?.uuid || '').trim() === configValue);
+    return matchingConfig ? configValue : '';
   }
 
   private decorateRules(rules: any[], channels: any[], configs: any[]): any[] {
@@ -220,6 +417,82 @@ export class AutorecComponent implements OnInit {
 
   describeMatchMode(rule: any): string {
     return rule?.fulltext ? 'Full-text match' : 'Title match';
+  }
+
+  private bindGuidePreview(): void {
+    this.guidePreviewSubscription = this.guidePreviewQuery$.pipe(
+      debounceTime(this.previewDebounceMs),
+      distinctUntilChanged((left, right) => left.title === right.title && left.channel === right.channel),
+      switchMap(({ title, channel }) => {
+        if (!title) {
+          return of({ total: 0, results: [], error: '', searched: false });
+        }
+
+        return this.tvh.searchAutorecPreview(title, channel, this.previewSearchLimit).pipe(
+          map(entries => ({ ...this.decorateGuidePreview(entries, title), searched: true })),
+          catchError(() => of({ total: 0, results: [], error: 'Guide preview is unavailable right now. Check TVHeadend and try again.', searched: true }))
+        );
+      })
+    ).subscribe(result => {
+      this.guidePreviewLoading = false;
+      this.guidePreviewMatchCount = result.total;
+      this.guidePreviewResults = result.results;
+      this.guidePreviewError = result.error || '';
+      this.guidePreviewSearched = !!result.searched;
+    });
+  }
+
+  private decorateGuidePreview(entries: any[], title: string): { total: number; results: any[]; error?: string } {
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const query = String(title || '').trim().toLowerCase();
+
+    const filtered = (entries || []).filter(entry => Number(entry?.stop || 0) > nowSeconds);
+    const results = filtered
+      .map(entry => {
+        const entryTitle = String(entry?.title || entry?.disp_title || 'Untitled').trim() || 'Untitled';
+        const startTime = Number(entry?.start || 0) * 1000;
+        const endTime = Number(entry?.stop || 0) * 1000;
+        return {
+          title: entryTitle,
+          channelName: String(entry?.channelName || entry?.channelname || 'Unknown Channel').trim() || 'Unknown Channel',
+          startTime,
+          endTime,
+          desc: String(entry?.summary || entry?.description || entry?.desc || '').trim(),
+          category: this.formatPreviewCategory(entry?.category || entry?.genre || ''),
+          isLive: Number(entry?.start || 0) <= nowSeconds && Number(entry?.stop || 0) > nowSeconds,
+          exactTitle: entryTitle.toLowerCase() === query,
+          titleStartsWith: entryTitle.toLowerCase().startsWith(query)
+        };
+      })
+      .sort((left, right) => {
+        if (left.exactTitle !== right.exactTitle) {
+          return left.exactTitle ? -1 : 1;
+        }
+        if (left.titleStartsWith !== right.titleStartsWith) {
+          return left.titleStartsWith ? -1 : 1;
+        }
+        if (left.isLive !== right.isLive) {
+          return left.isLive ? -1 : 1;
+        }
+        if (left.startTime !== right.startTime) {
+          return left.startTime - right.startTime;
+        }
+        return left.channelName.localeCompare(right.channelName, undefined, { numeric: true, sensitivity: 'base' });
+      })
+      .slice(0, this.previewLimit);
+
+    return {
+      total: filtered.length,
+      results,
+    };
+  }
+
+  private formatPreviewCategory(value: any): string {
+    if (Array.isArray(value)) {
+      return value.map(item => String(item || '').trim()).filter(Boolean).join(', ');
+    }
+
+    return String(value || '').trim();
   }
 
   private describeError(error: any): string {

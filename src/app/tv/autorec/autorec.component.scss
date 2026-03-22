@@ -101,6 +101,93 @@
   }
 }
 
+.composer-preview {
+  margin: 18px 0 0;
+  padding-top: 18px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+
+  &__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 14px;
+  }
+
+  &__title {
+    margin: 0;
+    font-size: 18px;
+  }
+
+  &__subtitle {
+    margin: 6px 0 0;
+    color: var(--tv-text-muted);
+    max-width: 60ch;
+  }
+
+  &__summary {
+    margin: 0 0 14px;
+    color: var(--tv-text-muted);
+  }
+}
+
+.preview-list {
+  display: grid;
+  gap: 12px;
+}
+
+.preview-card {
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+
+  &__title-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+
+  &__title {
+    margin: 0;
+    font-size: 16px;
+  }
+
+  &__badge {
+    background: rgba(26, 115, 232, 0.2);
+    color: #a9d0ff;
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-size: 12px;
+    text-transform: uppercase;
+  }
+
+  &__meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  &__meta-pill {
+    display: inline-flex;
+    align-items: center;
+    min-height: 28px;
+    padding: 0 10px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: var(--tv-text-muted);
+    font-size: 13px;
+  }
+
+  &__summary {
+    margin: 10px 0 0;
+    color: var(--tv-text-subtle);
+  }
+}
+
 .composer-field {
   display: grid;
   gap: 8px;
@@ -214,10 +301,19 @@
     max-width: 72ch;
   }
 
+  &__edit-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 14px;
+    width: 100%;
+  }
+
   &__actions {
     display: flex;
     align-items: center;
     align-content: flex-start;
+    gap: 10px;
+    flex-wrap: wrap;
     min-width: 140px;
   }
 }
@@ -236,6 +332,10 @@
   }
 
   .stack-card {
+    flex-direction: column;
+  }
+
+  .composer-preview__header {
     flex-direction: column;
   }
 }

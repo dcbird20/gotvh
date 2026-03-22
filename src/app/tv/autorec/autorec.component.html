@@ -35,7 +35,7 @@
     <div class="composer-card__grid">
       <label class="composer-field">
         <span>Title Match</span>
-        <input type="text" [(ngModel)]="form.title" placeholder="Formula 1" />
+        <input type="text" [(ngModel)]="form.title" (ngModelChange)="queueGuidePreview()" placeholder="Formula 1" />
       </label>
 
       <label class="composer-field">
@@ -49,7 +49,7 @@
         <span>Channel</span>
         <small class="composer-field__hint">{{ getFilteredChannels().length }} shown</small>
       </span>
-      <select [(ngModel)]="form.channel" tvFocusable>
+      <select [(ngModel)]="form.channel" (ngModelChange)="queueGuidePreview()" tvFocusable>
           <option value="">Any channel</option>
           <option *ngFor="let channel of getFilteredChannels()" [value]="channel.uuid">
             {{ formatChannelOption(channel) }}
@@ -59,9 +59,49 @@
     </label>
 
     <label class="composer-field composer-field--full">
+      <span>Recording Profile</span>
+      <select [(ngModel)]="form.config" tvFocusable>
+        <option value="">Default DVR config</option>
+        <option *ngFor="let config of configs" [value]="config.uuid">
+          {{ formatConfigOption(config) }}
+        </option>
+      </select>
+    </label>
+
+    <label class="composer-field composer-field--full">
       <span>Comment</span>
       <input type="text" [(ngModel)]="form.comment" placeholder="Optional note for this rule" />
     </label>
+
+    <section class="composer-preview">
+      <div class="composer-preview__header">
+        <div>
+          <h3 class="composer-preview__title">Guide Preview</h3>
+          <p class="composer-preview__subtitle">Uses TVHeadend full-text search and refreshes automatically as you type.</p>
+        </div>
+      </div>
+
+      <p class="composer-preview__summary" *ngIf="guidePreviewLoading">Checking TVHeadend guide matches…</p>
+      <div class="status status--error" *ngIf="guidePreviewError">{{ guidePreviewError }}</div>
+      <p class="composer-preview__summary" *ngIf="getGuidePreviewSummary()">{{ getGuidePreviewSummary() }}</p>
+
+      <div class="preview-list" *ngIf="guidePreviewResults.length > 0">
+        <article class="preview-card" *ngFor="let match of guidePreviewResults">
+          <div class="preview-card__title-row">
+            <h4 class="preview-card__title">{{ match.title }}</h4>
+            <span class="preview-card__badge" *ngIf="match.isLive">On now</span>
+          </div>
+
+          <div class="preview-card__meta">
+            <span class="preview-card__meta-pill">{{ match.channelName }}</span>
+            <span class="preview-card__meta-pill">{{ match.startTime | date:'EEE M/d, h:mm a' }}</span>
+            <span class="preview-card__meta-pill" *ngIf="match.category">{{ match.category }}</span>
+          </div>
+
+          <p class="preview-card__summary" *ngIf="match.desc">{{ match.desc }}</p>
+        </article>
+      </div>
+    </section>
 
     <div class="composer-card__actions">
       <button class="tv-btn tv-btn--primary" type="button" tvFocusable data-tv-linear-anchor="true" data-autorec-create [disabled]="saving" (click)="createRule()">
@@ -86,23 +126,81 @@
         data-tv-linear-anchor="true"
         [attr.data-autorec-row-uuid]="rule.uuid"
       >
-        <div class="stack-card__title-row">
-          <h2 class="stack-card__title">{{ rule.title || rule.name || 'Untitled Rule' }}</h2>
-          <span class="stack-card__badge" [class.stack-card__badge--muted]="!rule.enabled">{{ rule.enabled ? 'Enabled' : 'Disabled' }}</span>
-        </div>
+        <ng-container *ngIf="!isEditingRule(rule); else editRuleTemplate">
+          <div class="stack-card__title-row">
+            <h2 class="stack-card__title">{{ rule.title || rule.name || 'Untitled Rule' }}</h2>
+            <span class="stack-card__badge" [class.stack-card__badge--muted]="!rule.enabled">{{ rule.enabled ? 'Enabled' : 'Disabled' }}</span>
+          </div>
 
-        <div class="stack-card__meta">
-          <span class="stack-card__meta-pill">{{ formatChannel(rule) }}</span>
-          <span class="stack-card__meta-pill">{{ describeMatchMode(rule) }}</span>
-          <span class="stack-card__meta-pill" *ngIf="rule.config_label">{{ rule.config_label }}</span>
-          <span class="stack-card__meta-pill" *ngIf="rule.maxsched">Max {{ rule.maxsched }} scheduled</span>
-        </div>
+          <div class="stack-card__meta">
+            <span class="stack-card__meta-pill">{{ formatChannel(rule) }}</span>
+            <span class="stack-card__meta-pill">{{ describeMatchMode(rule) }}</span>
+            <span class="stack-card__meta-pill" *ngIf="rule.config_label">{{ rule.config_label }}</span>
+            <span class="stack-card__meta-pill" *ngIf="rule.maxsched">Max {{ rule.maxsched }} scheduled</span>
+          </div>
 
-        <p class="stack-card__summary" *ngIf="rule.comment">{{ rule.comment }}</p>
+          <p class="stack-card__summary" *ngIf="rule.comment">{{ rule.comment }}</p>
+        </ng-container>
+
+        <ng-template #editRuleTemplate>
+          <div class="stack-card__edit-grid">
+            <label class="composer-field">
+              <span>Title</span>
+              <input type="text" [(ngModel)]="editForm.title" />
+            </label>
+
+            <label class="composer-field">
+              <span>Filter Channels</span>
+              <input type="text" [(ngModel)]="editChannelFilter" placeholder="Type channel number or name" />
+            </label>
+
+            <label class="composer-field composer-field--full">
+              <span class="composer-field__label-row">
+                <span>Channel</span>
+                <small class="composer-field__hint">{{ getFilteredEditChannels().length }} shown</small>
+              </span>
+              <select [(ngModel)]="editForm.channel" tvFocusable>
+                <option value="">Any channel</option>
+                <option *ngFor="let channel of getFilteredEditChannels()" [value]="channel.uuid">
+                  {{ formatChannelOption(channel) }}
+                </option>
+                <option *ngIf="getFilteredEditChannels().length === 0" value="" disabled>No matching channels</option>
+              </select>
+            </label>
+
+            <label class="composer-field composer-field--full">
+              <span>Recording Profile</span>
+              <select [(ngModel)]="editForm.config" tvFocusable>
+                <option value="">Default DVR config</option>
+                <option *ngFor="let config of configs" [value]="config.uuid">
+                  {{ formatConfigOption(config) }}
+                </option>
+              </select>
+            </label>
+
+            <label class="composer-field composer-field--full">
+              <span>Comment</span>
+              <input type="text" [(ngModel)]="editForm.comment" placeholder="Optional note for this rule" />
+            </label>
+          </div>
+        </ng-template>
       </div>
 
       <div class="stack-card__actions">
-        <button class="tv-btn" type="button" tvFocusable [attr.data-autorec-delete-uuid]="rule.uuid" (click)="deleteRule(rule)">Delete</button>
+        <ng-container *ngIf="!isEditingRule(rule); else editActionTemplate">
+          <button class="tv-btn" type="button" tvFocusable (click)="startEditRule(rule)">Edit</button>
+          <button class="tv-btn" type="button" tvFocusable [disabled]="isRuleActionBusy(rule)" (click)="toggleRuleEnabled(rule)">
+            {{ isRuleActionBusy(rule) ? 'Saving…' : (rule.enabled ? 'Disable' : 'Enable') }}
+          </button>
+          <button class="tv-btn" type="button" tvFocusable [attr.data-autorec-delete-uuid]="rule.uuid" (click)="deleteRule(rule)">Delete</button>
+        </ng-container>
+
+        <ng-template #editActionTemplate>
+          <button class="tv-btn tv-btn--primary" type="button" tvFocusable [disabled]="isRuleActionBusy(rule)" (click)="saveRuleEdits(rule)">
+            {{ isRuleActionBusy(rule) ? 'Saving…' : 'Save' }}
+          </button>
+          <button class="tv-btn" type="button" tvFocusable [disabled]="isRuleActionBusy(rule)" (click)="cancelEditRule()">Cancel</button>
+        </ng-template>
       </div>
     </article>
   </div>

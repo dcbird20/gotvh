@@ -1494,6 +1494,29 @@ export class TvheadendService {
     );
   }
 
+  searchAutorecPreview(title: string, channelUuid?: string, limit = 200): Observable<any[]> {
+    const normalizedTitle = String(title || '').trim();
+    if (!normalizedTitle) {
+      return of([]);
+    }
+
+    let params = new HttpParams()
+      .set('start', '0')
+      .set('limit', String(Math.max(1, limit)))
+      .set('title', normalizedTitle)
+      .set('fulltext', '1');
+
+    const normalizedChannelUuid = String(channelUuid || '').trim();
+    if (normalizedChannelUuid) {
+      params = params.set('channel', normalizedChannelUuid);
+    }
+
+    return this.http.get<any>(this.buildUrl(`epg/events/grid?${params.toString()}`), this.getRequestOptions()).pipe(
+      map(data => Array.isArray(data) ? data : (data?.entries || [])),
+      catchError(() => of([]))
+    );
+  }
+
   createAutorec(conf: any): Observable<any> {
     return this.http.post<any>(
       this.buildUrl('dvr/autorec/create'),
