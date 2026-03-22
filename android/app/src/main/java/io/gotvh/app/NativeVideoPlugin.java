@@ -23,6 +23,10 @@ public class NativeVideoPlugin extends Plugin {
         String liveChannelsJson = call.getString("liveChannelsJson");
         String returnTo = call.getString("returnTo");
         String returnToken = call.getString("returnToken");
+        String programTitle = call.getString("programTitle");
+        String programTime = call.getString("programTime");
+        String programDescription = call.getString("programDescription");
+        String programCategory = call.getString("programCategory");
 
         if (url == null || url.trim().isEmpty()) {
             call.reject("Missing stream URL");
@@ -40,6 +44,10 @@ public class NativeVideoPlugin extends Plugin {
         intent.putExtra(NativeVideoActivity.EXTRA_LIVE_CHANNELS_JSON, liveChannelsJson);
         intent.putExtra(NativeVideoActivity.EXTRA_RETURN_TO, returnTo);
         intent.putExtra(NativeVideoActivity.EXTRA_RETURN_TOKEN, returnToken);
+        intent.putExtra(NativeVideoActivity.EXTRA_PROGRAM_TITLE, programTitle);
+        intent.putExtra(NativeVideoActivity.EXTRA_PROGRAM_TIME, programTime);
+        intent.putExtra(NativeVideoActivity.EXTRA_PROGRAM_DESCRIPTION, programDescription);
+        intent.putExtra(NativeVideoActivity.EXTRA_PROGRAM_CATEGORY, programCategory);
         getActivity().startActivity(intent);
 
         JSObject result = new JSObject();

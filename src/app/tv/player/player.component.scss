@@ -31,6 +31,45 @@
   line-height: 1.1;
 }
 
+.player-screen__program-title {
+  margin-top: 10px;
+  font-size: 22px;
+  line-height: 1.25;
+  color: #ffffff;
+}
+
+.player-screen__program-meta {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.player-screen__program-time {
+  font-size: 13px;
+  color: var(--tv-text-muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.player-screen__program-category {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(26, 115, 232, 0.18);
+  border: 1px solid rgba(26, 115, 232, 0.35);
+  color: #d7e7ff;
+}
+
+.player-screen__program-description {
+  margin-top: 12px;
+  max-width: 760px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--tv-text-muted);
+}
+
 .player-screen__actions {
   display: flex;
   gap: 12px;

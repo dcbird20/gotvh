@@ -30,6 +30,7 @@ import java.util.List;
 import java.util.Map;
 
 public class NativeVideoActivity extends AppCompatActivity {
+    private static final long PROGRAM_INFO_TIMEOUT_MS = 9500L;
     public static final String EXTRA_URL = "streamUrl";
     public static final String EXTRA_TITLE = "streamTitle";
     public static final String EXTRA_MIME_TYPE = "streamMimeType";
@@ -41,6 +42,10 @@ public class NativeVideoActivity extends AppCompatActivity {
     public static final String EXTRA_RETURN_TO = "returnTo";
     public static final String EXTRA_RETURN_TOKEN = "returnToken";
     public static final String EXTRA_RETURN_CHANNEL_ID = "returnChannelId";
+    public static final String EXTRA_PROGRAM_TITLE = "programTitle";
+    public static final String EXTRA_PROGRAM_TIME = "programTime";
+    public static final String EXTRA_PROGRAM_DESCRIPTION = "programDescription";
+    public static final String EXTRA_PROGRAM_CATEGORY = "programCategory";
 
     private static final class LiveChannelEntry {
         final String uuid;
@@ -65,14 +70,27 @@ public class NativeVideoActivity extends AppCompatActivity {
     private final List<LiveChannelEntry> liveChannels = new ArrayList<>();
     private int activeProfileIndex = 0;
     private TextView statusOverlay;
+    private View programInfoOverlay;
+    private TextView programTitleView;
+    private TextView programMetaView;
+    private TextView programDescriptionView;
     private String currentChannelId;
     private String returnTo;
     private String returnToken;
+    private String programTitle;
+    private String programTime;
+    private String programDescription;
+    private String programCategory;
     private long lastChannelSurfAtMs = 0L;
     private final Handler overlayHandler = new Handler(Looper.getMainLooper());
     private final Runnable hideOverlayRunnable = () -> {
         if (statusOverlay != null) {
             statusOverlay.setVisibility(View.GONE);
+        }
+    };
+    private final Runnable hideProgramInfoOverlayRunnable = () -> {
+        if (programInfoOverlay != null) {
+            programInfoOverlay.setVisibility(View.GONE);
         }
     };
 
@@ -83,6 +101,10 @@ public class NativeVideoActivity extends AppCompatActivity {
 
         playerView = findViewById(R.id.native_player_view);
         statusOverlay = findViewById(R.id.native_player_status_overlay);
+        programInfoOverlay = findViewById(R.id.native_program_info_overlay);
+        programTitleView = findViewById(R.id.native_program_title);
+        programMetaView = findViewById(R.id.native_program_meta);
+        programDescriptionView = findViewById(R.id.native_program_description);
         playerView.setUseController(true);
         playerView.setControllerAutoShow(true);
         playerView.setControllerHideOnTouch(false);
@@ -101,6 +123,10 @@ public class NativeVideoActivity extends AppCompatActivity {
         currentChannelId = normalizeValue(getIntent().getStringExtra(EXTRA_CURRENT_CHANNEL_ID));
         returnTo = normalizeValue(getIntent().getStringExtra(EXTRA_RETURN_TO));
         returnToken = normalizeValue(getIntent().getStringExtra(EXTRA_RETURN_TOKEN));
+        programTitle = normalizeValue(getIntent().getStringExtra(EXTRA_PROGRAM_TITLE));
+        programTime = normalizeValue(getIntent().getStringExtra(EXTRA_PROGRAM_TIME));
+        programDescription = normalizeValue(getIntent().getStringExtra(EXTRA_PROGRAM_DESCRIPTION));
+        programCategory = normalizeValue(getIntent().getStringExtra(EXTRA_PROGRAM_CATEGORY));
         liveChannels.clear();
         liveChannels.addAll(parseLiveChannels(getIntent().getStringExtra(EXTRA_LIVE_CHANNELS_JSON)));
 
@@ -115,7 +141,8 @@ public class NativeVideoActivity extends AppCompatActivity {
         }
 
         android.util.Log.d("NativeVideo", "Loading stream: " + url + " | mimeType: " + mimeType + " | auth: " + (authHeader != null ? "yes" : "no"));
-    showStatusOverlay("Opening " + formatProfileLabel(getActiveProfileLabel()) + " playback", 2200);
+        showProgramInfoOverlay();
+        showStatusOverlay("Opening " + formatProfileLabel(getActiveProfileLabel()) + " playback", 2200);
 
         retriedWithoutMime = false;
         retriedDirectStream = false;
@@ -135,6 +162,7 @@ public class NativeVideoActivity extends AppCompatActivity {
     protected void onStop() {
         super.onStop();
         overlayHandler.removeCallbacks(hideOverlayRunnable);
+        overlayHandler.removeCallbacks(hideProgramInfoOverlayRunnable);
         if (player != null) {
             player.release();
             player = null;
@@ -387,7 +415,12 @@ public class NativeVideoActivity extends AppCompatActivity {
         lastChannelSurfAtMs = now;
         currentChannelId = nextChannel.uuid;
         currentUrl = nextUrl;
+        programTitle = "";
+        programTime = "";
+        programDescription = "";
+        programCategory = "";
         setTitle(nextChannel.name.isEmpty() ? "Live TV" : nextChannel.name);
+        showProgramInfoOverlay();
         showStatusOverlay("Switching to " + (nextChannel.name.isEmpty() ? nextChannel.uuid : nextChannel.name), 1800);
 
         retriedWithoutMime = false;
@@ -554,6 +587,40 @@ public class NativeVideoActivity extends AppCompatActivity {
         if (durationMs > 0) {
             overlayHandler.postDelayed(hideOverlayRunnable, durationMs);
         }
+    }
+
+    private void showProgramInfoOverlay() {
+        if (programInfoOverlay == null || programTitleView == null || programMetaView == null || programDescriptionView == null) {
+            return;
+        }
+
+        overlayHandler.removeCallbacks(hideProgramInfoOverlayRunnable);
+
+        boolean hasProgramInfo = !programTitle.isEmpty() || !programTime.isEmpty() || !programCategory.isEmpty() || !programDescription.isEmpty();
+        if (!hasProgramInfo) {
+            programInfoOverlay.setVisibility(View.GONE);
+            return;
+        }
+
+        programInfoOverlay.setVisibility(View.VISIBLE);
+        programTitleView.setText(programTitle.isEmpty() ? getTitle() : programTitle);
+
+        StringBuilder meta = new StringBuilder();
+        if (!programTime.isEmpty()) {
+            meta.append(programTime);
+        }
+        if (!programCategory.isEmpty()) {
+            if (meta.length() > 0) {
+                meta.append("  •  ");
+            }
+            meta.append(programCategory);
+        }
+        programMetaView.setText(meta.toString());
+        programMetaView.setVisibility(meta.length() > 0 ? View.VISIBLE : View.GONE);
+
+        programDescriptionView.setText(programDescription);
+        programDescriptionView.setVisibility(programDescription.isEmpty() ? View.GONE : View.VISIBLE);
+        overlayHandler.postDelayed(hideProgramInfoOverlayRunnable, PROGRAM_INFO_TIMEOUT_MS);
     }
 
     private boolean finishToReturnTarget() {

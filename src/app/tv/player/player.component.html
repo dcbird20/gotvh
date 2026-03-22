@@ -3,6 +3,12 @@
     <div>
       <div class="player-screen__eyebrow">{{ getPlaybackEyebrow() }}</div>
       <h1 class="player-screen__title">{{ channelName }}</h1>
+      <p class="player-screen__program-title" *ngIf="showProgramInfo && programTitle">{{ programTitle }}</p>
+      <div class="player-screen__program-meta" *ngIf="showProgramInfo && (programTimeLabel || programCategory)">
+        <span class="player-screen__program-time" *ngIf="programTimeLabel">{{ programTimeLabel }}</span>
+        <span class="player-screen__program-category" *ngIf="programCategory">{{ programCategory }}</span>
+      </div>
+      <p class="player-screen__program-description" *ngIf="showProgramInfo && programDescription">{{ programDescription }}</p>
     </div>
 
     <div class="player-screen__actions">

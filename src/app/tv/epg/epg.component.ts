@@ -1755,6 +1755,11 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     this.router.navigate(['/player', uuid], {
       queryParams: {
         name: this.getChannelName(channelId),
+        programTitle: String(program?.title || '').trim(),
+        programStart: this.parseEpgTime(program.startTime),
+        programEnd: this.parseEpgTime(program.endTime),
+        programDesc: String(program?.desc || '').trim(),
+        programCategory: this.flattenToText(program?.category),
         returnTo: this.router.url,
         returnToken
       }

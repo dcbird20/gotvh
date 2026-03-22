@@ -11,7 +11,7 @@ import { TvheadendService } from '../../services/tvheadend.service';
 import { environment } from '../../../environments/environment';
 
 const NativeVideo = registerPlugin<{
-  open(options: { url: string; title?: string; mimeType?: string; authHeader?: string; allowLiveFallback?: boolean; fallbackProfiles?: string; currentChannelId?: string; liveChannelsJson?: string; returnTo?: string; returnToken?: string }): Promise<{ launched: boolean }>;
+  open(options: { url: string; title?: string; mimeType?: string; authHeader?: string; allowLiveFallback?: boolean; fallbackProfiles?: string; currentChannelId?: string; liveChannelsJson?: string; returnTo?: string; returnToken?: string; programTitle?: string; programTime?: string; programDescription?: string; programCategory?: string }): Promise<{ launched: boolean }>;
   openKodiHtsp(options: { url: string; title?: string; fallbackUrl?: string }): Promise<{ launched: boolean; fallback?: boolean }>;
 }>('NativeVideo');
 
@@ -42,6 +42,7 @@ interface StreamHealthCheck {
   styleUrls: ['./player.component.scss']
 })
 export class PlayerComponent implements AfterViewInit, OnDestroy {
+  readonly programInfoTimeoutMs = 9500;
   @ViewChild('playerVideo', { static: true })
   playerVideo?: ElementRef<HTMLVideoElement>;
 
@@ -49,6 +50,10 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
   channelId = '';
   recordingRef = '';
   channelName = 'Live TV';
+  programTitle = '';
+  programTimeLabel = '';
+  programDescription = '';
+  programCategory = '';
   returnTo = '/channels';
   returnToken = '';
   streamUrl = '';
@@ -72,6 +77,7 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
   nativeProfileLabel = '';
   hasResumePoint = false;
   resumePositionLabel = '';
+  showProgramInfo = false;
   readonly diagnosticsEnabled = false;
 
   private mpegtsPlayer: any | null = null;
@@ -89,6 +95,7 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
   private availableLiveChannels: any[] = [];
   private loadingLiveChannelsPromise: Promise<any[]> | null = null;
   private channelSurfInProgress = false;
+  private programInfoHideTimer: number | null = null;
 
   constructor(
     private route: ActivatedRoute,
@@ -102,6 +109,13 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
     this.channelId = this.route.snapshot.paramMap.get('channelId') || '';
     this.recordingRef = String(this.route.snapshot.queryParamMap.get('recordingRef') || '').trim();
     this.channelName = this.route.snapshot.queryParamMap.get('name') || (this.isRecordingPlayback() ? 'Recording' : 'Live TV');
+    this.programTitle = String(this.route.snapshot.queryParamMap.get('programTitle') || '').trim();
+    this.programTimeLabel = this.buildProgramTimeLabel(
+      this.route.snapshot.queryParamMap.get('programStart'),
+      this.route.snapshot.queryParamMap.get('programEnd')
+    );
+    this.programDescription = String(this.route.snapshot.queryParamMap.get('programDesc') || '').trim();
+    this.programCategory = String(this.route.snapshot.queryParamMap.get('programCategory') || '').trim();
     this.nativeFallbackProfiles = this.buildNativeFallbackProfiles();
     this.selectedTransport = this.isCapacitorNative() ? 'native' : 'direct';
     const requestedReturnTo = this.route.snapshot.queryParamMap.get('returnTo') || '';
@@ -115,10 +129,12 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
   }
 
   ngAfterViewInit(): void {
+    this.showProgramInfoTemporarily();
     void this.startPlayback();
   }
 
   ngOnDestroy(): void {
+    this.clearProgramInfoHideTimer();
     this.destroyMpegtsPlayer();
 
     const video = this.playerVideo?.nativeElement;
@@ -287,6 +303,34 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
     return this.isRecordingPlayback() && this.hasResumePoint;
   }
 
+  hasProgramContext(): boolean {
+    return !!(this.programTitle || this.programTimeLabel || this.programDescription || this.programCategory);
+  }
+
+  private showProgramInfoTemporarily(): void {
+    this.clearProgramInfoHideTimer();
+
+    if (!this.hasProgramContext()) {
+      this.showProgramInfo = false;
+      return;
+    }
+
+    this.showProgramInfo = true;
+    this.programInfoHideTimer = window.setTimeout(() => {
+      this.showProgramInfo = false;
+      this.programInfoHideTimer = null;
+    }, this.programInfoTimeoutMs);
+  }
+
+  private clearProgramInfoHideTimer(): void {
+    if (this.programInfoHideTimer === null) {
+      return;
+    }
+
+    window.clearTimeout(this.programInfoHideTimer);
+    this.programInfoHideTimer = null;
+  }
+
   getPlaybackEyebrow(): string {
     return this.isRecordingPlayback() ? 'Recording Playback' : 'Live Playback';
   }
@@ -446,6 +490,12 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
     this.channelId = nextChannelId;
     this.recordingRef = '';
     this.channelName = String(channel?.name || 'Live TV').trim() || 'Live TV';
+    this.programTitle = '';
+    this.programTimeLabel = '';
+    this.programDescription = '';
+    this.programCategory = '';
+    this.showProgramInfo = false;
+    this.clearProgramInfoHideTimer();
     this.playerError = '';
     this.lastErrorDetail = '';
     this.hasResumePoint = false;
@@ -462,7 +512,12 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
       queryParams: {
         name: this.channelName,
         returnTo: this.returnTo,
-        returnToken: this.returnToken || null
+        returnToken: this.returnToken || null,
+        programTitle: null,
+        programStart: null,
+        programEnd: null,
+        programDesc: null,
+        programCategory: null
       },
       replaceUrl: true
     });
@@ -1061,7 +1116,11 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
         currentChannelId: this.channelId,
         liveChannelsJson,
         returnTo: this.returnTo,
-        returnToken: this.returnToken || undefined
+        returnToken: this.returnToken || undefined,
+        programTitle: this.programTitle || undefined,
+        programTime: this.programTimeLabel || undefined,
+        programDescription: this.programDescription || undefined,
+        programCategory: this.programCategory || undefined
       });
     } catch (error: any) {
       this.playerError = `Failed to open native Android player: ${String(error?.message || error || 'unknown error')}`;
@@ -1088,7 +1147,11 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
         authHeader,
         allowLiveFallback: false,
         returnTo: this.returnTo,
-        returnToken: this.returnToken || undefined
+        returnToken: this.returnToken || undefined,
+        programTitle: this.programTitle || undefined,
+        programTime: this.programTimeLabel || undefined,
+        programDescription: this.programDescription || undefined,
+        programCategory: this.programCategory || undefined
       });
     } catch (error: any) {
       this.playerError = `Failed to open native Android player: ${String(error?.message || error || 'unknown error')}`;
@@ -1141,6 +1204,20 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
       this.nativeProfileLabel = 'kodi-htsp-failed';
       this.refreshDiagnostics();
     }
+  }
+
+  private buildProgramTimeLabel(programStart: string | null, programEnd: string | null): string {
+    const startMs = Number(programStart || 0);
+    const endMs = Number(programEnd || 0);
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || startMs <= 0 || endMs <= 0) {
+      return '';
+    }
+
+    const start = new Date(startMs);
+    const end = new Date(endMs);
+    const startLabel = start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+    const endLabel = end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+    return `${startLabel} - ${endLabel}`;
   }
 
   private extractChannelPathFromStreamUrl(url: string): string {
