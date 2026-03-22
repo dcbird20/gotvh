@@ -6,7 +6,7 @@ import { forkJoin, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { TvFocusableDirective } from '../../directives/tv-focusable.directive';
 import { ReturnNavigationContext, ReturnNavigationService } from '../../services/return-navigation.service';
-import { RecordingScheduleResult, TvheadendService } from '../../services/tvheadend.service';
+import { GuideDataSnapshot, RecordingScheduleResult, TvheadendService } from '../../services/tvheadend.service';
 
 interface HourTick {
   label: string;
@@ -106,6 +106,8 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
   programs: any[] = [];
   channels: any[] = [];
   programsByChannel: { [channelId: string]: any[] } = {};
+  filteredProgramsByChannel: { [channelId: string]: any[] } = {};
+  filteredVerticalProgramsByChannel: { [channelId: string]: any[] } = {};
   filteredChannels: any[] = [];
   visibleProgramsByChannel: { [channelId: string]: any[] } = {};
   verticalProgramsByChannel: { [channelId: string]: any[] } = {};
@@ -151,6 +153,7 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
   private readonly layoutStorageKey = 'epg.verticalGuide';
   private timeUpdateTimer: any;
   private shouldApplyInitialGuideFocus = true;
+  private guideLoadStartedAt = 0;
 
   constructor(
     private tvheadendService: TvheadendService,
@@ -162,6 +165,7 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
   // ── Lifecycle ────────────────────────────────────────────────
 
   ngOnInit(): void {
+    this.logGuideTrace('init');
     this.capturePendingReturnContext();
     this.restoreVisibleHoursPreference();
     this.clearLegacyChannelFilterPreference();
@@ -192,72 +196,98 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
   fetchEpgData(): void {
     this.loading = true;
     this.error = null;
+    this.guideLoadStartedAt = Date.now();
+    this.logGuideTrace('fetch-start');
 
-    forkJoin({
-      xmltv: this.tvheadendService.getXmltv().pipe(
-        catchError((error: any) => of({ channels: [], programmes: [], __error: error }))
-      ),
-      tvheadendEpg: this.tvheadendService.getEpg().pipe(
-        catchError((error: any) => of({ __entries: [], __error: error }))
-      ),
-      tvhChannels: this.tvheadendService.getTvheadendChannelGrid().pipe(catchError(() => of([])))
-    }).subscribe({
-      next: ({ xmltv, tvheadendEpg, tvhChannels }: any) => {
-        const xmltvError = xmltv?.__error || null;
-        const tvheadendEpgError = tvheadendEpg?.__error || null;
-        const tvheadendEntries = Array.isArray(tvheadendEpg)
-          ? tvheadendEpg
-          : (tvheadendEpg?.__entries || []);
-        const xmltvChannels = (xmltv?.channels || []).map((ch: any) => ({
-          id: ch.id,
-          name: ch.name || ch.id || 'Unknown Channel',
-          icon: ch.icon || '',
-        }));
-        const xmltvPrograms = (xmltv?.programmes || []).map((p: any) => ({
-          channel: p.channel,
-          startTime: this.parseXmltvDate(p.start),
-          endTime: this.parseXmltvDate(p.stop),
-          title: p.title || 'Untitled',
-          desc: p.desc || '',
-          category: this.mergeCategorySources(p.category, p.desc),
-        }));
+    const cachedSnapshot = this.tvheadendService.peekGuideDataSnapshot();
+    if (cachedSnapshot) {
+      this.applyGuideSnapshot(cachedSnapshot);
+      this.refreshScheduledRecordings();
+      this.finalizeGuideLoad(cachedSnapshot, 'cached-snapshot-applied', Date.now() - this.guideLoadStartedAt, true);
 
-        if (xmltvPrograms.length > 0) {
-          this.channels = xmltvChannels;
-          this.programs = xmltvPrograms;
-          this.buildChannelUuidMap(tvhChannels || []);
-          this.groupProgramsByChannel();
-          this.attachTvheadendEpgMetadata(tvheadendEntries || []);
-        } else {
-          this.mapTvheadendEpgFallback(tvheadendEntries || [], tvhChannels || []);
+      const backgroundRefreshStartedAt = Date.now();
+      this.tvheadendService.refreshGuideData().subscribe({
+        next: (snapshot: GuideDataSnapshot) => {
+          this.applyGuideSnapshot(snapshot);
+          this.refreshScheduledRecordings();
+          this.finalizeGuideLoad(snapshot, 'background-refresh-success', Date.now() - backgroundRefreshStartedAt, false);
+        },
+        error: (error: any) => {
+          this.logGuideTrace('background-refresh-error', {
+            status: Number(error?.status || 0),
+            message: String(error?.message || error || '')
+          });
         }
+      });
+      return;
+    }
 
-        if (this.programs.length === 0 && (xmltvError || tvheadendEpgError)) {
-          this.error = this.describeGuideDataError(xmltvError, tvheadendEpgError);
-        }
-
+    this.tvheadendService.getGuideData().subscribe({
+      next: (snapshot: GuideDataSnapshot) => {
+        this.applyGuideSnapshot(snapshot);
         this.refreshScheduledRecordings();
-        this.updateTimelineStart();
-        this.loading = false;
-
-        setTimeout(() => {
-          const restored = this.restoreReturnFocusIfNeeded();
-          this.scrollToCurrent();
-          this.scrollToFocusedChannel();
-          if (!restored) {
-            this.focusGuideEntryIfNeeded();
-          }
-        }, 0);
+        this.finalizeGuideLoad(snapshot, 'fetch-success', Date.now() - this.guideLoadStartedAt, true);
       },
       error: (error: any) => {
         if (error?.status === 401 || error?.status === 403) {
+          this.logGuideTrace('fetch-auth-required', { status: Number(error?.status || 0) });
           void this.requestAuth();
           return;
         }
         this.error = 'Error fetching EPG data: ' + (error?.message || error);
         this.loading = false;
+        this.logGuideTrace('fetch-error', {
+          durationMs: Date.now() - this.guideLoadStartedAt,
+          status: Number(error?.status || 0),
+          message: String(error?.message || error || '')
+        });
       }
     });
+  }
+
+  private applyGuideSnapshot(snapshot: GuideDataSnapshot): void {
+    this.channels = snapshot.channels || [];
+    this.programs = snapshot.programs || [];
+    this.programsByChannel = snapshot.programsByChannel || {};
+    this.channelUuidMap = new Map(snapshot.channelUuidEntries || []);
+    this.rebuildGuideViewModel();
+  }
+
+  private finalizeGuideLoad(snapshot: GuideDataSnapshot, phase: string, durationMs: number, applyInitialFocus: boolean): void {
+    if (this.programs.length === 0 && (snapshot.xmltvError || snapshot.tvheadendEpgError)) {
+      this.error = this.describeGuideDataError(snapshot.xmltvError, snapshot.tvheadendEpgError);
+    } else {
+      this.error = null;
+    }
+
+    this.updateTimelineStart();
+    this.loading = false;
+    this.logGuideTrace(phase, {
+      durationMs,
+      channelCount: this.channels.length,
+      filteredChannelCount: this.filteredChannels.length,
+      renderedChannelCount: this.renderedChannels.length,
+      programCount: this.programs.length,
+      hasXmltvError: !!snapshot.xmltvError,
+      hasEpgError: !!snapshot.tvheadendEpgError,
+    });
+
+    if (!applyInitialFocus) {
+      return;
+    }
+
+    setTimeout(() => {
+      const restored = this.restoreReturnFocusIfNeeded();
+      this.scrollToCurrent();
+      this.scrollToFocusedChannel();
+      if (!restored) {
+        this.focusGuideEntryIfNeeded();
+      }
+      this.logGuideTrace('post-load-focus', {
+        restoredReturnFocus: restored,
+        activeElement: this.describeElement(document.activeElement as HTMLElement | null)
+      });
+    }, 0);
   }
 
   private describeGuideDataError(xmltvError: any, tvheadendEpgError: any): string {
@@ -546,18 +576,23 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     if (nextStart === this.channelWindowStart) {
       return;
     }
-    this.channelWindowStart = nextStart;
-    this.rebuildRenderedChannels();
+    this.rebuildRenderedChannels(nextStart);
     setTimeout(() => this.focusFirstRenderedChannel(), 0);
   }
 
   private focusFirstRenderedChannel(): void {
     const channelId = String(this.renderedChannels[0]?.id || '').trim();
     if (!channelId) {
+      this.logGuideTrace('focus-first-rendered-missing-channel');
       return;
     }
 
-    this.focusChannelButtonForChannel(channelId);
+    const focused = this.focusChannelButtonForChannel(channelId);
+    this.logGuideTrace('focus-first-rendered', {
+      channelId,
+      focused,
+      activeElement: this.describeElement(document.activeElement as HTMLElement | null)
+    });
   }
 
   private focusCurrentProgramInView(): void {
@@ -627,6 +662,7 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
   private restoreReturnFocusIfNeeded(): boolean {
     const context = this.pendingReturnContext;
     if (!context) {
+      this.logGuideTrace('restore-return-focus-skipped');
       return false;
     }
 
@@ -644,6 +680,7 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     setTimeout(() => {
       const container = this.timelineOuter?.nativeElement;
       if (!container) {
+        this.logGuideTrace('restore-return-focus-missing-container');
         return;
       }
 
@@ -660,14 +697,25 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
         target = this.queryChannelButton(container, channelId);
       }
 
-      this.focusElement(target);
+      const focused = this.focusElement(target);
       this.scrollToFocusedChannel();
+      this.logGuideTrace('restore-return-focus-applied', {
+        channelId,
+        focused,
+        activeElement: this.describeElement(document.activeElement as HTMLElement | null)
+      });
     }, 0);
     return true;
   }
 
   private focusGuideEntryIfNeeded(): void {
     if (!this.shouldApplyInitialGuideFocus || this.loading || this.error || this.filteredChannels.length === 0) {
+      this.logGuideTrace('initial-focus-skipped', {
+        shouldApplyInitialGuideFocus: this.shouldApplyInitialGuideFocus,
+        loading: this.loading,
+        error: this.error || '',
+        filteredChannelCount: this.filteredChannels.length
+      });
       return;
     }
 
@@ -675,7 +723,41 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     if (this.timelineOuter?.nativeElement) {
       this.timelineOuter.nativeElement.scrollTo({ top: 0, left: 0, behavior: 'auto' });
     }
+    this.logGuideTrace('initial-focus-applying', {
+      filteredChannelCount: this.filteredChannels.length,
+      renderedChannelCount: this.renderedChannels.length
+    });
     this.focusFirstRenderedChannel();
+  }
+
+  private logGuideTrace(phase: string, details: Record<string, unknown> = {}): void {
+    console.info(
+      '[GuideTrace]',
+      JSON.stringify({
+        phase,
+        loading: this.loading,
+        error: this.error || '',
+        filteredChannelCount: this.filteredChannels.length,
+        renderedChannelCount: this.renderedChannels.length,
+        focusedChannelId: this.focusedChannelId,
+        useVerticalGuide: this.useVerticalGuide,
+        ...details,
+      })
+    );
+  }
+
+  private describeElement(element: HTMLElement | null): string {
+    if (!element) {
+      return '';
+    }
+
+    const tag = (element.tagName || '').toLowerCase();
+    const id = element.id ? `#${element.id}` : '';
+    const className = typeof element.className === 'string'
+      ? element.className.trim().split(/\s+/).filter(Boolean).slice(0, 3).map(name => `.${name}`).join('')
+      : '';
+    const channelId = String(element.getAttribute('data-channel-id') || element.getAttribute('data-channel-button-id') || '').trim();
+    return `${tag}${id}${className}${channelId ? `[channel=${channelId}]` : ''}`;
   }
 
   private getTimelineStepHours(): number {
@@ -686,9 +768,42 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     this.rebuildRenderedChannels();
   }
 
-  private rebuildRenderedChannels(): void {
-    this.channelWindowStart = 0;
-    this.renderedChannels = [...this.filteredChannels];
+  private rebuildRenderedChannels(preferredStart?: number): void {
+    const pageSize = this.currentChannelPageSize();
+    const maxStart = Math.max(0, this.filteredChannels.length - pageSize);
+    let nextStart = typeof preferredStart === 'number' ? preferredStart : this.channelWindowStart;
+
+    if (typeof preferredStart !== 'number' && this.focusedChannelId) {
+      const focusedIndex = this.filteredChannels.findIndex(channel => String(channel?.id || '').trim() === this.focusedChannelId);
+      if (focusedIndex >= 0) {
+        nextStart = Math.floor(focusedIndex / pageSize) * pageSize;
+      }
+    }
+
+    this.channelWindowStart = Math.max(0, Math.min(maxStart, nextStart));
+    this.renderedChannels = this.filteredChannels.slice(this.channelWindowStart, this.channelWindowStart + pageSize);
+    this.rebuildRenderedProgramMaps();
+  }
+
+  private rebuildRenderedProgramMaps(): void {
+    const nextVisibleProgramsByChannel: { [channelId: string]: any[] } = {};
+    const nextVerticalProgramsByChannel: { [channelId: string]: any[] } = {};
+
+    for (const channel of this.renderedChannels) {
+      const channelId = String(channel?.id || '').trim();
+      if (!channelId) {
+        continue;
+      }
+
+      const visiblePrograms = this.filteredProgramsByChannel[channelId] || [];
+      const verticalPrograms = this.filteredVerticalProgramsByChannel[channelId] || visiblePrograms;
+
+      nextVisibleProgramsByChannel[channelId] = visiblePrograms.map(program => this.decorateProgramForGuide(program));
+      nextVerticalProgramsByChannel[channelId] = verticalPrograms.map(program => this.decorateProgramForGuide(program));
+    }
+
+    this.visibleProgramsByChannel = nextVisibleProgramsByChannel;
+    this.verticalProgramsByChannel = nextVerticalProgramsByChannel;
   }
 
   private escapeForAttributeSelector(value: string): string {
@@ -971,7 +1086,10 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
 
   getGuideSummaryLabel(): string {
     const channelCount = this.filteredChannels.length;
-    const programCount = this.filteredChannels.reduce((count, channel) => count + this.getProgramsForChannel(channel.id).length, 0);
+    const programCount = this.filteredChannels.reduce((count, channel) => {
+      const channelId = String(channel?.id || '').trim();
+      return count + (this.filteredProgramsByChannel[channelId] || []).length;
+    }, 0);
     return `${channelCount} channels • ${programCount} items`;
   }
 
@@ -1318,15 +1436,20 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
       return false;
     }
 
+    const currentWindowContainsNextChannel = this.renderedChannels.some(channel => String(channel?.id || '').trim() === nextChannelId);
+    if (!currentWindowContainsNextChannel && !this.showRenderedWindowForChannel(nextChannelId)) {
+      return false;
+    }
+
     if (!sourceElement) {
-      return this.focusChannelButtonForChannel(nextChannelId);
+      return this.focusGuideTargetAfterRender(() => this.focusChannelButtonForChannel(nextChannelId));
     }
 
     if (this.useVerticalGuide) {
-      return this.focusVerticalGuideRowTarget(sourceElement, sourceChannelId, nextChannelId);
+      return this.focusGuideTargetAfterRender(() => this.focusVerticalGuideRowTarget(sourceElement, sourceChannelId, nextChannelId));
     }
 
-    return this.focusTimelineRowTarget(sourceElement, nextChannelId);
+    return this.focusGuideTargetAfterRender(() => this.focusTimelineRowTarget(sourceElement, nextChannelId));
   }
 
   private resolveGuidePageSourceElement(target: EventTarget | null): HTMLElement | null {
@@ -1444,6 +1567,34 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     const currentIndex = this.renderedChannels.findIndex(channel => String(channel?.id || '').trim() === channelId);
     if (currentIndex < 0) {
       return false;
+    }
+
+    const globalIndex = this.filteredChannels.findIndex(channel => String(channel?.id || '').trim() === channelId);
+    if (globalIndex < 0) {
+      return false;
+    }
+
+    const globalNextIndex = globalIndex + direction;
+    if (globalNextIndex < 0 || globalNextIndex >= this.filteredChannels.length) {
+      return false;
+    }
+
+    const nextChannelId = String(this.filteredChannels[globalNextIndex]?.id || '').trim();
+    if (!nextChannelId) {
+      return false;
+    }
+
+    const nextIsRendered = this.renderedChannels.some(channel => String(channel?.id || '').trim() === nextChannelId);
+    if (!nextIsRendered) {
+      if (!this.showRenderedWindowForChannel(nextChannelId)) {
+        return false;
+      }
+
+      if (this.useVerticalGuide) {
+        return this.focusGuideTargetAfterRender(() => this.focusVerticalGuideRowTarget(element, channelId, nextChannelId));
+      }
+
+      return this.focusGuideTargetAfterRender(() => this.focusTimelineRowTarget(element, nextChannelId));
     }
 
     if (this.useVerticalGuide) {
@@ -1591,6 +1742,26 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     const currentIndex = Math.max(0, currentItems.indexOf(currentItem));
     const targetIndex = Math.min(currentIndex, nextItems.length - 1);
     return this.focusElement(nextItems[targetIndex]);
+  }
+
+  private showRenderedWindowForChannel(channelId: string): boolean {
+    const targetIndex = this.filteredChannels.findIndex(channel => String(channel?.id || '').trim() === channelId);
+    if (targetIndex < 0) {
+      return false;
+    }
+
+    const pageSize = Math.max(1, this.currentChannelPageSize());
+    const nextStart = Math.floor(targetIndex / pageSize) * pageSize;
+    this.focusedChannelId = channelId;
+    this.rebuildRenderedChannels(nextStart);
+    return true;
+  }
+
+  private focusGuideTargetAfterRender(action: () => boolean): boolean {
+    setTimeout(() => {
+      action();
+    }, 0);
+    return true;
   }
 
   hasPreviousProgram(): boolean { return this.getAdjacentProgram(-1) !== null; }
@@ -1984,8 +2155,8 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
 
   private rebuildGuideViewModel(): void {
     const query = this.filterQuery.trim().toLowerCase();
-    const nextVisibleProgramsByChannel: { [channelId: string]: any[] } = {};
-    const nextVerticalProgramsByChannel: { [channelId: string]: any[] } = {};
+    const nextFilteredProgramsByChannel: { [channelId: string]: any[] } = {};
+    const nextFilteredVerticalProgramsByChannel: { [channelId: string]: any[] } = {};
     const nextFilteredChannels: any[] = [];
 
     for (const channel of this.channels) {
@@ -2015,18 +2186,25 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
       }
 
       nextFilteredChannels.push(channel);
-      const preparedPrograms = [...visiblePrograms]
-        .sort((a, b) => this.parseEpgTime(a.startTime) - this.parseEpgTime(b.startTime))
-        .map(program => this.decorateProgramForGuide(program));
-      const inWindow = preparedPrograms.filter(program => program.__isVisible);
-      nextVisibleProgramsByChannel[channelId] = inWindow;
-      nextVerticalProgramsByChannel[channelId] = inWindow.length > 0 ? inWindow : preparedPrograms;
+      const sortedPrograms = [...visiblePrograms]
+        .sort((a, b) => this.parseEpgTime(a.startTime) - this.parseEpgTime(b.startTime));
+      const inWindow = sortedPrograms.filter(program => this.isProgramWithinTimelineWindow(program));
+      nextFilteredProgramsByChannel[channelId] = inWindow;
+      nextFilteredVerticalProgramsByChannel[channelId] = inWindow.length > 0 ? inWindow : sortedPrograms;
     }
 
     this.filteredChannels = nextFilteredChannels;
-    this.visibleProgramsByChannel = nextVisibleProgramsByChannel;
-    this.verticalProgramsByChannel = nextVerticalProgramsByChannel;
+    this.filteredProgramsByChannel = nextFilteredProgramsByChannel;
+    this.filteredVerticalProgramsByChannel = nextFilteredVerticalProgramsByChannel;
     this.ensureFocusedChannelVisible();
+  }
+
+  private isProgramWithinTimelineWindow(program: any): boolean {
+    const start = this.parseEpgTime(program?.startTime);
+    const end = this.parseEpgTime(program?.endTime);
+    const windowStart = this.timelineStart.getTime();
+    const windowEnd = windowStart + this.timelineSpanMs;
+    return end > windowStart && start < windowEnd;
   }
 
   private decorateProgramForGuide(program: any): any {

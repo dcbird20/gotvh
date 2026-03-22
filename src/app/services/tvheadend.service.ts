@@ -1,7 +1,7 @@
 import { Injectable } from '@angular/core';
 import { HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
 import { Capacitor, CapacitorHttp } from '@capacitor/core';
-import { BehaviorSubject, from, Observable, of, throwError } from 'rxjs';
+import { BehaviorSubject, forkJoin, from, Observable, of, throwError } from 'rxjs';
 import { catchError, map, shareReplay, switchMap, take } from 'rxjs/operators';
 import { environment } from '../../environments/environment';
 
@@ -11,6 +11,15 @@ export interface RecordingScheduleResult {
   method: RecordingScheduleMethod;
   dvrUuid: string;
   response: any;
+}
+
+export interface GuideDataSnapshot {
+  channels: any[];
+  programs: any[];
+  programsByChannel: { [channelId: string]: any[] };
+  channelUuidEntries: Array<[string, string]>;
+  xmltvError: any;
+  tvheadendEpgError: any;
 }
 
 export interface TvheadendAuthDialogState {
@@ -41,6 +50,8 @@ export class TvheadendService {
   private channelGrid$: Observable<any[]> | null = null;
   private epg$: Observable<any[]> | null = null;
   private xmltv$: Observable<any> | null = null;
+  private guideData$: Observable<GuideDataSnapshot> | null = null;
+  private guideSnapshot: GuideDataSnapshot | null = null;
   private dvrConfigUuid$: Observable<string> | null = null;
   private authRequestResolver: ((value: boolean) => void) | null = null;
 
@@ -345,6 +356,8 @@ export class TvheadendService {
     this.channelGrid$ = null;
     this.epg$ = null;
     this.xmltv$ = null;
+    this.guideData$ = null;
+    this.guideSnapshot = null;
     this.dvrConfigUuid$ = null;
   }
 
@@ -355,6 +368,45 @@ export class TvheadendService {
     if (resolver) {
       resolver(value);
     }
+  }
+
+  getGuideData(): Observable<GuideDataSnapshot> {
+    if (!this.guideData$) {
+      this.guideData$ = forkJoin({
+        xmltv: this.getXmltv().pipe(
+          catchError((error: any) => of({ channels: [], programmes: [], __error: error }))
+        ),
+        tvheadendEpg: this.getEpg().pipe(
+          catchError((error: any) => of({ __entries: [], __error: error }))
+        ),
+        tvhChannels: this.getTvheadendChannelGrid().pipe(catchError(() => of([])))
+      }).pipe(
+        map(({ xmltv, tvheadendEpg, tvhChannels }) => this.buildGuideDataSnapshot(xmltv, tvheadendEpg, tvhChannels || [])),
+        map(snapshot => {
+          this.guideSnapshot = snapshot;
+          return snapshot;
+        }),
+        catchError(error => {
+          this.guideData$ = null;
+          return throwError(error);
+        }),
+        shareReplay(1)
+      );
+    }
+
+    return this.guideData$;
+  }
+
+  peekGuideDataSnapshot(): GuideDataSnapshot | null {
+    return this.guideSnapshot;
+  }
+
+  refreshGuideData(): Observable<GuideDataSnapshot> {
+    this.channelGrid$ = null;
+    this.epg$ = null;
+    this.xmltv$ = null;
+    this.guideData$ = null;
+    return this.getGuideData();
   }
 
   private getRequestOptions() {
@@ -700,9 +752,291 @@ export class TvheadendService {
   }
 
   preloadGuideData(): void {
-    this.getXmltv().pipe(take(1)).subscribe({ error: () => undefined });
-    this.getEpg().pipe(take(1)).subscribe({ error: () => undefined });
-    this.getTvheadendChannelGrid().pipe(take(1)).subscribe({ error: () => undefined });
+    this.getGuideData().pipe(take(1)).subscribe({ error: () => undefined });
+  }
+
+  private buildGuideDataSnapshot(xmltv: any, tvheadendEpg: any, tvhChannels: any[]): GuideDataSnapshot {
+    const xmltvError = xmltv?.__error || null;
+    const tvheadendEpgError = tvheadendEpg?.__error || null;
+    const tvheadendEntries = Array.isArray(tvheadendEpg)
+      ? tvheadendEpg
+      : (tvheadendEpg?.__entries || []);
+    const channelUuidMap = new Map<string, string>();
+
+    let channels: any[] = [];
+    let programs: any[] = [];
+
+    const xmltvPrograms = (xmltv?.programmes || []).map((program: any) => ({
+      channel: program.channel,
+      startTime: this.parseGuideXmltvDate(program.start),
+      endTime: this.parseGuideXmltvDate(program.stop),
+      title: program.title || 'Untitled',
+      desc: program.desc || '',
+      category: this.mergeGuideCategorySources(program.category, program.desc),
+    }));
+
+    if (xmltvPrograms.length > 0) {
+      channels = (xmltv?.channels || []).map((channel: any) => ({
+        id: channel.id,
+        name: channel.name || channel.id || 'Unknown Channel',
+        icon: channel.icon || '',
+      }));
+      programs = this.attachGuideMetadata(xmltvPrograms, channels, tvheadendEntries || []);
+      this.buildGuideChannelUuidMap(channels, tvhChannels || [], channelUuidMap);
+    } else {
+      const fallback = this.mapGuideEpgFallback(tvheadendEntries || [], tvhChannels || []);
+      channels = fallback.channels;
+      programs = fallback.programs;
+      fallback.channelUuidMap.forEach((value, key) => channelUuidMap.set(key, value));
+    }
+
+    const grouped = this.groupGuideProgramsByChannel(channels, programs);
+    return {
+      channels: grouped.channels,
+      programs,
+      programsByChannel: grouped.programsByChannel,
+      channelUuidEntries: Array.from(channelUuidMap.entries()),
+      xmltvError,
+      tvheadendEpgError,
+    };
+  }
+
+  private buildGuideChannelUuidMap(channels: any[], tvhChannels: any[], channelUuidMap: Map<string, string>): void {
+    const normalizeName = (value: string) => String(value || '').trim().toLowerCase();
+
+    for (const channel of channels) {
+      const xmlName = normalizeName(channel?.name);
+      const match = tvhChannels.find((tvhChannel: any) => normalizeName(tvhChannel?.name) === xmlName)
+        || tvhChannels.find((tvhChannel: any) => {
+          const tvhName = normalizeName(tvhChannel?.name);
+          return tvhName && (tvhName.includes(xmlName) || xmlName.includes(tvhName));
+        });
+
+      if (match?.uuid) {
+        channelUuidMap.set(String(channel?.id || '').trim(), String(match.uuid).trim());
+      }
+    }
+  }
+
+  private mapGuideEpgFallback(tvheadendEpg: any[], tvhChannels: any[]): { channels: any[]; programs: any[]; channelUuidMap: Map<string, string> } {
+    const byUuid = new Map<string, any>();
+    const byName = new Map<string, any>();
+    const channelUuidMap = new Map<string, string>();
+
+    (tvhChannels || []).forEach((channel: any) => {
+      const uuid = String(channel?.uuid || '').trim();
+      const name = String(channel?.name || '').trim();
+      if (uuid) {
+        byUuid.set(uuid, channel);
+      }
+      if (name) {
+        byName.set(name.toLowerCase(), channel);
+      }
+    });
+
+    const channelIndex = new Map<string, any>();
+    const programs = (tvheadendEpg || []).map((entry: any) => {
+      const channelUuid = String(entry?.channelUuid || '').trim();
+      const channelName = String(entry?.channelName || entry?.channelname || '').trim();
+      const channelFromGrid = (channelUuid && byUuid.get(channelUuid)) || byName.get(channelName.toLowerCase());
+      const resolvedUuid = String(channelFromGrid?.uuid || channelUuid || '').trim();
+      const resolvedName = String(channelFromGrid?.name || channelName || resolvedUuid || 'Unknown Channel').trim();
+      const channelId = resolvedUuid || resolvedName;
+
+      if (!channelIndex.has(channelId)) {
+        channelIndex.set(channelId, {
+          id: channelId,
+          name: resolvedName,
+          icon: '',
+        });
+      }
+
+      if (resolvedUuid) {
+        channelUuidMap.set(channelId, resolvedUuid);
+      }
+
+      const title = String(entry?.title || entry?.disp_title || 'Untitled').trim() || 'Untitled';
+      const desc = String(entry?.summary || entry?.description || entry?.desc || '').trim();
+      return {
+        channel: channelId,
+        startTime: this.parseGuideTime(entry?.start),
+        endTime: this.parseGuideTime(entry?.stop),
+        title,
+        desc,
+        category: this.mergeGuideCategorySources(entry?.category || entry?.genre || '', desc),
+        eventId: entry?.eventId != null ? Number(entry.eventId) : 0,
+        dvrUuid: entry?.dvrUuid || '',
+        dvrState: entry?.dvrState || '',
+      };
+    }).filter((program: any) => program.startTime > 0 && program.endTime > 0);
+
+    return {
+      channels: Array.from(channelIndex.values()).sort((left, right) => this.compareGuideChannels(left, right)),
+      programs,
+      channelUuidMap,
+    };
+  }
+
+  private attachGuideMetadata(programs: any[], channels: any[], entries: any[]): any[] {
+    const grouped = new Map<string, any[]>();
+    const channelNameMap = new Map<string, string>();
+    channels.forEach(channel => {
+      channelNameMap.set(String(channel?.id || '').trim(), String(channel?.name || channel?.id || '').trim());
+    });
+
+    entries.forEach(entry => {
+      const channelName = this.normalizeGuideLookupText(entry?.channelName || entry?.channelname || '');
+      const title = this.normalizeGuideLookupText(entry?.title || entry?.disp_title || '');
+      if (!channelName || !title) {
+        return;
+      }
+
+      const key = `${channelName}|${title}`;
+      const existing = grouped.get(key) || [];
+      existing.push(entry);
+      grouped.set(key, existing);
+    });
+
+    return programs.map(program => {
+      const channelName = this.normalizeGuideLookupText(channelNameMap.get(String(program?.channel || '').trim()) || program?.channel || '');
+      const title = this.normalizeGuideLookupText(program?.title || '');
+      const key = `${channelName}|${title}`;
+      const candidates = grouped.get(key) || [];
+      const programStart = this.parseGuideTime(program?.startTime);
+      const programEnd = this.parseGuideTime(program?.endTime);
+
+      const nearMatch = candidates.find(entry => {
+        const entryStart = this.parseGuideTime(entry?.start);
+        const entryEnd = this.parseGuideTime(entry?.stop);
+        return Math.abs(entryStart - programStart) <= 300000 && Math.abs(entryEnd - programEnd) <= 300000;
+      });
+
+      if (!nearMatch) {
+        return program;
+      }
+
+      return {
+        ...program,
+        eventId: nearMatch?.eventId != null ? Number(nearMatch.eventId) : program.eventId,
+        dvrUuid: nearMatch?.dvrUuid || program.dvrUuid || '',
+        dvrState: nearMatch?.dvrState || program.dvrState || '',
+        channelUuid: nearMatch?.channelUuid || program.channelUuid || '',
+      };
+    });
+  }
+
+  private groupGuideProgramsByChannel(channels: any[], programs: any[]): { channels: any[]; programsByChannel: { [channelId: string]: any[] } } {
+    const nextChannels = [...channels];
+    const programsByChannel: { [channelId: string]: any[] } = {};
+    const knownChannelIds = new Set(nextChannels.map(channel => String(channel?.id || '').trim()));
+
+    for (const program of programs) {
+      const channelId = String(program?.channel || '').trim();
+      if (!programsByChannel[channelId]) {
+        programsByChannel[channelId] = [];
+        if (channelId && !knownChannelIds.has(channelId)) {
+          nextChannels.push({ id: channelId, name: channelId, icon: '' });
+          knownChannelIds.add(channelId);
+        }
+      }
+
+      programsByChannel[channelId].push(program);
+    }
+
+    Object.values(programsByChannel).forEach(channelPrograms => {
+      channelPrograms.sort((left: any, right: any) => this.parseGuideTime(left?.startTime) - this.parseGuideTime(right?.startTime));
+    });
+
+    nextChannels.sort((left, right) => this.compareGuideChannels(left, right));
+    return { channels: nextChannels, programsByChannel };
+  }
+
+  private compareGuideChannels(left: any, right: any): number {
+    const leftName = String(left?.name || left?.id || '').trim();
+    const rightName = String(right?.name || right?.id || '').trim();
+    return leftName.localeCompare(rightName, undefined, {
+      numeric: true,
+      sensitivity: 'base'
+    });
+  }
+
+  private parseGuideXmltvDate(value: string): number {
+    if (!value) {
+      return 0;
+    }
+
+    const trimmed = value.trim();
+    const match = trimmed.match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(?:\s*([+-])(\d{2})(\d{2}))?/);
+    if (!match) {
+      return new Date(trimmed).getTime();
+    }
+
+    const year = Number(match[1]);
+    const month = Number(match[2]) - 1;
+    const day = Number(match[3]);
+    const hour = Number(match[4]);
+    const minute = Number(match[5]);
+    const second = Number(match[6]);
+    return new Date(year, month, day, hour, minute, second).getTime();
+  }
+
+  private parseGuideTime(value: any): number {
+    if (value == null) {
+      return 0;
+    }
+
+    if (typeof value === 'number') {
+      return value < 1_000_000_000_000 ? value * 1000 : value;
+    }
+
+    if (typeof value === 'string' && /^\d+$/.test(value)) {
+      const parsed = parseInt(value, 10);
+      return parsed < 1_000_000_000_000 ? parsed * 1000 : parsed;
+    }
+
+    return new Date(value).getTime();
+  }
+
+  private mergeGuideCategorySources(rawCategory: any, description: any): any {
+    const explicitCategories = this.extractGuideCategoryEntries(rawCategory);
+    const descriptionCategories = this.extractGuideCategoriesFromDescription(description);
+    const merged = explicitCategories.concat(descriptionCategories)
+      .filter((value, index, items) => items.findIndex(item => item.toLowerCase() === value.toLowerCase()) === index);
+    return merged.length > 0 ? merged : '';
+  }
+
+  private extractGuideCategoriesFromDescription(description: any): string[] {
+    const text = String(description || '');
+    const match = text.match(/categories?\s*:\s*([^\n\r]+)/i);
+    if (!match || !match[1]) {
+      return [];
+    }
+
+    return match[1].split(/[,;|/]/).map(item => item.trim()).filter(Boolean);
+  }
+
+  private extractGuideCategoryEntries(value: any): string[] {
+    if (value == null) {
+      return [];
+    }
+
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+      return String(value).split(/[,;|]/).map(item => item.trim()).filter(Boolean);
+    }
+
+    if (Array.isArray(value)) {
+      return value.reduce((acc: string[], item: any) => acc.concat(this.extractGuideCategoryEntries(item)), []);
+    }
+
+    if (typeof value === 'object') {
+      return (Object.values(value) as any[]).reduce((acc: string[], item: any) => acc.concat(this.extractGuideCategoryEntries(item)), []);
+    }
+
+    return [];
+  }
+
+  private normalizeGuideLookupText(value: any): string {
+    return String(value || '').trim().toLowerCase();
   }
 
   getChannelStreamUrl(channelId: string, options?: { proxied?: boolean; includeAuth?: boolean; buffered?: boolean; playlist?: boolean }): string {
