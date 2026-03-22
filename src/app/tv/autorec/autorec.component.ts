@@ -1,6 +1,8 @@
 import { CommonModule } from '@angular/common';
 import { Component, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { forkJoin, of } from 'rxjs';
+import { catchError } from 'rxjs/operators';
 import { TvFocusableDirective } from '../../directives/tv-focusable.directive';
 import { TvheadendService } from '../../services/tvheadend.service';
 
@@ -16,6 +18,8 @@ export class AutorecComponent implements OnInit {
   saving = false;
   error = '';
   rules: any[] = [];
+  channels: any[] = [];
+  channelFilter = '';
   private pendingFocusTarget: 'refresh' | 'create' | { ruleUuid: string } | null = null;
   form = {
     title: '',
@@ -32,9 +36,14 @@ export class AutorecComponent implements OnInit {
   refresh(): void {
     this.loading = true;
     this.error = '';
-    this.tvh.getAutorecs().subscribe({
-      next: (rules) => {
-        this.rules = rules;
+    forkJoin({
+      rules: this.tvh.getAutorecs(),
+      channels: this.tvh.getChannels().pipe(catchError(() => of([]))),
+      configs: this.tvh.getDvrConfigs().pipe(catchError(() => of([])))
+    }).subscribe({
+      next: ({ rules, channels, configs }) => {
+        this.channels = this.sortChannels(channels);
+        this.rules = this.decorateRules(rules, channels, configs);
         this.loading = false;
         this.restoreFocusIfNeeded();
       },
@@ -71,6 +80,7 @@ export class AutorecComponent implements OnInit {
         this.saving = false;
         this.pendingFocusTarget = 'create';
         this.form = { title: '', channel: '', comment: '' };
+        this.channelFilter = '';
         this.refresh();
       },
       error: (error: any) => {
@@ -140,6 +150,72 @@ export class AutorecComponent implements OnInit {
 
   formatChannel(rule: any): string {
     return rule?.channelname || rule?.channel || 'Any channel';
+  }
+
+  formatChannelOption(channel: any): string {
+    const number = String(channel?.number ?? '').trim();
+    const name = String(channel?.name || channel?.channelname || channel?.uuid || '').trim();
+    return number ? `${number} ${name}`.trim() : name;
+  }
+
+  getFilteredChannels(): any[] {
+    const query = String(this.channelFilter || '').trim().toLowerCase();
+    if (!query) {
+      return this.channels;
+    }
+
+    return this.channels.filter(channel => {
+      const label = this.formatChannelOption(channel).toLowerCase();
+      const uuid = String(channel?.uuid || '').trim().toLowerCase();
+      return label.includes(query) || uuid.includes(query);
+    });
+  }
+
+  private sortChannels(channels: any[]): any[] {
+    return [...(channels || [])].sort((left, right) => {
+      const leftNumber = Number(left?.number ?? Number.MAX_SAFE_INTEGER);
+      const rightNumber = Number(right?.number ?? Number.MAX_SAFE_INTEGER);
+      if (leftNumber !== rightNumber) {
+        return leftNumber - rightNumber;
+      }
+
+      const leftName = String(left?.name || '').trim().toLowerCase();
+      const rightName = String(right?.name || '').trim().toLowerCase();
+      return leftName.localeCompare(rightName);
+    });
+  }
+
+  private decorateRules(rules: any[], channels: any[], configs: any[]): any[] {
+    const channelNameByUuid = new Map<string, string>();
+    for (const channel of channels || []) {
+      const uuid = String(channel?.uuid || channel?.key || channel?.id || '').trim();
+      const name = String(channel?.name || '').trim();
+      if (uuid && name) {
+        channelNameByUuid.set(uuid, name);
+      }
+    }
+
+    const configNameByUuid = new Map<string, string>();
+    for (const config of configs || []) {
+      const uuid = String(config?.uuid || config?.key || '').trim();
+      const name = String(config?.name || config?.title || '').trim() || 'Default DVR config';
+      if (uuid && name) {
+        configNameByUuid.set(uuid, name);
+      }
+    }
+
+    return (rules || []).map(rule => {
+      const channelUuid = String(rule?.channel || '').trim();
+      const configValue = String(rule?.config_name || rule?.config || '').trim();
+      const channelName = String(rule?.channelname || channelNameByUuid.get(channelUuid) || channelUuid || '').trim();
+      const configLabel = String(configNameByUuid.get(configValue) || configValue || '').trim();
+
+      return {
+        ...rule,
+        channelname: channelName,
+        config_label: configLabel
+      };
+    });
   }
 
   describeMatchMode(rule: any): string {

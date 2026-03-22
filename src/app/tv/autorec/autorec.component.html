@@ -39,10 +39,24 @@
       </label>
 
       <label class="composer-field">
-        <span>Channel UUID</span>
-        <input type="text" [(ngModel)]="form.channel" placeholder="Optional channel UUID" />
+        <span>Filter Channels</span>
+        <input type="text" [(ngModel)]="channelFilter" placeholder="Type channel number or name" />
       </label>
     </div>
+
+    <label class="composer-field composer-field--full">
+      <span class="composer-field__label-row">
+        <span>Channel</span>
+        <small class="composer-field__hint">{{ getFilteredChannels().length }} shown</small>
+      </span>
+      <select [(ngModel)]="form.channel" tvFocusable>
+          <option value="">Any channel</option>
+          <option *ngFor="let channel of getFilteredChannels()" [value]="channel.uuid">
+            {{ formatChannelOption(channel) }}
+          </option>
+          <option *ngIf="getFilteredChannels().length === 0" value="" disabled>No matching channels</option>
+        </select>
+    </label>
 
     <label class="composer-field composer-field--full">
       <span>Comment</span>
@@ -80,7 +94,7 @@
         <div class="stack-card__meta">
           <span class="stack-card__meta-pill">{{ formatChannel(rule) }}</span>
           <span class="stack-card__meta-pill">{{ describeMatchMode(rule) }}</span>
-          <span class="stack-card__meta-pill" *ngIf="rule.config_name">{{ rule.config_name }}</span>
+          <span class="stack-card__meta-pill" *ngIf="rule.config_label">{{ rule.config_label }}</span>
           <span class="stack-card__meta-pill" *ngIf="rule.maxsched">Max {{ rule.maxsched }} scheduled</span>
         </div>
 

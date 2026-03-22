@@ -106,17 +106,35 @@
   gap: 8px;
   color: var(--tv-text-muted);
 
+  &__label-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+  }
+
+  &__hint {
+    color: var(--tv-text-subtle);
+    font-size: 12px;
+    font-weight: 500;
+  }
+
   &--full {
     margin-bottom: 14px;
   }
 
-  input {
+  input,
+  select {
     height: 44px;
     border-radius: 12px;
     border: 1px solid rgba(255, 255, 255, 0.12);
     background: rgba(255, 255, 255, 0.04);
     color: var(--tv-text);
     padding: 0 14px;
+  }
+
+  select {
+    appearance: none;
   }
 }
 
