@@ -19,6 +19,8 @@ public class NativeVideoPlugin extends Plugin {
         String authHeader = call.getString("authHeader");
         String fallbackProfiles = call.getString("fallbackProfiles");
         Boolean allowLiveFallback = call.getBoolean("allowLiveFallback", false);
+        String currentChannelId = call.getString("currentChannelId");
+        String liveChannelsJson = call.getString("liveChannelsJson");
 
         if (url == null || url.trim().isEmpty()) {
             call.reject("Missing stream URL");
@@ -32,6 +34,8 @@ public class NativeVideoPlugin extends Plugin {
         intent.putExtra(NativeVideoActivity.EXTRA_AUTH_HEADER, authHeader);
         intent.putExtra(NativeVideoActivity.EXTRA_FALLBACK_PROFILES, fallbackProfiles);
         intent.putExtra(NativeVideoActivity.EXTRA_ALLOW_LIVE_FALLBACK, allowLiveFallback != null && allowLiveFallback);
+        intent.putExtra(NativeVideoActivity.EXTRA_CURRENT_CHANNEL_ID, currentChannelId);
+        intent.putExtra(NativeVideoActivity.EXTRA_LIVE_CHANNELS_JSON, liveChannelsJson);
         getActivity().startActivity(intent);
 
         JSObject result = new JSObject();

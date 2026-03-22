@@ -10,7 +10,7 @@ import { TvheadendService } from '../../services/tvheadend.service';
 import { environment } from '../../../environments/environment';
 
 const NativeVideo = registerPlugin<{
-  open(options: { url: string; title?: string; mimeType?: string; authHeader?: string; allowLiveFallback?: boolean; fallbackProfiles?: string }): Promise<{ launched: boolean }>;
+  open(options: { url: string; title?: string; mimeType?: string; authHeader?: string; allowLiveFallback?: boolean; fallbackProfiles?: string; currentChannelId?: string; liveChannelsJson?: string }): Promise<{ launched: boolean }>;
   openKodiHtsp(options: { url: string; title?: string; fallbackUrl?: string }): Promise<{ launched: boolean; fallback?: boolean }>;
 }>('NativeVideo');
 
@@ -345,7 +345,7 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
       || keyCode === 166
       || keyCode === 427
     ) {
-      return -1;
+      return 1;
     }
 
     if (
@@ -360,7 +360,7 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
       || keyCode === 167
       || keyCode === 428
     ) {
-      return 1;
+      return -1;
     }
 
     return null;
@@ -1013,6 +1013,13 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
     const url = this.withProfile(baseUrl, profile);
     const sourceLabel = useBufferedPlayback ? 'backend buffered' : 'live direct';
     const mimeType = this.resolveNativeMimeType(profile);
+    const liveChannels = await this.getLiveChannels();
+    const liveChannelsJson = JSON.stringify(
+      liveChannels.map(channel => ({
+        uuid: String(channel?.uuid || '').trim(),
+        name: String(channel?.name || '').trim()
+      })).filter(channel => !!channel.uuid)
+    );
 
     console.log(`[ExoPlayer] URL: ${url} | Profile: ${profile} | MIME: ${mimeType} | Buffered: ${useBufferedPlayback}`);
 
@@ -1029,7 +1036,9 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
         mimeType,
         authHeader,
         allowLiveFallback,
-        fallbackProfiles: this.nativeFallbackProfiles.join(',')
+        fallbackProfiles: this.nativeFallbackProfiles.join(','),
+        currentChannelId: this.channelId,
+        liveChannelsJson
       });
     } catch (error: any) {
       this.playerError = `Failed to open native Android player: ${String(error?.message || error || 'unknown error')}`;

@@ -20,6 +20,9 @@ import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.ui.PlayerView;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -32,6 +35,18 @@ public class NativeVideoActivity extends AppCompatActivity {
     public static final String EXTRA_AUTH_HEADER = "streamAuthHeader";
     public static final String EXTRA_FALLBACK_PROFILES = "fallbackProfiles";
     public static final String EXTRA_ALLOW_LIVE_FALLBACK = "allowLiveFallback";
+    public static final String EXTRA_CURRENT_CHANNEL_ID = "currentChannelId";
+    public static final String EXTRA_LIVE_CHANNELS_JSON = "liveChannelsJson";
+
+    private static final class LiveChannelEntry {
+        final String uuid;
+        final String name;
+
+        LiveChannelEntry(String uuid, String name) {
+            this.uuid = uuid;
+            this.name = name;
+        }
+    }
 
     private ExoPlayer player;
     private PlayerView playerView;
@@ -43,8 +58,11 @@ public class NativeVideoActivity extends AppCompatActivity {
     private boolean retriedDirectStream;
     private int mimeTypeRetryCount = 0;
     private List<String> fallbackProfiles = new ArrayList<>();
+    private final List<LiveChannelEntry> liveChannels = new ArrayList<>();
     private int activeProfileIndex = 0;
     private TextView statusOverlay;
+    private String currentChannelId;
+    private long lastChannelSurfAtMs = 0L;
     private final Handler overlayHandler = new Handler(Looper.getMainLooper());
     private final Runnable hideOverlayRunnable = () -> {
         if (statusOverlay != null) {
@@ -74,6 +92,9 @@ public class NativeVideoActivity extends AppCompatActivity {
         fallbackProfiles = parseFallbackProfiles(getIntent().getStringExtra(EXTRA_FALLBACK_PROFILES));
         activeProfileIndex = resolveActiveProfileIndex(url, fallbackProfiles);
         allowLiveFallback = getIntent().getBooleanExtra(EXTRA_ALLOW_LIVE_FALLBACK, false);
+        currentChannelId = normalizeValue(getIntent().getStringExtra(EXTRA_CURRENT_CHANNEL_ID));
+        liveChannels.clear();
+        liveChannels.addAll(parseLiveChannels(getIntent().getStringExtra(EXTRA_LIVE_CHANNELS_JSON)));
 
         if (title != null && !title.trim().isEmpty()) {
             setTitle(title);
@@ -136,6 +157,14 @@ public class NativeVideoActivity extends AppCompatActivity {
         }
 
         switch (keyCode) {
+            case KeyEvent.KEYCODE_CHANNEL_UP:
+            case KeyEvent.KEYCODE_PAGE_UP:
+            case 427:
+                return surfChannel(1);
+            case KeyEvent.KEYCODE_CHANNEL_DOWN:
+            case KeyEvent.KEYCODE_PAGE_DOWN:
+            case 428:
+                return surfChannel(-1);
             case KeyEvent.KEYCODE_BACK:
             case KeyEvent.KEYCODE_ESCAPE:
                 onBackPressed();
@@ -303,6 +332,59 @@ public class NativeVideoActivity extends AppCompatActivity {
             || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT;
     }
 
+    private boolean surfChannel(int direction) {
+        if (direction == 0) {
+            return false;
+        }
+
+        long now = System.currentTimeMillis();
+        if (now - lastChannelSurfAtMs < 250L) {
+            return true;
+        }
+
+        if (liveChannels.isEmpty()) {
+            showStatusOverlay("Channel list unavailable", 1800);
+            return true;
+        }
+
+        int currentIndex = -1;
+        for (int index = 0; index < liveChannels.size(); index += 1) {
+            LiveChannelEntry channel = liveChannels.get(index);
+            if (channel.uuid.equals(currentChannelId)) {
+                currentIndex = index;
+                break;
+            }
+        }
+
+        if (currentIndex < 0) {
+            currentIndex = 0;
+        }
+
+        int nextIndex = (currentIndex + direction + liveChannels.size()) % liveChannels.size();
+        LiveChannelEntry nextChannel = liveChannels.get(nextIndex);
+        if (nextChannel == null || nextChannel.uuid.isEmpty() || nextChannel.uuid.equals(currentChannelId)) {
+            return true;
+        }
+
+        String nextUrl = replaceChannelIdInUrl(currentUrl, nextChannel.uuid);
+        if (nextUrl == null || nextUrl.trim().isEmpty()) {
+            showStatusOverlay("Unable to switch channel", 1800);
+            return true;
+        }
+
+        lastChannelSurfAtMs = now;
+        currentChannelId = nextChannel.uuid;
+        currentUrl = nextUrl;
+        setTitle(nextChannel.name.isEmpty() ? "Live TV" : nextChannel.name);
+        showStatusOverlay("Switching to " + (nextChannel.name.isEmpty() ? nextChannel.uuid : nextChannel.name), 1800);
+
+        retriedWithoutMime = false;
+        retriedDirectStream = false;
+        mimeTypeRetryCount = 0;
+        preparePlayback(nextUrl, currentMimeType);
+        return true;
+    }
+
     private boolean togglePlayback() {
         if (player == null) {
             return false;
@@ -460,5 +542,46 @@ public class NativeVideoActivity extends AppCompatActivity {
         if (durationMs > 0) {
             overlayHandler.postDelayed(hideOverlayRunnable, durationMs);
         }
+    }
+
+    private List<LiveChannelEntry> parseLiveChannels(String json) {
+        List<LiveChannelEntry> parsed = new ArrayList<>();
+        if (json == null || json.trim().isEmpty()) {
+            return parsed;
+        }
+
+        try {
+            JSONArray items = new JSONArray(json);
+            for (int index = 0; index < items.length(); index += 1) {
+                JSONObject item = items.optJSONObject(index);
+                if (item == null) {
+                    continue;
+                }
+
+                String uuid = normalizeValue(item.optString("uuid", ""));
+                if (uuid.isEmpty()) {
+                    continue;
+                }
+
+                String name = normalizeValue(item.optString("name", ""));
+                parsed.add(new LiveChannelEntry(uuid, name));
+            }
+        } catch (Exception error) {
+            android.util.Log.w("NativeVideo", "Failed to parse live channel list: " + error.getMessage());
+        }
+
+        return parsed;
+    }
+
+    private String replaceChannelIdInUrl(String url, String nextChannelId) {
+        if (url == null || url.trim().isEmpty() || nextChannelId == null || nextChannelId.trim().isEmpty()) {
+            return url;
+        }
+
+        return url.replaceFirst("(/channel/)[^/?]+", "$1" + nextChannelId.trim());
+    }
+
+    private String normalizeValue(String value) {
+        return value == null ? "" : value.trim();
     }
 }
