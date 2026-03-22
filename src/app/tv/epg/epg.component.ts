@@ -153,7 +153,6 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
   private readonly layoutStorageKey = 'epg.verticalGuide';
   private timeUpdateTimer: any;
   private shouldApplyInitialGuideFocus = true;
-  private guideLoadStartedAt = 0;
 
   constructor(
     private tvheadendService: TvheadendService,
@@ -165,7 +164,6 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
   // ── Lifecycle ────────────────────────────────────────────────
 
   ngOnInit(): void {
-    this.logGuideTrace('init');
     this.capturePendingReturnContext();
     this.restoreVisibleHoursPreference();
     this.clearLegacyChannelFilterPreference();
@@ -196,27 +194,18 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
   fetchEpgData(): void {
     this.loading = true;
     this.error = null;
-    this.guideLoadStartedAt = Date.now();
-    this.logGuideTrace('fetch-start');
 
     const cachedSnapshot = this.tvheadendService.peekGuideDataSnapshot();
     if (cachedSnapshot) {
       this.applyGuideSnapshot(cachedSnapshot);
       this.refreshScheduledRecordings();
-      this.finalizeGuideLoad(cachedSnapshot, 'cached-snapshot-applied', Date.now() - this.guideLoadStartedAt, true);
+      this.finalizeGuideLoad(cachedSnapshot, true);
 
-      const backgroundRefreshStartedAt = Date.now();
       this.tvheadendService.refreshGuideData().subscribe({
         next: (snapshot: GuideDataSnapshot) => {
           this.applyGuideSnapshot(snapshot);
           this.refreshScheduledRecordings();
-          this.finalizeGuideLoad(snapshot, 'background-refresh-success', Date.now() - backgroundRefreshStartedAt, false);
-        },
-        error: (error: any) => {
-          this.logGuideTrace('background-refresh-error', {
-            status: Number(error?.status || 0),
-            message: String(error?.message || error || '')
-          });
+          this.finalizeGuideLoad(snapshot, false);
         }
       });
       return;
@@ -226,21 +215,15 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
       next: (snapshot: GuideDataSnapshot) => {
         this.applyGuideSnapshot(snapshot);
         this.refreshScheduledRecordings();
-        this.finalizeGuideLoad(snapshot, 'fetch-success', Date.now() - this.guideLoadStartedAt, true);
+        this.finalizeGuideLoad(snapshot, true);
       },
       error: (error: any) => {
         if (error?.status === 401 || error?.status === 403) {
-          this.logGuideTrace('fetch-auth-required', { status: Number(error?.status || 0) });
           void this.requestAuth();
           return;
         }
         this.error = 'Error fetching EPG data: ' + (error?.message || error);
         this.loading = false;
-        this.logGuideTrace('fetch-error', {
-          durationMs: Date.now() - this.guideLoadStartedAt,
-          status: Number(error?.status || 0),
-          message: String(error?.message || error || '')
-        });
       }
     });
   }
@@ -253,7 +236,7 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     this.rebuildGuideViewModel();
   }
 
-  private finalizeGuideLoad(snapshot: GuideDataSnapshot, phase: string, durationMs: number, applyInitialFocus: boolean): void {
+  private finalizeGuideLoad(snapshot: GuideDataSnapshot, applyInitialFocus: boolean): void {
     if (this.programs.length === 0 && (snapshot.xmltvError || snapshot.tvheadendEpgError)) {
       this.error = this.describeGuideDataError(snapshot.xmltvError, snapshot.tvheadendEpgError);
     } else {
@@ -262,15 +245,6 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
 
     this.updateTimelineStart();
     this.loading = false;
-    this.logGuideTrace(phase, {
-      durationMs,
-      channelCount: this.channels.length,
-      filteredChannelCount: this.filteredChannels.length,
-      renderedChannelCount: this.renderedChannels.length,
-      programCount: this.programs.length,
-      hasXmltvError: !!snapshot.xmltvError,
-      hasEpgError: !!snapshot.tvheadendEpgError,
-    });
 
     if (!applyInitialFocus) {
       return;
@@ -283,10 +257,6 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
       if (!restored) {
         this.focusGuideEntryIfNeeded();
       }
-      this.logGuideTrace('post-load-focus', {
-        restoredReturnFocus: restored,
-        activeElement: this.describeElement(document.activeElement as HTMLElement | null)
-      });
     }, 0);
   }
 
@@ -583,16 +553,10 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
   private focusFirstRenderedChannel(): void {
     const channelId = String(this.renderedChannels[0]?.id || '').trim();
     if (!channelId) {
-      this.logGuideTrace('focus-first-rendered-missing-channel');
       return;
     }
 
-    const focused = this.focusChannelButtonForChannel(channelId);
-    this.logGuideTrace('focus-first-rendered', {
-      channelId,
-      focused,
-      activeElement: this.describeElement(document.activeElement as HTMLElement | null)
-    });
+    this.focusChannelButtonForChannel(channelId);
   }
 
   private focusCurrentProgramInView(): void {
@@ -662,7 +626,6 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
   private restoreReturnFocusIfNeeded(): boolean {
     const context = this.pendingReturnContext;
     if (!context) {
-      this.logGuideTrace('restore-return-focus-skipped');
       return false;
     }
 
@@ -680,7 +643,6 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     setTimeout(() => {
       const container = this.timelineOuter?.nativeElement;
       if (!container) {
-        this.logGuideTrace('restore-return-focus-missing-container');
         return;
       }
 
@@ -697,25 +659,14 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
         target = this.queryChannelButton(container, channelId);
       }
 
-      const focused = this.focusElement(target);
+      this.focusElement(target);
       this.scrollToFocusedChannel();
-      this.logGuideTrace('restore-return-focus-applied', {
-        channelId,
-        focused,
-        activeElement: this.describeElement(document.activeElement as HTMLElement | null)
-      });
     }, 0);
     return true;
   }
 
   private focusGuideEntryIfNeeded(): void {
     if (!this.shouldApplyInitialGuideFocus || this.loading || this.error || this.filteredChannels.length === 0) {
-      this.logGuideTrace('initial-focus-skipped', {
-        shouldApplyInitialGuideFocus: this.shouldApplyInitialGuideFocus,
-        loading: this.loading,
-        error: this.error || '',
-        filteredChannelCount: this.filteredChannels.length
-      });
       return;
     }
 
@@ -723,41 +674,7 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     if (this.timelineOuter?.nativeElement) {
       this.timelineOuter.nativeElement.scrollTo({ top: 0, left: 0, behavior: 'auto' });
     }
-    this.logGuideTrace('initial-focus-applying', {
-      filteredChannelCount: this.filteredChannels.length,
-      renderedChannelCount: this.renderedChannels.length
-    });
     this.focusFirstRenderedChannel();
-  }
-
-  private logGuideTrace(phase: string, details: Record<string, unknown> = {}): void {
-    console.info(
-      '[GuideTrace]',
-      JSON.stringify({
-        phase,
-        loading: this.loading,
-        error: this.error || '',
-        filteredChannelCount: this.filteredChannels.length,
-        renderedChannelCount: this.renderedChannels.length,
-        focusedChannelId: this.focusedChannelId,
-        useVerticalGuide: this.useVerticalGuide,
-        ...details,
-      })
-    );
-  }
-
-  private describeElement(element: HTMLElement | null): string {
-    if (!element) {
-      return '';
-    }
-
-    const tag = (element.tagName || '').toLowerCase();
-    const id = element.id ? `#${element.id}` : '';
-    const className = typeof element.className === 'string'
-      ? element.className.trim().split(/\s+/).filter(Boolean).slice(0, 3).map(name => `.${name}`).join('')
-      : '';
-    const channelId = String(element.getAttribute('data-channel-id') || element.getAttribute('data-channel-button-id') || '').trim();
-    return `${tag}${id}${className}${channelId ? `[channel=${channelId}]` : ''}`;
   }
 
   private getTimelineStepHours(): number {

@@ -2,9 +2,9 @@ import { CommonModule } from '@angular/common';
 import { Component, ElementRef, HostListener, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { FormBuilder, Validators } from '@angular/forms';
 import { ReactiveFormsModule } from '@angular/forms';
-import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { Subject } from 'rxjs';
-import { filter, takeUntil } from 'rxjs/operators';
+import { takeUntil } from 'rxjs/operators';
 import { TvFocusableDirective } from './directives/tv-focusable.directive';
 import { RemoteKeyDebugService } from './services/remote-key-debug.service';
 import { SpatialNavService } from './services/spatial-nav.service';
@@ -85,21 +85,6 @@ export class AppComponent implements OnInit, OnDestroy {
       .subscribe(state => {
         this.authState = state;
       });
-
-    this.router.events
-      .pipe(
-        filter((event): event is NavigationEnd => event instanceof NavigationEnd),
-        takeUntil(this.destroy$)
-      )
-      .subscribe(event => {
-        console.info(
-          '[RouteTrace]',
-          JSON.stringify({
-            url: event.urlAfterRedirects || event.url,
-            activeElement: this.describeActiveElement()
-          })
-        );
-      });
   }
 
   ngOnInit(): void {
@@ -107,26 +92,6 @@ export class AppComponent implements OnInit, OnDestroy {
     // instead of exiting the Android WebView activity.
     this.pushBackGuardState();
     this.tvh.preloadGuideData();
-    console.info('[RouteTrace]', JSON.stringify({ phase: 'app-init', preloadGuideData: true }));
-  }
-
-  private describeActiveElement(): string {
-    if (typeof document === 'undefined') {
-      return '';
-    }
-
-    const active = document.activeElement as HTMLElement | null;
-    if (!active) {
-      return '';
-    }
-
-    const tag = (active.tagName || '').toLowerCase();
-    const id = active.id ? `#${active.id}` : '';
-    const className = typeof active.className === 'string'
-      ? active.className.trim().split(/\s+/).filter(Boolean).slice(0, 3).map(name => `.${name}`).join('')
-      : '';
-    const channelId = String(active.getAttribute('data-channel-id') || active.getAttribute('data-channel-button-id') || '').trim();
-    return `${tag}${id}${className}${channelId ? `[channel=${channelId}]` : ''}`;
   }
 
   @HostListener('document:keydown', ['$event'])
