@@ -4,8 +4,13 @@
 		{
 			"label": "Run gotvh Angular app",
 			"type": "shell",
-			"command": "npx ng serve",
+			"command": "npm",
 			"args": [
+				"run",
+				"start",
+				"--",
+				"--port",
+				"4200",
 				"--open"
 			],
 			"isBackground": true,
