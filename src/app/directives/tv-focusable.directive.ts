@@ -63,7 +63,11 @@ export class TvFocusableDirective implements FocusableItem, OnInit, OnDestroy {
   focus(): void {
     const element = this.el.nativeElement;
     element.classList.add('tv-focused');
-    element.focus({ preventScroll: true });
+    const activeElement = document.activeElement as HTMLElement | null;
+    const alreadyFocused = activeElement === element || !!activeElement && element.contains(activeElement);
+    if (!alreadyFocused) {
+      element.focus({ preventScroll: true });
+    }
     this.scrollNearestContainerIntoView(element);
   }
 
@@ -76,7 +80,7 @@ export class TvFocusableDirective implements FocusableItem, OnInit, OnDestroy {
   }
 
   private scrollNearestContainerIntoView(element: HTMLElement): void {
-    const container = element.closest('[data-tv-scroll-container="true"]') as HTMLElement | null;
+    const container = this.resolveScrollContainer(element);
     if (!container) {
       element.scrollIntoView({
         behavior: 'auto',
@@ -124,5 +128,44 @@ export class TvFocusableDirective implements FocusableItem, OnInit, OnDestroy {
         behavior: 'auto'
       });
     }
+  }
+
+  private resolveScrollContainer(element: HTMLElement): HTMLElement | null {
+    let fallbackMarkedContainer: HTMLElement | null = null;
+    let fallbackScrollableContainer: HTMLElement | null = null;
+    let current: HTMLElement | null = element;
+
+    while (current) {
+      const isMarkedContainer = current.getAttribute('data-tv-scroll-container') === 'true';
+      const isScrollableContainer = this.isScrollable(current);
+
+      if (isMarkedContainer && isScrollableContainer) {
+        return current;
+      }
+
+      if (!fallbackScrollableContainer && isScrollableContainer) {
+        fallbackScrollableContainer = current;
+      }
+
+      if (!fallbackMarkedContainer && isMarkedContainer) {
+        fallbackMarkedContainer = current;
+      }
+
+      current = current.parentElement;
+    }
+
+    return fallbackScrollableContainer || fallbackMarkedContainer;
+  }
+
+  private isScrollable(element: HTMLElement): boolean {
+    const computedStyle = getComputedStyle(element);
+    const overflowY = computedStyle.overflowY;
+    const overflowX = computedStyle.overflowX;
+    const canScrollY = (overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay')
+      && element.scrollHeight > element.clientHeight + 1;
+    const canScrollX = (overflowX === 'auto' || overflowX === 'scroll' || overflowX === 'overlay')
+      && element.scrollWidth > element.clientWidth + 1;
+
+    return canScrollY || canScrollX;
   }
 }

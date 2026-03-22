@@ -97,6 +97,7 @@ export class StatusComponent implements OnInit {
     }, 0);
   }
 
+
   private describeError(error: any): string {
     const status = Number(error?.status || 0);
     if (status === 401) {

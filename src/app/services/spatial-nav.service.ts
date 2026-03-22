@@ -13,6 +13,7 @@ export interface FocusableItem {
 export class SpatialNavService {
   private items: FocusableItem[] = [];
   private currentItem: FocusableItem | null = null;
+  private lastScopeElement: HTMLElement | null = null;
   private nextId = 1;
   private readonly directionDeadZonePx = 4;
 
@@ -39,28 +40,25 @@ export class SpatialNavService {
       this.currentItem.blur();
     }
     this.currentItem = item;
+    this.lastScopeElement = this.getNavigationScopeElement(item.getElement());
     item.focus();
   }
 
   handleKeydown(event: KeyboardEvent): boolean {
     if (this.isDirectionalKey(event, 'up')) {
-      this.move('up');
-      return true;
+      return this.move('up');
     }
 
     if (this.isDirectionalKey(event, 'down')) {
-      this.move('down');
-      return true;
+      return this.move('down');
     }
 
     if (this.isDirectionalKey(event, 'left')) {
-      this.move('left');
-      return true;
+      return this.move('left');
     }
 
     if (this.isDirectionalKey(event, 'right')) {
-      this.move('right');
-      return true;
+      return this.move('right');
     }
 
     if (this.isSelectKey(event)) {
@@ -121,7 +119,9 @@ export class SpatialNavService {
     const currentItem = this.resolveCurrentItem();
 
     if (!currentItem) {
-      const firstVisibleItem = this.items.find(item => this.isItemVisible(item));
+      const activeElement = document.activeElement as HTMLElement | null;
+      const preferredScopeElement = this.getNavigationScopeElement(activeElement) || this.lastScopeElement;
+      const firstVisibleItem = this.findInitialCandidate(dir, preferredScopeElement) || this.items.find(item => this.isItemVisible(item));
       if (firstVisibleItem) {
         this.setFocus(firstVisibleItem);
         return true;
@@ -282,12 +282,27 @@ export class SpatialNavService {
     return element?.closest('[data-tv-nav-scope]') as HTMLElement | null;
   }
 
-  private findLinearVerticalCandidate(scopeElement: HTMLElement | null, dir: 'up' | 'down'): FocusableItem | null {
-    const currentItem = this.resolveCurrentItem();
-    if (!scopeElement || !currentItem) {
+  private findInitialCandidate(
+    dir: 'up' | 'down' | 'left' | 'right',
+    scopeElement: HTMLElement | null
+  ): FocusableItem | null {
+    if (!scopeElement) {
       return null;
     }
 
+    const scopedItems = this.getOrderedScopedItems(scopeElement);
+    if (!scopedItems.length) {
+      return null;
+    }
+
+    if (dir === 'up' || dir === 'left') {
+      return scopedItems[scopedItems.length - 1] || null;
+    }
+
+    return scopedItems[0] || null;
+  }
+
+  private getOrderedScopedItems(scopeElement: HTMLElement): FocusableItem[] {
     const scopedItems = this.items
       .filter(item => this.getNavigationScopeElement(item.getElement()) === scopeElement)
       .filter(item => {
@@ -309,8 +324,22 @@ export class SpatialNavService {
         return 0;
       });
 
+    const navigationMode = scopeElement.getAttribute('data-tv-nav-mode') || '';
+    if (navigationMode !== 'linear-vertical') {
+      return scopedItems;
+    }
+
     const anchorItems = scopedItems.filter(item => item.getElement().getAttribute('data-tv-linear-anchor') === 'true');
-    const orderedItems = anchorItems.length > 0 ? anchorItems : scopedItems;
+    return anchorItems.length > 0 ? anchorItems : scopedItems;
+  }
+
+  private findLinearVerticalCandidate(scopeElement: HTMLElement | null, dir: 'up' | 'down'): FocusableItem | null {
+    const currentItem = this.resolveCurrentItem();
+    if (!scopeElement || !currentItem) {
+      return null;
+    }
+
+    const orderedItems = this.getOrderedScopedItems(scopeElement);
 
     const currentIndex = orderedItems.indexOf(currentItem);
     if (currentIndex >= 0) {
@@ -367,11 +396,16 @@ export class SpatialNavService {
       return matchedItem;
     }
 
-    if (this.currentItem && !this.isItemVisible(this.currentItem)) {
-      this.currentItem = null;
+    if (this.currentItem) {
+      this.currentItem.blur();
+      if (!this.isItemVisible(this.currentItem)) {
+        this.currentItem = null;
+      } else {
+        this.currentItem = null;
+      }
     }
 
-    return this.currentItem;
+    return null;
   }
 
   private isFocusableItemCurrent(item: FocusableItem, activeElement: HTMLElement | null): boolean {

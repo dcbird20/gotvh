@@ -106,16 +106,16 @@ export class RecordingsComponent implements OnInit {
   }
 
   canWatch(entry: any): boolean {
-    return !!String(entry?.channel || entry?.channelUuid || '').trim();
+    return this.activeTab !== 'upcoming' && !!this.getRecordingRef(entry) && !Number(entry?.fileremoved || 0);
   }
 
   async watchRecording(entry: any): Promise<void> {
-    const channelUuid = String(entry?.channel || entry?.channelUuid || entry?.channelname || '').trim();
-    if (!channelUuid) {
+    const recordingRef = this.getRecordingRef(entry);
+    if (!recordingRef) {
       return;
     }
 
-    const hasAuth = await this.tvh.ensureBasicAuth('Enter your TVHeadend credentials to watch playback.');
+    const hasAuth = await this.tvh.ensureBasicAuth('Enter your TVHeadend credentials to play this recording.');
     if (!hasAuth) {
       return;
     }
@@ -128,9 +128,11 @@ export class RecordingsComponent implements OnInit {
       }
     });
 
-    this.router.navigate(['/player', channelUuid], {
+    this.router.navigate(['/player', String(entry?.uuid || 'recording').trim() || 'recording'], {
       queryParams: {
-        name: entry?.channelname || entry?.disp_title || entry?.title || 'Recording',
+        name: entry?.disp_title || entry?.title || entry?.channelname || 'Recording',
+        playback: 'recording',
+        recordingRef,
         returnTo: '/recordings',
         returnToken
       }
@@ -289,6 +291,19 @@ export class RecordingsComponent implements OnInit {
 
   trackByUuid(_: number, entry: any): string {
     return String(entry?.uuid || entry?.disp_title || entry?.title || _);
+  }
+
+  private getRecordingRef(entry: any): string {
+    const directUrl = String(entry?.url || '').trim();
+    if (directUrl) {
+      return directUrl;
+    }
+
+    if (this.activeTab === 'upcoming') {
+      return '';
+    }
+
+    return String(entry?.uuid || '').trim();
   }
 
   private flattenValue(value: any): string {

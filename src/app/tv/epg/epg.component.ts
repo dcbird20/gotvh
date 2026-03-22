@@ -583,8 +583,26 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     return String(currentProgram?.getAttribute('data-channel-id') || '').trim();
   }
 
+  private focusElement(target: HTMLElement | null | undefined, preventScroll = true): boolean {
+    if (!target) {
+      return false;
+    }
+
+    if (document.activeElement === target) {
+      return true;
+    }
+
+    try {
+      target.focus({ preventScroll });
+    } catch {
+      target.focus();
+    }
+
+    return true;
+  }
+
   private focusGuideHeaderControls(): void {
-    this.nowButton?.nativeElement.focus();
+    this.focusElement(this.nowButton?.nativeElement);
   }
 
   private capturePendingReturnContext(): void {
@@ -642,7 +660,7 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
         target = this.queryChannelButton(container, channelId);
       }
 
-      target?.focus();
+      this.focusElement(target);
       this.scrollToFocusedChannel();
     }, 0);
     return true;
@@ -1029,7 +1047,7 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     this.selectedProgram = program;
     this.resetRecordingState();
     setTimeout(() => {
-      this.watchLiveButton?.nativeElement.focus();
+      this.focusElement(this.watchLiveButton?.nativeElement);
     }, 0);
   }
 
@@ -1043,7 +1061,7 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     const restoreTarget = this.lastFocusedGridElement;
     this.lastFocusedGridElement = null;
     setTimeout(() => {
-      restoreTarget?.focus();
+      this.focusElement(restoreTarget);
     }, 0);
   }
 
@@ -1059,7 +1077,7 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
       return;
     }
     event.preventDefault();
-    this.shiftTimelineWindow(-1);
+    this.moveGuideFocusByPage(target, -1);
   }
 
   @HostListener('document:keydown.pagedown', ['$event'])
@@ -1069,7 +1087,24 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
       return;
     }
     event.preventDefault();
-    this.shiftTimelineWindow(1);
+    this.moveGuideFocusByPage(target, 1);
+  }
+
+  @HostListener('document:keydown', ['$event'])
+  handleChannelPageKeys(event: KeyboardEvent): void {
+    const direction = this.getChannelPageDirection(event);
+    if (!direction) {
+      return;
+    }
+
+    const target = this.getGuideKeyTarget(event);
+    if (this.selectedProgram || this.shouldIgnoreGlobalGuideKeys(target)) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    this.moveGuideFocusByPage(target, direction);
   }
 
   @HostListener('document:keydown.home', ['$event'])
@@ -1189,6 +1224,42 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     return !!target.closest('input, textarea, select, [contenteditable="true"]');
   }
 
+  private getChannelPageDirection(event: KeyboardEvent): -1 | 1 | null {
+    const key = String(event.key || '').trim();
+    const code = String((event as any).code || '').trim();
+    const keyCode = Number((event as any).keyCode || (event as any).which || 0);
+    const isBareChannelUp = keyCode === 33 && !key && !code;
+    const isBareChannelDown = keyCode === 34 && !key && !code;
+
+    if (
+      key === 'ChannelUp'
+      || key === 'MediaChannelUp'
+      || code === 'ChannelUp'
+      || code === 'MediaChannelUp'
+      || isBareChannelUp
+      || keyCode === 92
+      || keyCode === 166
+      || keyCode === 427
+    ) {
+      return -1;
+    }
+
+    if (
+      key === 'ChannelDown'
+      || key === 'MediaChannelDown'
+      || code === 'ChannelDown'
+      || code === 'MediaChannelDown'
+      || isBareChannelDown
+      || keyCode === 93
+      || keyCode === 167
+      || keyCode === 428
+    ) {
+      return 1;
+    }
+
+    return null;
+  }
+
   private getGuideKeyTarget(event: KeyboardEvent): HTMLElement | null {
     const activeElement = document.activeElement as HTMLElement | null;
     if (activeElement && activeElement !== document.body) {
@@ -1231,6 +1302,51 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     return this.focusFirstProgramForChannel(channelId);
   }
 
+  private moveGuideFocusByPage(target: EventTarget | null, direction: -1 | 1): boolean {
+    const sourceElement = this.resolveGuidePageSourceElement(target);
+    const sourceChannelId = sourceElement
+      ? this.resolveGuideChannelIdFromTarget(sourceElement)
+      : String(this.focusedChannelId || '').trim();
+
+    const currentIndex = this.filteredChannels.findIndex(channel => String(channel?.id || '').trim() === sourceChannelId);
+    const fallbackIndex = direction > 0 ? 0 : Math.max(0, this.filteredChannels.length - 1);
+    const baseIndex = currentIndex >= 0 ? currentIndex : fallbackIndex;
+    const pageSize = Math.max(1, this.currentChannelPageSize());
+    const nextIndex = Math.max(0, Math.min(this.filteredChannels.length - 1, baseIndex + (direction * pageSize)));
+    const nextChannelId = String(this.filteredChannels[nextIndex]?.id || '').trim();
+    if (!nextChannelId) {
+      return false;
+    }
+
+    if (!sourceElement) {
+      return this.focusChannelButtonForChannel(nextChannelId);
+    }
+
+    if (this.useVerticalGuide) {
+      return this.focusVerticalGuideRowTarget(sourceElement, sourceChannelId, nextChannelId);
+    }
+
+    return this.focusTimelineRowTarget(sourceElement, nextChannelId);
+  }
+
+  private resolveGuidePageSourceElement(target: EventTarget | null): HTMLElement | null {
+    const element = target as HTMLElement | null;
+    if (element && this.isGuideGridTarget(element)) {
+      return element;
+    }
+
+    const focusedChannelId = String(this.focusedChannelId || '').trim();
+    if (!focusedChannelId) {
+      return null;
+    }
+
+    const container = this.timelineOuter?.nativeElement || document;
+    const escapedChannelId = this.escapeForAttributeSelector(focusedChannelId);
+    return (container.querySelector(
+      `.epg-program-bar[data-channel-id="${escapedChannelId}"], .epg-vertical-program-item[data-channel-id="${escapedChannelId}"], .epg-channel-col-clickable[data-channel-button-id="${escapedChannelId}"], .epg-vertical-channel-header-btn[data-channel-button-id="${escapedChannelId}"]`
+    ) as HTMLElement | null);
+  }
+
   private focusChannelButtonForProgramTarget(target: EventTarget | null): boolean {
     const element = target as HTMLElement | null;
     const programCell = element?.closest('.epg-program-bar, .epg-vertical-program-item') as HTMLElement | null;
@@ -1249,8 +1365,7 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
       return false;
     }
 
-    channelButton.focus();
-    return true;
+    return this.focusElement(channelButton);
   }
 
   private focusAdjacentProgramForTarget(target: EventTarget | null, direction: -1 | 1): boolean {
@@ -1281,8 +1396,7 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
       return false;
     }
 
-    items[nextIndex].focus();
-    return true;
+    return this.focusElement(items[nextIndex]);
   }
 
   private focusFirstProgramForChannel(channelId: string): boolean {
@@ -1296,8 +1410,7 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
       return false;
     }
 
-    target.focus();
-    return true;
+    return this.focusElement(target);
   }
 
   private focusChannelButtonForChannel(channelId: string): boolean {
@@ -1307,8 +1420,7 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
       return false;
     }
 
-    target.focus();
-    return true;
+    return this.focusElement(target);
   }
 
   private queryChannelButton(container: ParentNode, channelId: string): HTMLElement | null {
@@ -1384,8 +1496,7 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     const currentChannelButton = currentElement.closest('.epg-channel-col-clickable, .epg-vertical-channel-header-btn') as HTMLElement | null;
 
     if (currentChannelButton) {
-      nextChannelButton?.focus();
-      return !!nextChannelButton;
+      return this.focusElement(nextChannelButton);
     }
 
     const candidates = Array.from(container.querySelectorAll(`.epg-program-bar[data-channel-id="${escapedChannelId}"]`)) as HTMLElement[];
@@ -1426,8 +1537,7 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
       if (target?.matches('.epg-program-bar, .epg-vertical-program-item')) {
         this.preserveTimelineColumnAnchor = true;
       }
-      target?.focus();
-      return !!target;
+      return this.focusElement(target);
     }
 
     const currentRect = currentElement.getBoundingClientRect();
@@ -1454,8 +1564,7 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     if (target?.matches('.epg-program-bar, .epg-vertical-program-item')) {
       this.preserveTimelineColumnAnchor = true;
     }
-    target?.focus();
-    return !!target;
+    return this.focusElement(target);
   }
 
   private focusVerticalGuideRowTarget(currentElement: HTMLElement, currentChannelId: string, nextChannelId: string): boolean {
@@ -1467,25 +1576,21 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     const nextChannelButton = this.queryChannelButton(container, nextChannelId);
     const currentChannelButton = currentElement.closest('.epg-vertical-channel-header-btn') as HTMLElement | null;
     if (currentChannelButton) {
-      nextChannelButton?.focus();
-      return !!nextChannelButton;
+      return this.focusElement(nextChannelButton);
     }
 
     if (nextItems.length === 0) {
-      nextChannelButton?.focus();
-      return !!nextChannelButton;
+      return this.focusElement(nextChannelButton);
     }
 
     const currentItem = currentElement.closest('.epg-vertical-program-item') as HTMLElement | null;
     if (!currentItem) {
-      nextItems[0].focus();
-      return true;
+      return this.focusElement(nextItems[0]);
     }
 
     const currentIndex = Math.max(0, currentItems.indexOf(currentItem));
     const targetIndex = Math.min(currentIndex, nextItems.length - 1);
-    nextItems[targetIndex].focus();
-    return true;
+    return this.focusElement(nextItems[targetIndex]);
   }
 
   hasPreviousProgram(): boolean { return this.getAdjacentProgram(-1) !== null; }

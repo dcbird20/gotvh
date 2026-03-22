@@ -6,6 +6,7 @@ import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/rou
 import { Subject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 import { TvFocusableDirective } from './directives/tv-focusable.directive';
+import { RemoteKeyDebugService } from './services/remote-key-debug.service';
 import { SpatialNavService } from './services/spatial-nav.service';
 import { TvheadendService, TvheadendAuthDialogState, TvheadendAuthState } from './services/tvheadend.service';
 
@@ -53,6 +54,7 @@ export class AppComponent implements OnInit, OnDestroy {
   constructor(
     public router: Router,
     private spatialNav: SpatialNavService,
+    private remoteKeyDebug: RemoteKeyDebugService,
     private tvh: TvheadendService,
     private formBuilder: FormBuilder
   ) {
@@ -89,11 +91,13 @@ export class AppComponent implements OnInit, OnDestroy {
     // Install a history guard so remote back events trigger in-app handling
     // instead of exiting the Android WebView activity.
     this.pushBackGuardState();
+    this.tvh.preloadGuideData();
   }
 
   @HostListener('document:keydown', ['$event'])
   onKeyDown(event: KeyboardEvent): void {
     const key = event.key;
+    this.remoteKeyDebug.captureEvent(event, 'app-shell', this.router.url.split('?')[0] || '/');
 
     const active = document.activeElement as HTMLElement | null;
     const isTypingTarget = !!active && (
@@ -136,6 +140,17 @@ export class AppComponent implements OnInit, OnDestroy {
       || key === 'Spacebar';
 
     if (isTypingTarget && !isNavKey) {
+      return;
+    }
+
+    if (this.handleStatusPageDirectionalBridge(event, active)) {
+      event.preventDefault();
+      return;
+    }
+
+    if (this.handleGuideChannelPageBridge(event, active)) {
+      event.preventDefault();
+      event.stopPropagation();
       return;
     }
 
@@ -192,12 +207,42 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   private resolveActiveScrollContainer(activeElement: HTMLElement | null): HTMLElement | null {
-    const routeContainer = activeElement?.closest('[data-tv-scroll-container="true"]') as HTMLElement | null;
-    if (routeContainer) {
-      return routeContainer;
+    let fallbackMarkedContainer: HTMLElement | null = null;
+    let fallbackScrollableContainer: HTMLElement | null = null;
+    let current: HTMLElement | null = activeElement;
+
+    while (current) {
+      const isMarkedContainer = current.getAttribute('data-tv-scroll-container') === 'true';
+      const isScrollableContainer = this.isScrollableContainer(current);
+
+      if (isMarkedContainer && isScrollableContainer) {
+        return current;
+      }
+
+      if (!fallbackScrollableContainer && isScrollableContainer) {
+        fallbackScrollableContainer = current;
+      }
+
+      if (!fallbackMarkedContainer && isMarkedContainer) {
+        fallbackMarkedContainer = current;
+      }
+
+      current = current.parentElement;
     }
 
-    return this.shellContent?.nativeElement || null;
+    return fallbackScrollableContainer || fallbackMarkedContainer || this.shellContent?.nativeElement || null;
+  }
+
+  private isScrollableContainer(element: HTMLElement): boolean {
+    const computedStyle = getComputedStyle(element);
+    const overflowY = computedStyle.overflowY;
+    const overflowX = computedStyle.overflowX;
+    const canScrollY = (overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay')
+      && element.scrollHeight > element.clientHeight + 1;
+    const canScrollX = (overflowX === 'auto' || overflowX === 'scroll' || overflowX === 'overlay')
+      && element.scrollWidth > element.clientWidth + 1;
+
+    return canScrollY || canScrollX;
   }
 
   private resolveScrollDirection(key: string, code: string, keyCode: number): 'up' | 'down' | null {
@@ -224,6 +269,126 @@ export class AppComponent implements OnInit, OnDestroy {
     }
 
     return activeElement?.closest('[data-tv-nav-scope="epg-page"]') != null;
+  }
+
+  private handleGuideChannelPageBridge(event: KeyboardEvent, activeElement: HTMLElement | null): boolean {
+    const currentPath = this.router.url.split('?')[0] || '';
+    if (currentPath !== '/guide') {
+      return false;
+    }
+
+    const direction = this.getChannelPageDirection(event);
+    if (!direction) {
+      return false;
+    }
+
+    const target = activeElement || document.body || document.documentElement;
+    const pageKey = direction > 0 ? 'PageDown' : 'PageUp';
+    const pageKeyCode = direction > 0 ? 34 : 33;
+    const syntheticEvent = new KeyboardEvent('keydown', {
+      key: pageKey,
+      code: pageKey,
+      bubbles: true,
+      cancelable: true
+    });
+
+    Object.defineProperty(syntheticEvent, 'keyCode', { value: pageKeyCode });
+    Object.defineProperty(syntheticEvent, 'which', { value: pageKeyCode });
+
+    target.dispatchEvent(syntheticEvent);
+    return true;
+  }
+
+  private getChannelPageDirection(event: KeyboardEvent): -1 | 1 | null {
+    const key = String(event.key || '').trim();
+    const code = String((event as any).code || '').trim();
+    const keyCode = Number((event as any).keyCode || (event as any).which || 0);
+    const isBareChannelUp = keyCode === 33 && !key && !code;
+    const isBareChannelDown = keyCode === 34 && !key && !code;
+
+    if (
+      key === 'ChannelUp'
+      || key === 'MediaChannelUp'
+      || code === 'ChannelUp'
+      || code === 'MediaChannelUp'
+      || isBareChannelUp
+      || keyCode === 92
+      || keyCode === 166
+      || keyCode === 427
+    ) {
+      return -1;
+    }
+
+    if (
+      key === 'ChannelDown'
+      || key === 'MediaChannelDown'
+      || code === 'ChannelDown'
+      || code === 'MediaChannelDown'
+      || isBareChannelDown
+      || keyCode === 93
+      || keyCode === 167
+      || keyCode === 428
+    ) {
+      return 1;
+    }
+
+    return null;
+  }
+
+  private handleStatusPageDirectionalBridge(event: KeyboardEvent, activeElement: HTMLElement | null): boolean {
+    const currentPath = this.router.url.split('?')[0] || '';
+    const statusScope = document.querySelector('[data-tv-nav-scope="status-page"]') as HTMLElement | null;
+    if (currentPath !== '/status' || !statusScope) {
+      return false;
+    }
+
+    const isManagedStatusTarget = !!activeElement?.closest('[data-status-refresh], [data-status-anchor]');
+    const hasLostStatusFocus = !activeElement
+      || activeElement === document.body
+      || activeElement === document.documentElement
+      || !isManagedStatusTarget;
+
+    if (this.isDirectionalKey(event, 'down') && hasLostStatusFocus) {
+      const target = document.querySelector('.tv-focused[data-status-anchor], [data-status-first-anchor="true"], [data-status-anchor], [data-status-refresh]') as HTMLElement | null;
+      if (!target) {
+        return false;
+      }
+
+      target.focus();
+      return true;
+    }
+
+    if (this.isDirectionalKey(event, 'up') && hasLostStatusFocus) {
+      const refreshButton = document.querySelector('[data-status-refresh]') as HTMLElement | null;
+      if (!refreshButton) {
+        return false;
+      }
+
+      refreshButton.focus();
+      return true;
+    }
+
+    return false;
+  }
+
+  private isDirectionalKey(event: KeyboardEvent, direction: 'up' | 'down' | 'left' | 'right'): boolean {
+    const key = String(event.key || '');
+    const code = String((event as any).code || '');
+    const keyCode = Number((event as any).keyCode || (event as any).which || 0);
+
+    if (direction === 'up') {
+      return key === 'ArrowUp' || code === 'ArrowUp' || keyCode === 19 || keyCode === 38;
+    }
+
+    if (direction === 'down') {
+      return key === 'ArrowDown' || code === 'ArrowDown' || keyCode === 20 || keyCode === 40;
+    }
+
+    if (direction === 'left') {
+      return key === 'ArrowLeft' || code === 'ArrowLeft' || keyCode === 21 || keyCode === 37;
+    }
+
+    return key === 'ArrowRight' || code === 'ArrowRight' || keyCode === 22 || keyCode === 39;
   }
 
   private handleAuthDialogNavigation(event: KeyboardEvent): boolean {

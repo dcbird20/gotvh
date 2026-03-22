@@ -74,11 +74,13 @@
       <div class="shelf__row">
         <app-tv-card
           *ngFor="let rec of finishedRecordings"
+          [attr.data-recording-uuid]="rec.uuid"
           [title]="rec.disp_title || rec.title || 'Recording'"
           [subtitle]="rec.channelname || ''"
           [meta]="formatDuration(rec)"
           [badge]="'✓'"
           tvFocusable
+          (click)="watchRecording(rec)"
         ></app-tv-card>
       </div>
     </section>

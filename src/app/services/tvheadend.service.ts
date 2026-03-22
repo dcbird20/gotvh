@@ -2,7 +2,7 @@ import { Injectable } from '@angular/core';
 import { HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
 import { Capacitor, CapacitorHttp } from '@capacitor/core';
 import { BehaviorSubject, from, Observable, of, throwError } from 'rxjs';
-import { catchError, map, shareReplay, switchMap } from 'rxjs/operators';
+import { catchError, map, shareReplay, switchMap, take } from 'rxjs/operators';
 import { environment } from '../../environments/environment';
 
 export type RecordingScheduleMethod = 'event' | 'manual';
@@ -39,6 +39,8 @@ export class TvheadendService {
   private authHeader: string | null = null;
   private authCredentials: { username: string; password: string } | null = null;
   private channelGrid$: Observable<any[]> | null = null;
+  private epg$: Observable<any[]> | null = null;
+  private xmltv$: Observable<any> | null = null;
   private dvrConfigUuid$: Observable<string> | null = null;
   private authRequestResolver: ((value: boolean) => void) | null = null;
 
@@ -211,6 +213,7 @@ export class TvheadendService {
       username: normalizedUsername,
       password: normalizedPassword
     };
+    this.resetCachedRequests();
     this.persistAuth();
     this.publishAuthState();
   }
@@ -218,6 +221,7 @@ export class TvheadendService {
   clearAuth(): void {
     this.authHeader = null;
     this.authCredentials = null;
+    this.resetCachedRequests();
     if (typeof localStorage !== 'undefined') {
       localStorage.removeItem(this.authStorageKey);
     }
@@ -337,6 +341,13 @@ export class TvheadendService {
     });
   }
 
+  private resetCachedRequests(): void {
+    this.channelGrid$ = null;
+    this.epg$ = null;
+    this.xmltv$ = null;
+    this.dvrConfigUuid$ = null;
+  }
+
   private resolveAuthRequest(value: boolean): void {
     const resolver = this.authRequestResolver;
     this.authRequestResolver = null;
@@ -403,6 +414,28 @@ export class TvheadendService {
   private buildUrl(path: string): string {
     const normalizedPath = path.replace(/^\/+/, '');
     return `${this.apiBase}/${normalizedPath}`;
+  }
+
+  private buildRecordingUrl(streamRoot: string, recordingRef: string): string {
+    const normalizedRef = String(recordingRef || '').trim();
+    if (!normalizedRef) {
+      return '';
+    }
+
+    if (/^https?:\/\//i.test(normalizedRef)) {
+      return normalizedRef;
+    }
+
+    const normalizedPath = normalizedRef.replace(/^\/+/, '');
+    const dvrPath = normalizedPath.startsWith('dvrfile/')
+      ? normalizedPath
+      : `dvrfile/${encodeURIComponent(normalizedPath)}`;
+
+    try {
+      return new URL(dvrPath, `${streamRoot.replace(/\/+$/, '')}/`).toString();
+    } catch {
+      return `${streamRoot.replace(/\/+$/, '')}/${dvrPath}`;
+    }
   }
 
   getChannels(): Observable<any[]> {
@@ -554,20 +587,31 @@ export class TvheadendService {
   }
 
   getEpg(): Observable<any[]> {
-    const primary = this.buildUrl('epg/events/grid?start=0&limit=2000');
-    const fallback = this.buildUrl('epg/events/grid?start=0&limit=5000');
+    if (!this.epg$) {
+      const primary = this.buildUrl('epg/events/grid?start=0&limit=2000');
+      const fallback = this.buildUrl('epg/events/grid?start=0&limit=5000');
 
-    return this.http.get<any>(primary, this.getRequestOptions()).pipe(
-      map(data => Array.isArray(data) ? data : data?.entries || []),
-      catchError(error => {
-        if (error.status === 404 || error.status === 0) {
-          return this.http.get<any>(fallback, this.getRequestOptions()).pipe(
-            map(data => Array.isArray(data) ? data : data?.entries || [])
-          );
-        }
-        return throwError(error);
-      })
-    );
+      this.epg$ = this.http.get<any>(primary, this.getRequestOptions()).pipe(
+        map(data => Array.isArray(data) ? data : data?.entries || []),
+        catchError(error => {
+          if (error.status === 404 || error.status === 0) {
+            return this.http.get<any>(fallback, this.getRequestOptions()).pipe(
+              map(data => Array.isArray(data) ? data : data?.entries || []),
+              catchError(fallbackError => {
+                this.epg$ = null;
+                return throwError(fallbackError);
+              })
+            );
+          }
+
+          this.epg$ = null;
+          return throwError(error);
+        }),
+        shareReplay(1)
+      );
+    }
+
+    return this.epg$;
   }
 
   scheduleRecordingByEvent(eventId: number): Observable<RecordingScheduleResult> {
@@ -587,65 +631,78 @@ export class TvheadendService {
   }
 
   getXmltv(): Observable<any> {
-    const url = this.buildAuthenticatedUrl(`${this.xmltvBase}/channels`);
-    return this.http.get(url, { ...this.getRequestOptions(), responseType: 'text' }).pipe(
-      map((xmlString: string) => {
-        const parser = new DOMParser();
-        const xml = parser.parseFromString(xmlString, 'application/xml');
+    if (!this.xmltv$) {
+      const url = this.buildAuthenticatedUrl(`${this.xmltvBase}/channels`);
+      this.xmltv$ = this.http.get(url, { ...this.getRequestOptions(), responseType: 'text' }).pipe(
+        map((xmlString: string) => {
+          const parser = new DOMParser();
+          const xml = parser.parseFromString(xmlString, 'application/xml');
 
-        const getByLocalName = (node: Element | Document, tagName: string): Element[] => {
-          const all = Array.from(node.getElementsByTagName('*')) as Element[];
-          return all.filter(el => (el.localName || '').toLowerCase() === tagName.toLowerCase());
-        };
+          const getByLocalName = (node: Element | Document, tagName: string): Element[] => {
+            const all = Array.from(node.getElementsByTagName('*')) as Element[];
+            return all.filter(el => (el.localName || '').toLowerCase() === tagName.toLowerCase());
+          };
 
-        const getFirstTagText = (node: Element, tagName: string): string => {
-          const byLocalName = getByLocalName(node, tagName);
-          if (byLocalName.length > 0 && byLocalName[0].textContent) {
-            return byLocalName[0].textContent.trim();
-          }
-          const bySelector = node.querySelector(tagName);
-          return (bySelector?.textContent || '').trim();
-        };
+          const getFirstTagText = (node: Element, tagName: string): string => {
+            const byLocalName = getByLocalName(node, tagName);
+            if (byLocalName.length > 0 && byLocalName[0].textContent) {
+              return byLocalName[0].textContent.trim();
+            }
+            const bySelector = node.querySelector(tagName);
+            return (bySelector?.textContent || '').trim();
+          };
 
-        const getAllTagText = (node: Element, tagName: string): string[] => {
-          const listByLocalName = getByLocalName(node, tagName);
-          const list = listByLocalName.length > 0 ? listByLocalName : Array.from(node.querySelectorAll(tagName));
-          return list
-            .map(item => (item.textContent || '').trim())
-            .filter(Boolean);
-        };
+          const getAllTagText = (node: Element, tagName: string): string[] => {
+            const listByLocalName = getByLocalName(node, tagName);
+            const list = listByLocalName.length > 0 ? listByLocalName : Array.from(node.querySelectorAll(tagName));
+            return list
+              .map(item => (item.textContent || '').trim())
+              .filter(Boolean);
+          };
 
-        // Extract channels
-        const channels: any[] = [];
-        const channelNodes = getByLocalName(xml, 'channel');
-        channelNodes.forEach(node => {
-          const displayName = getFirstTagText(node, 'display-name');
-          const iconNode = getByLocalName(node, 'icon')[0] || node.querySelector('icon');
-          channels.push({
-            id: node.getAttribute('id') || displayName || 'Unknown',
-            name: displayName || node.getAttribute('id') || 'Unknown Channel',
-            icon: this.normalizeChannelIconUrl(iconNode?.getAttribute('src') || '')
+          const channels: any[] = [];
+          const channelNodes = getByLocalName(xml, 'channel');
+          channelNodes.forEach(node => {
+            const displayName = getFirstTagText(node, 'display-name');
+            const iconNode = getByLocalName(node, 'icon')[0] || node.querySelector('icon');
+            channels.push({
+              id: node.getAttribute('id') || displayName || 'Unknown',
+              name: displayName || node.getAttribute('id') || 'Unknown Channel',
+              icon: this.normalizeChannelIconUrl(iconNode?.getAttribute('src') || '')
+            });
           });
-        });
 
-        // Extract programmes
-        const programmes: any[] = [];
-        const programmeNodes = getByLocalName(xml, 'programme');
-        programmeNodes.forEach(node => {
-          const categories = getAllTagText(node, 'category');
-          programmes.push({
-            channel: node.getAttribute('channel') || '',
-            start: node.getAttribute('start') || '',
-            stop: node.getAttribute('stop') || '',
-            title: getFirstTagText(node, 'title') || 'Untitled',
-            desc: getFirstTagText(node, 'desc') || '',
-            category: categories.length > 0 ? categories : ''
+          const programmes: any[] = [];
+          const programmeNodes = getByLocalName(xml, 'programme');
+          programmeNodes.forEach(node => {
+            const categories = getAllTagText(node, 'category');
+            programmes.push({
+              channel: node.getAttribute('channel') || '',
+              start: node.getAttribute('start') || '',
+              stop: node.getAttribute('stop') || '',
+              title: getFirstTagText(node, 'title') || 'Untitled',
+              desc: getFirstTagText(node, 'desc') || '',
+              category: categories.length > 0 ? categories : ''
+            });
           });
-        });
 
-        return { channels, programmes };
-      })
-    );
+          return { channels, programmes };
+        }),
+        catchError(error => {
+          this.xmltv$ = null;
+          return throwError(error);
+        }),
+        shareReplay(1)
+      );
+    }
+
+    return this.xmltv$;
+  }
+
+  preloadGuideData(): void {
+    this.getXmltv().pipe(take(1)).subscribe({ error: () => undefined });
+    this.getEpg().pipe(take(1)).subscribe({ error: () => undefined });
+    this.getTvheadendChannelGrid().pipe(take(1)).subscribe({ error: () => undefined });
   }
 
   getChannelStreamUrl(channelId: string, options?: { proxied?: boolean; includeAuth?: boolean; buffered?: boolean; playlist?: boolean }): string {
@@ -654,6 +711,17 @@ export class TvheadendService {
       buffered: !!options?.buffered,
       playlist: !!options?.playlist
     });
+
+    if (options?.includeAuth === false) {
+      return streamUrl;
+    }
+
+    return this.buildAuthenticatedUrl(streamUrl);
+  }
+
+  getRecordingStreamUrl(recordingRef: string, options?: { proxied?: boolean; includeAuth?: boolean }): string {
+    const streamRoot = options?.proxied ? this.browserStreamBase : this.streamBase;
+    const streamUrl = this.buildRecordingUrl(streamRoot, recordingRef);
 
     if (options?.includeAuth === false) {
       return streamUrl;

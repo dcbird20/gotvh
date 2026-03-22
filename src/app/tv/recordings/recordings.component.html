@@ -1,4 +1,4 @@
-<section class="panel-screen" data-tv-scroll-container="true" data-tv-nav-scope="recordings-page" data-tv-nav-mode="linear-vertical">
+<section class="panel-screen" data-tv-scroll-page="true" data-tv-scroll-container="true" data-tv-nav-scope="recordings-page" data-tv-nav-mode="linear-vertical">
   <header class="panel-screen__header">
     <div>
       <div class="panel-screen__eyebrow">DVR</div>
@@ -67,7 +67,7 @@
       </div>
 
       <div class="stack-card__actions">
-        <button class="tv-btn" type="button" tvFocusable *ngIf="canWatch(entry)" [attr.data-recording-watch-uuid]="entry.uuid" (click)="watchRecording(entry)">Open Channel</button>
+        <button class="tv-btn" type="button" tvFocusable *ngIf="canWatch(entry)" [attr.data-recording-watch-uuid]="entry.uuid" (click)="watchRecording(entry)">Play Recording</button>
         <button class="tv-btn" type="button" tvFocusable *ngIf="activeTab === 'upcoming'" [disabled]="isBusy(entry)" (click)="cancelRecording(entry)">Cancel</button>
         <button class="tv-btn" type="button" tvFocusable *ngIf="activeTab !== 'upcoming'" [disabled]="isBusy(entry)" (click)="removeRecording(entry)">Remove</button>
       </div>

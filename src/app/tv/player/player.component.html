@@ -1,13 +1,13 @@
 <div class="player-screen">
   <header class="player-screen__header">
     <div>
-      <div class="player-screen__eyebrow">Live Playback</div>
+      <div class="player-screen__eyebrow">{{ getPlaybackEyebrow() }}</div>
       <h1 class="player-screen__title">{{ channelName }}</h1>
     </div>
 
     <div class="player-screen__actions">
       <button class="tv-btn" type="button" tvFocusable (click)="goBack()">← Back</button>
-      <button class="tv-btn" type="button" tvFocusable (click)="openExternal()">Open Raw Stream</button>
+      <button class="tv-btn" type="button" tvFocusable (click)="openExternal()">{{ getExternalActionLabel() }}</button>
       <button class="tv-btn" type="button" tvFocusable (click)="openInVLC()" *ngIf="hasAc3Audio">🎬 Open in VLC</button>
     </div>
   </header>
@@ -22,14 +22,23 @@
       muted
       playsinline
       (error)="onVideoError()"
+      (loadedmetadata)="onVideoLoadedMetadata()"
+      (timeupdate)="onVideoTimeUpdate()"
+      (pause)="onVideoPause()"
+      (ended)="onVideoEnded()"
     ></video>
   </div>
+
+  <section class="player-screen__autoplay-gate" *ngIf="showResumeNotice()">
+    <p class="player-screen__health-text">Resume point available at {{ resumePositionLabel }}.</p>
+    <button class="tv-btn" type="button" tvFocusable (click)="restartRecording()">Start Over</button>
+  </section>
 
   <ng-container *ngIf="!isCapacitorNative()">
   <section class="player-screen__transports">
     <div class="player-screen__transports-copy">
       <h2 class="player-screen__transports-title">Transport Mode</h2>
-      <p class="player-screen__transports-text">Switch between direct TVHeadend fetches, the Angular proxy path, and native raw playback without leaving the player.</p>
+      <p class="player-screen__transports-text">Switch between direct fetches, the Angular proxy path, and native raw playback without leaving the player.</p>
     </div>
 
     <div class="player-screen__transport-actions">

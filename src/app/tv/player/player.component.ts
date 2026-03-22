@@ -1,8 +1,11 @@
 import { CommonModule } from '@angular/common';
-import { AfterViewInit, Component, ElementRef, OnDestroy, ViewChild } from '@angular/core';
+import { AfterViewInit, Component, ElementRef, HostListener, OnDestroy, ViewChild } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { registerPlugin } from '@capacitor/core';
+import { take } from 'rxjs/operators';
 import { TvFocusableDirective } from '../../directives/tv-focusable.directive';
+import { RemoteKeyDebugService } from '../../services/remote-key-debug.service';
+import { RecordingPlaybackProgress, RecordingPlaybackProgressService } from '../../services/recording-playback-progress.service';
 import { TvheadendService } from '../../services/tvheadend.service';
 import { environment } from '../../../environments/environment';
 
@@ -41,7 +44,9 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
   @ViewChild('playerVideo', { static: true })
   playerVideo?: ElementRef<HTMLVideoElement>;
 
+  playbackType: 'live' | 'recording' = 'live';
   channelId = '';
+  recordingRef = '';
   channelName = 'Live TV';
   returnTo = '/channels';
   returnToken = '';
@@ -64,6 +69,8 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
   hasAc3Audio = false;
   awaitingNativeInteraction = false;
   nativeProfileLabel = '';
+  hasResumePoint = false;
+  resumePositionLabel = '';
   readonly diagnosticsEnabled = false;
 
   private mpegtsPlayer: any | null = null;
@@ -72,14 +79,27 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
   private activeNativeProfileIndex = 0;
   private readonly mpegtsProfile = 'webtv-h264-aac-mpegts';
   private nativeFallbackProfiles: string[] = [];
+  private pendingResumePositionSeconds = 0;
+  private hasAppliedResumePosition = false;
+  private lastPersistedPositionSeconds = -1;
+  private readonly resumePersistIntervalSeconds = 5;
+  private readonly resumeMinimumSeconds = 30;
+  private readonly resumeCompletionThresholdSeconds = 30;
+  private availableLiveChannels: any[] = [];
+  private loadingLiveChannelsPromise: Promise<any[]> | null = null;
+  private channelSurfInProgress = false;
 
   constructor(
     private route: ActivatedRoute,
     private router: Router,
-    private tvh: TvheadendService
+    private remoteKeyDebug: RemoteKeyDebugService,
+    private tvh: TvheadendService,
+    private recordingProgress: RecordingPlaybackProgressService
   ) {
+    this.playbackType = this.route.snapshot.queryParamMap.get('playback') === 'recording' ? 'recording' : 'live';
     this.channelId = this.route.snapshot.paramMap.get('channelId') || '';
-    this.channelName = this.route.snapshot.queryParamMap.get('name') || 'Live TV';
+    this.recordingRef = String(this.route.snapshot.queryParamMap.get('recordingRef') || '').trim();
+    this.channelName = this.route.snapshot.queryParamMap.get('name') || (this.isRecordingPlayback() ? 'Recording' : 'Live TV');
     this.nativeFallbackProfiles = this.buildNativeFallbackProfiles();
     this.selectedTransport = this.isCapacitorNative() ? 'native' : 'direct';
     const requestedReturnTo = this.route.snapshot.queryParamMap.get('returnTo') || '';
@@ -88,6 +108,7 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
     }
     this.returnToken = String(this.route.snapshot.queryParamMap.get('returnToken') || '').trim();
     this.refreshStreamUrls();
+    this.restoreRecordingResumeState();
     this.refreshDiagnostics();
   }
 
@@ -106,20 +127,27 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
     video.pause();
     video.removeAttribute('src');
     video.load();
+    this.persistRecordingProgress(true);
   }
 
   async startPlayback(): Promise<void> {
     const video = this.playerVideo?.nativeElement;
     if (!this.isCapacitorNative() && (!video || !this.streamUrl)) {
-      this.playerError = 'Missing stream URL for this channel.';
-      this.playerStatus = 'No stream URL';
+      this.playerError = this.isRecordingPlayback()
+        ? 'Missing playback URL for this recording.'
+        : 'Missing stream URL for this channel.';
+      this.playerStatus = this.isRecordingPlayback() ? 'No recording URL' : 'No stream URL';
       this.refreshDiagnostics();
       return;
     }
 
     // Ensure stream endpoints are authenticated before playback starts.
     if (!this.tvh.hasStoredAuth()) {
-      const granted = await this.tvh.ensureBasicAuth('TVHeadend login is required for live playback.');
+      const granted = await this.tvh.ensureBasicAuth(
+        this.isRecordingPlayback()
+          ? 'TVHeadend login is required for recording playback.'
+          : 'TVHeadend login is required for live playback.'
+      );
       if (!granted) {
         this.playerError = 'Playback requires TVHeadend credentials. Open TVH Login and try again.';
         this.playerStatus = 'Authentication required';
@@ -174,8 +202,115 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
     window.open(this.proxiedStreamUrlWithAuth, '_blank', 'noopener');
   }
 
+  onVideoLoadedMetadata(): void {
+    if (!this.isRecordingPlayback() || this.hasAppliedResumePosition || this.pendingResumePositionSeconds <= 0) {
+      return;
+    }
+
+    const video = this.playerVideo?.nativeElement;
+    if (!video) {
+      return;
+    }
+
+    const duration = Number(video.duration || 0);
+    const maxSeekTarget = duration > this.resumeCompletionThresholdSeconds
+      ? duration - this.resumeCompletionThresholdSeconds
+      : duration;
+    const targetPosition = maxSeekTarget > 0
+      ? Math.min(this.pendingResumePositionSeconds, maxSeekTarget)
+      : this.pendingResumePositionSeconds;
+
+    if (targetPosition < this.resumeMinimumSeconds) {
+      this.pendingResumePositionSeconds = 0;
+      this.hasResumePoint = false;
+      this.resumePositionLabel = '';
+      return;
+    }
+
+    try {
+      video.currentTime = targetPosition;
+      this.hasAppliedResumePosition = true;
+      this.resumePositionLabel = this.formatPlaybackClock(targetPosition);
+      this.playerStatus = `Resumed at ${this.resumePositionLabel}`;
+      this.refreshDiagnostics();
+    } catch {
+      // Ignore seeking failures until metadata is stable.
+    }
+  }
+
+  onVideoTimeUpdate(): void {
+    this.persistRecordingProgress();
+  }
+
+  onVideoPause(): void {
+    this.persistRecordingProgress(true);
+  }
+
+  onVideoEnded(): void {
+    if (!this.isRecordingPlayback()) {
+      return;
+    }
+
+    this.recordingProgress.clear(this.recordingRef);
+    this.hasResumePoint = false;
+    this.resumePositionLabel = '';
+    this.pendingResumePositionSeconds = 0;
+    this.lastPersistedPositionSeconds = -1;
+  }
+
+  restartRecording(): void {
+    if (!this.isRecordingPlayback()) {
+      return;
+    }
+
+    this.recordingProgress.clear(this.recordingRef);
+    this.pendingResumePositionSeconds = 0;
+    this.hasResumePoint = false;
+    this.resumePositionLabel = '';
+    this.hasAppliedResumePosition = true;
+    this.lastPersistedPositionSeconds = 0;
+
+    const video = this.playerVideo?.nativeElement;
+    if (video) {
+      video.currentTime = 0;
+      if (video.paused) {
+        void video.play().catch(() => {
+          // Ignore autoplay failures here; existing start button flow handles them.
+        });
+      }
+    }
+  }
+
+  showResumeNotice(): boolean {
+    return this.isRecordingPlayback() && this.hasResumePoint;
+  }
+
+  getPlaybackEyebrow(): string {
+    return this.isRecordingPlayback() ? 'Recording Playback' : 'Live Playback';
+  }
+
+  getExternalActionLabel(): string {
+    return this.isRecordingPlayback() ? 'Open Recording File' : 'Open Raw Stream';
+  }
+
   goBack(): void {
     this.router.navigateByUrl(this.buildReturnUrl());
+  }
+
+  @HostListener('document:keydown', ['$event'])
+  handleRemoteChannelKey(event: KeyboardEvent): void {
+    if (this.isRecordingPlayback()) {
+      return;
+    }
+
+    const direction = this.resolveChannelSurfDirection(event);
+    if (!direction) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    void this.surfLiveChannel(direction);
   }
 
   private buildReturnUrl(): string {
@@ -191,6 +326,145 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
     } catch {
       return this.returnTo;
     }
+  }
+
+  private resolveChannelSurfDirection(event: KeyboardEvent): -1 | 1 | null {
+    const key = String(event.key || '').trim();
+    const code = String((event as any).code || '').trim();
+    const keyCode = Number((event as any).keyCode || (event as any).which || 0);
+
+    if (
+      key === 'ChannelUp'
+      || key === 'MediaChannelUp'
+      || key === 'PageUp'
+      || code === 'ChannelUp'
+      || code === 'MediaChannelUp'
+      || code === 'PageUp'
+      || keyCode === 33
+      || keyCode === 92
+      || keyCode === 166
+      || keyCode === 427
+    ) {
+      return -1;
+    }
+
+    if (
+      key === 'ChannelDown'
+      || key === 'MediaChannelDown'
+      || key === 'PageDown'
+      || code === 'ChannelDown'
+      || code === 'MediaChannelDown'
+      || code === 'PageDown'
+      || keyCode === 34
+      || keyCode === 93
+      || keyCode === 167
+      || keyCode === 428
+    ) {
+      return 1;
+    }
+
+    return null;
+  }
+
+  private async surfLiveChannel(direction: -1 | 1): Promise<void> {
+    if (this.channelSurfInProgress) {
+      return;
+    }
+
+    this.channelSurfInProgress = true;
+
+    try {
+      const channels = await this.getLiveChannels();
+      if (channels.length === 0) {
+        this.playerStatus = 'No channels available for remote channel switching';
+        this.refreshDiagnostics();
+        return;
+      }
+
+      const currentChannelId = String(this.channelId || '').trim();
+      const currentIndex = channels.findIndex(channel => String(channel?.uuid || '').trim() === currentChannelId);
+      const baseIndex = currentIndex >= 0 ? currentIndex : 0;
+      const nextIndex = (baseIndex + direction + channels.length) % channels.length;
+      const nextChannel = channels[nextIndex];
+      const nextChannelId = String(nextChannel?.uuid || '').trim();
+
+      if (!nextChannelId || nextChannelId === currentChannelId) {
+        return;
+      }
+
+      await this.switchToLiveChannel(nextChannel);
+    } finally {
+      setTimeout(() => {
+        this.channelSurfInProgress = false;
+      }, 250);
+    }
+  }
+
+  private async getLiveChannels(): Promise<any[]> {
+    if (this.availableLiveChannels.length > 0) {
+      return this.availableLiveChannels;
+    }
+
+    if (!this.loadingLiveChannelsPromise) {
+      this.loadingLiveChannelsPromise = this.tvh.getChannelsWithResolvedTags().pipe(take(1)).toPromise()
+        .then(channels => {
+          const sorted = [...(channels || [])].sort((left, right) => this.compareChannels(left, right));
+          this.availableLiveChannels = sorted;
+          return sorted;
+        })
+        .catch(() => [])
+        .finally(() => {
+          this.loadingLiveChannelsPromise = null;
+        });
+    }
+
+    return this.loadingLiveChannelsPromise;
+  }
+
+  private compareChannels(left: any, right: any): number {
+    const leftNumber = Number(left?.number ?? Number.MAX_SAFE_INTEGER);
+    const rightNumber = Number(right?.number ?? Number.MAX_SAFE_INTEGER);
+    if (leftNumber !== rightNumber) {
+      return leftNumber - rightNumber;
+    }
+
+    const leftName = String(left?.name || '').trim().toLowerCase();
+    const rightName = String(right?.name || '').trim().toLowerCase();
+    return leftName.localeCompare(rightName);
+  }
+
+  private async switchToLiveChannel(channel: any): Promise<void> {
+    const nextChannelId = String(channel?.uuid || '').trim();
+    if (!nextChannelId) {
+      return;
+    }
+
+    this.destroyCurrentPlayback();
+    this.playbackType = 'live';
+    this.channelId = nextChannelId;
+    this.recordingRef = '';
+    this.channelName = String(channel?.name || 'Live TV').trim() || 'Live TV';
+    this.playerError = '';
+    this.lastErrorDetail = '';
+    this.hasResumePoint = false;
+    this.resumePositionLabel = '';
+    this.pendingResumePositionSeconds = 0;
+    this.hasAppliedResumePosition = false;
+    this.lastPersistedPositionSeconds = -1;
+    this.refreshStreamUrls();
+    this.playerStatus = `Switching to ${this.channelName}...`;
+    this.refreshDiagnostics();
+
+    await this.router.navigate(['/player', nextChannelId], {
+      queryParams: {
+        name: this.channelName,
+        returnTo: this.returnTo,
+        returnToken: this.returnToken || null
+      },
+      replaceUrl: true
+    });
+
+    await this.startPlayback();
   }
 
   async selectTransport(transport: PlaybackTransport): Promise<void> {
@@ -329,14 +603,16 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
 
       this.destroyMpegtsPlayer();
       this.activePlaybackMode = 'mpegts.js';
-      this.playerStatus = disableWorker
-        ? 'Using mpegts.js live playback (worker disabled)'
-        : 'Using mpegts.js live playback';
+      this.playerStatus = this.isRecordingPlayback()
+        ? 'Using mpegts.js recording playback'
+        : disableWorker
+          ? 'Using mpegts.js live playback (worker disabled)'
+          : 'Using mpegts.js live playback';
       this.refreshDiagnostics();
 
       this.mpegtsPlayer = mpegts.createPlayer({
         type: 'mpegts',
-        isLive: true,
+        isLive: !this.isRecordingPlayback(),
         url: this.streamUrl,
         withCredentials: false
       }, {
@@ -357,7 +633,9 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
 
             if (this.isUnsupportedAc3Error(errorDetail, errorInfo)) {
               this.hasAc3Audio = true;
-              this.playerError = 'This stream uses AC-3 audio, which this browser cannot play through MSE. Try "🎬 Open in VLC" or "Open Raw Stream" to play in an external media player.';
+              this.playerError = this.isRecordingPlayback()
+                ? 'This recording uses AC-3 audio, which this browser cannot play through MSE. Try "🎬 Open in VLC" or "Open Recording File" to play it in an external media player.'
+                : 'This stream uses AC-3 audio, which this browser cannot play through MSE. Try "🎬 Open in VLC" or "Open Raw Stream" to play in an external media player.';
               this.playerStatus = 'Switching to native/raw playback';
               this.selectedTransport = 'native';
               this.streamUrl = this.resolveActiveStreamUrl();
@@ -519,6 +797,7 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
   }
 
   private destroyCurrentPlayback(): void {
+    this.persistRecordingProgress(true);
     this.destroyMpegtsPlayer();
 
     const video = this.playerVideo?.nativeElement;
@@ -546,6 +825,7 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
       { label: 'Playback Mode', value: this.activePlaybackMode || 'initializing' },
       { label: 'Native Profile', value: this.nativeProfileLabel || 'n/a' },
       { label: 'Status', value: this.playerStatus },
+      { label: 'Last Remote Key', value: this.getLatestRemoteKeySummary() },
       { label: 'Stream Host', value: this.getSanitizedStreamHost() },
       { label: 'Auth In URL', value: this.hasAuthInUrl(this.streamUrl) ? 'yes' : 'no' },
       { label: 'Auth Header', value: this.hasAuthHeader() ? 'yes' : 'no' },
@@ -554,19 +834,122 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
     ];
   }
 
+  private getLatestRemoteKeySummary(): string {
+    const lastEvent = this.remoteKeyDebug.getSnapshot().lastEvent;
+    if (!lastEvent) {
+      return 'none';
+    }
+
+    const keyLabel = lastEvent.key || lastEvent.code || String(lastEvent.keyCode || 'unknown');
+    return `${lastEvent.action} via ${keyLabel} on ${lastEvent.route}`;
+  }
+
   private refreshStreamUrls(): void {
-    this.directStreamUrl = this.tvh.getChannelStreamUrl(this.channelId, {
-      includeAuth: true
-    });
-    this.proxyStreamUrl = this.tvh.getChannelStreamUrl(this.channelId, {
-      proxied: true,
-      includeAuth: true
-    });
+    if (this.isRecordingPlayback()) {
+      this.directStreamUrl = this.tvh.getRecordingStreamUrl(this.recordingRef, {
+        includeAuth: true
+      });
+      this.proxyStreamUrl = this.tvh.getRecordingStreamUrl(this.recordingRef, {
+        proxied: true,
+        includeAuth: true
+      });
+    } else {
+      this.directStreamUrl = this.tvh.getChannelStreamUrl(this.channelId, {
+        includeAuth: true
+      });
+      this.proxyStreamUrl = this.tvh.getChannelStreamUrl(this.channelId, {
+        proxied: true,
+        includeAuth: true
+      });
+    }
     this.proxiedStreamUrlWithAuth = this.proxyStreamUrl;
-    this.rawStreamUrl = this.tvh.getChannelStreamUrl(this.channelId, {
-      includeAuth: true
-    });
+    this.rawStreamUrl = this.isRecordingPlayback()
+      ? this.tvh.getRecordingStreamUrl(this.recordingRef, {
+          includeAuth: true
+        })
+      : this.tvh.getChannelStreamUrl(this.channelId, {
+          includeAuth: true
+        });
     this.streamUrl = this.resolveActiveStreamUrl();
+  }
+
+  private restoreRecordingResumeState(): void {
+    if (!this.isRecordingPlayback() || !this.recordingRef) {
+      this.hasResumePoint = false;
+      this.resumePositionLabel = '';
+      this.pendingResumePositionSeconds = 0;
+      return;
+    }
+
+    const progress = this.recordingProgress.get(this.recordingRef);
+    if (!progress || progress.positionSeconds < this.resumeMinimumSeconds) {
+      this.hasResumePoint = false;
+      this.resumePositionLabel = '';
+      this.pendingResumePositionSeconds = 0;
+      return;
+    }
+
+    this.pendingResumePositionSeconds = progress.positionSeconds;
+    this.resumePositionLabel = this.formatPlaybackClock(progress.positionSeconds);
+    this.hasResumePoint = true;
+  }
+
+  private persistRecordingProgress(force = false): void {
+    if (!this.isRecordingPlayback() || !this.recordingRef || this.isCapacitorNative()) {
+      return;
+    }
+
+    const video = this.playerVideo?.nativeElement;
+    if (!video) {
+      return;
+    }
+
+    const positionSeconds = Number(video.currentTime || 0);
+    const durationSeconds = Number(video.duration || 0);
+
+    if (!positionSeconds || positionSeconds < this.resumeMinimumSeconds) {
+      return;
+    }
+
+    const remainingSeconds = durationSeconds > 0 ? durationSeconds - positionSeconds : Number.POSITIVE_INFINITY;
+    if (remainingSeconds <= this.resumeCompletionThresholdSeconds) {
+      this.recordingProgress.clear(this.recordingRef);
+      this.hasResumePoint = false;
+      this.resumePositionLabel = '';
+      this.pendingResumePositionSeconds = 0;
+      this.lastPersistedPositionSeconds = -1;
+      return;
+    }
+
+    if (!force && this.lastPersistedPositionSeconds >= 0 && Math.abs(positionSeconds - this.lastPersistedPositionSeconds) < this.resumePersistIntervalSeconds) {
+      return;
+    }
+
+    const progress: RecordingPlaybackProgress = {
+      recordingRef: this.recordingRef,
+      title: this.channelName,
+      positionSeconds,
+      durationSeconds,
+      updatedAt: Date.now()
+    };
+
+    this.recordingProgress.save(progress);
+    this.lastPersistedPositionSeconds = positionSeconds;
+    this.hasResumePoint = true;
+    this.resumePositionLabel = this.formatPlaybackClock(positionSeconds);
+  }
+
+  private formatPlaybackClock(totalSeconds: number): string {
+    const normalized = Math.max(0, Math.floor(Number(totalSeconds || 0)));
+    const hours = Math.floor(normalized / 3600);
+    const minutes = Math.floor((normalized % 3600) / 60);
+    const seconds = normalized % 60;
+
+    if (hours > 0) {
+      return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    }
+
+    return `${minutes}:${String(seconds).padStart(2, '0')}`;
   }
 
   private hasAuthInUrl(url: string): boolean {
@@ -596,10 +979,18 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
 
   private resolveMpegtsStreamUrl(): string {
     const baseUrl = this.selectedTransport === 'proxy' ? this.proxyStreamUrl : this.directStreamUrl;
+    if (this.isRecordingPlayback()) {
+      return baseUrl;
+    }
     return this.withProfile(baseUrl, this.mpegtsProfile);
   }
 
   private async openNativeAndroidPlayer(): Promise<void> {
+    if (this.isRecordingPlayback()) {
+      await this.openNativeRecordingPlayer();
+      return;
+    }
+
     if (this.tvh.shouldUseKodiHtspBackend()) {
       await this.openKodiHtspPlayer();
       return;
@@ -639,6 +1030,31 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
         authHeader,
         allowLiveFallback,
         fallbackProfiles: this.nativeFallbackProfiles.join(',')
+      });
+    } catch (error: any) {
+      this.playerError = `Failed to open native Android player: ${String(error?.message || error || 'unknown error')}`;
+      this.playerStatus = 'Native Android player launch failed';
+      this.refreshDiagnostics();
+    }
+  }
+
+  private async openNativeRecordingPlayer(): Promise<void> {
+    const authHeader = this.tvh.getAuthHeader() || undefined;
+    const mimeType = this.inferRecordingMimeType(this.rawStreamUrl);
+
+    this.nativeProfileLabel = mimeType;
+    this.activePlaybackMode = 'native android player';
+    this.playerStatus = 'Opening native Android recording playback';
+    this.playerError = '';
+    this.refreshDiagnostics();
+
+    try {
+      await NativeVideo.open({
+        url: this.rawStreamUrl,
+        title: this.channelName,
+        mimeType,
+        authHeader,
+        allowLiveFallback: false
       });
     } catch (error: any) {
       this.playerError = `Failed to open native Android player: ${String(error?.message || error || 'unknown error')}`;
@@ -884,10 +1300,20 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
   }
 
   private buildDebugReport(): string {
+    const remoteSnapshot = this.remoteKeyDebug.getSnapshot();
+    const remoteLines = remoteSnapshot.recentEvents.length
+      ? remoteSnapshot.recentEvents.slice(0, 8).map(item => `- ${item.timestamp} ${item.action} | key=${item.key || 'n/a'} | code=${item.code || 'n/a'} | keyCode=${item.keyCode || 0} | source=${item.source} | route=${item.route}`)
+      : ['- No tracked remote keys yet.'];
+
     if (!this.diagnosticsEnabled) {
       return [
         'GoTVH Debug Report',
         `Timestamp: ${new Date().toISOString()}`,
+        `Last Remote Key: ${this.getLatestRemoteKeySummary()}`,
+        '',
+        'Recent Remote Keys:',
+        ...remoteLines,
+        '',
         'Diagnostics are currently disabled in the player UI.'
       ].join('\n');
     }
@@ -904,6 +1330,10 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
       `Transport: ${this.getTransportLabel()}`,
       `Player Status: ${this.playerStatus}`,
       `Player Error: ${this.playerError || 'none'}`,
+      `Last Remote Key: ${this.getLatestRemoteKeySummary()}`,
+      '',
+      'Recent Remote Keys:',
+      ...remoteLines,
       '',
       'Diagnostics:',
       ...diagnosticsLines,
@@ -944,23 +1374,25 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
   }
 
   private describePlaybackError(errorDetail: string, errorInfo?: MpegtsErrorInfo): string {
+    const playbackTarget = this.isRecordingPlayback() ? 'recording' : 'live stream';
+
     if (this.isUnsupportedAc3Error(errorDetail, errorInfo)) {
-      return 'This stream contains AC-3 audio which the browser cannot decode. Use the "🎬 Open in VLC" button to play it in VLC Media Player, or use the "Open Raw Stream" option for other media players.';
+      return `This ${playbackTarget} contains AC-3 audio which the browser cannot decode. Use the "🎬 Open in VLC" button to play it in VLC Media Player, or use the external file option for other media players.`;
     }
 
     if (errorInfo?.code === 504) {
-      return 'The dev proxy timed out while tunneling the live stream. Direct browser playback avoids that proxy, but then TVHeadend must allow cross-origin requests.';
+      return `The dev proxy timed out while tunneling the ${playbackTarget}. Direct browser playback avoids that proxy, but then TVHeadend must allow cross-origin requests.`;
     }
 
     if (errorInfo?.msg?.includes('Failed to fetch')) {
-      return 'The browser could not fetch the live stream. TVHeadend is rejecting the cross-origin request, so CORS must be enabled on the backend or the stream must be served through a real reverse proxy.';
+      return `The browser could not fetch the ${playbackTarget}. TVHeadend is rejecting the cross-origin request, so CORS must be enabled on the backend or the stream must be served through a real reverse proxy.`;
     }
 
     if (errorDetail === 'HttpStatusCodeInvalid') {
-      return `TVHeadend rejected the stream request with HTTP ${errorInfo?.code || 'error'}. Verify stream permissions and credentials.`;
+      return `TVHeadend rejected the playback request with HTTP ${errorInfo?.code || 'error'}. Verify stream permissions and credentials.`;
     }
 
-    return 'mpegts.js could not start playback. Try Open Raw Stream or verify the TVHeadend stream format, credentials, and transport policy.';
+    return `mpegts.js could not start playback. Try the external file option or verify the TVHeadend ${playbackTarget} URL, credentials, and transport policy.`;
   }
 
   private getSanitizedStreamHost(): string {
@@ -974,6 +1406,10 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
 
   isCapacitorNative(): boolean {
     return !!(window as any)?.Capacitor?.isNativePlatform?.();
+  }
+
+  private isRecordingPlayback(): boolean {
+    return this.playbackType === 'recording';
   }
 
   private withProfile(url: string, profile: string): string {
@@ -995,6 +1431,17 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
       return 'video/mp2t';
     }
     return 'video/mp4';
+  }
+
+  private inferRecordingMimeType(url: string): string {
+    const normalizedUrl = String(url || '').toLowerCase();
+    if (normalizedUrl.includes('.mkv')) {
+      return 'video/x-matroska';
+    }
+    if (normalizedUrl.includes('.mp4') || normalizedUrl.includes('.m4v')) {
+      return 'video/mp4';
+    }
+    return 'video/mp2t';
   }
 
   private buildNativeFallbackProfiles(): string[] {

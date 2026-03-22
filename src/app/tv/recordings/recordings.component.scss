@@ -1,4 +1,6 @@
 .panel-screen {
+  --recordings-scroll-margin-block: clamp(72px, 12vh, 132px);
+
   padding: 32px;
   color: var(--tv-text);
 
@@ -113,6 +115,8 @@
 
   &__anchor {
     border-radius: 12px;
+    scroll-margin-top: var(--recordings-scroll-margin-block);
+    scroll-margin-bottom: var(--recordings-scroll-margin-block);
 
     &.tv-focused {
       transform: none;
@@ -194,6 +198,13 @@
     gap: 10px;
     min-width: 210px;
   }
+}
+
+.panel-screen__header .tv-btn,
+.panel-screen__tabs .tv-btn,
+.stack-card__actions .tv-btn {
+  scroll-margin-top: var(--recordings-scroll-margin-block);
+  scroll-margin-bottom: var(--recordings-scroll-margin-block);
 }
 
 .empty-state {

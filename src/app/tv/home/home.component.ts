@@ -180,6 +180,37 @@ export class HomeComponent implements OnInit, OnDestroy {
     });
   }
 
+  async watchRecording(recording: any): Promise<void> {
+    const recordingRef = String(recording?.url || recording?.uuid || '').trim();
+    const recordingUuid = String(recording?.uuid || '').trim();
+    if (!recordingRef || !recordingUuid) {
+      return;
+    }
+
+    const hasAuth = await this.tvh.ensureBasicAuth('Enter your TVHeadend credentials to play this recording.');
+    if (!hasAuth) {
+      return;
+    }
+
+    const returnToken = this.returnNavigation.createToken({
+      source: 'home',
+      payload: {
+        origin: 'recording',
+        recordingUuid
+      }
+    });
+
+    this.router.navigate(['/player', recordingUuid], {
+      queryParams: {
+        name: recording?.disp_title || recording?.title || recording?.channelname || 'Recording',
+        playback: 'recording',
+        recordingRef,
+        returnTo: this.router.url,
+        returnToken
+      }
+    });
+  }
+
   private capturePendingReturnContext(): void {
     const token = String(this.route.snapshot.queryParamMap.get('returnToken') || '').trim();
     if (!token) {
@@ -208,6 +239,17 @@ export class HomeComponent implements OnInit, OnDestroy {
     this.pendingReturnContext = null;
     const channelUuid = String(context.payload['channelUuid'] || '').trim();
     const origin = String(context.payload['origin'] || 'hero').trim();
+    const recordingUuid = String(context.payload['recordingUuid'] || '').trim();
+
+    if (origin === 'recording' && recordingUuid) {
+      setTimeout(() => {
+        const escapedUuid = recordingUuid.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+        const target = document.querySelector(`app-tv-card[data-recording-uuid="${escapedUuid}"]`) as HTMLElement | null;
+        target?.focus();
+      }, 0);
+      return;
+    }
+
     if (!channelUuid) {
       return;
     }
