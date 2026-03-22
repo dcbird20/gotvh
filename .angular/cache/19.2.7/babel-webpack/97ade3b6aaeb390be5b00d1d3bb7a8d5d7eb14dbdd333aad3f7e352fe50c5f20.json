@@ -1,1 +1,0 @@
-{"ast":null,"code":"export const environment = {\n  production: false,\n  apiUrl: '/api',\n  streamUrl: '/stream',\n  streamProfile: 'pass',\n  nativeBufferedPlayback: true,\n  nativeAllowLiveFallback: false,\n  nativePlaybackBackend: 'http'\n};","map":null,"metadata":{},"sourceType":"module","externalDependencies":[]}
