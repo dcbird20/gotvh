@@ -128,10 +128,10 @@
           (click)="enterChannelRow(channel.id)"
         >
           <div class="epg-channel-main">
-            <ng-container *ngIf="channel.icon">
-              <img class="epg-channel-icon" [src]="channel.icon" [alt]="channel.name" />
+            <ng-container *ngIf="hasRenderableChannelIcon(channel)">
+              <img class="epg-channel-icon" [src]="channel.icon" [alt]="channel.name" (error)="handleChannelIconError(channel)" />
             </ng-container>
-            <ng-container *ngIf="!channel.icon">
+            <ng-container *ngIf="!hasRenderableChannelIcon(channel)">
               <span class="epg-channel-icon epg-channel-icon-placeholder">TV</span>
             </ng-container>
 

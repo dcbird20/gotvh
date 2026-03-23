@@ -44,7 +44,7 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
   @ViewChild('watchLiveButton') watchLiveButton?: ElementRef<HTMLButtonElement>;
   @ViewChild('nowButton') nowButton?: ElementRef<HTMLButtonElement>;
 
-  readonly hourWidthPx = 150;
+  readonly hourWidthPx = 225;
   readonly channelColWidthPx = 220;
   visibleHours = 3;
   filterQuery = '';
@@ -141,6 +141,7 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
   isNowInTimelineWindow = false;
   nowOffsetPx = 0;
   focusedChannelId = '';
+  brokenChannelIcons = new Set<string>();
   private timelineAnchorTimeMs: number | null = null;
   private preserveTimelineColumnAnchor = false;
 
@@ -233,7 +234,22 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     this.programs = snapshot.programs || [];
     this.programsByChannel = snapshot.programsByChannel || {};
     this.channelUuidMap = new Map(snapshot.channelUuidEntries || []);
+    this.brokenChannelIcons.clear();
     this.rebuildGuideViewModel();
+  }
+
+  hasRenderableChannelIcon(channel: any): boolean {
+    const channelId = String(channel?.id || '').trim();
+    return !!String(channel?.icon || '').trim() && !this.brokenChannelIcons.has(channelId);
+  }
+
+  handleChannelIconError(channel: any): void {
+    const channelId = String(channel?.id || '').trim();
+    if (!channelId) {
+      return;
+    }
+
+    this.brokenChannelIcons.add(channelId);
   }
 
   private finalizeGuideLoad(snapshot: GuideDataSnapshot, applyInitialFocus: boolean): void {
@@ -519,6 +535,10 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   currentChannelPageSize(): number {
+    if (!this.isCapacitorNativePlatform()) {
+      return Math.max(1, this.filteredChannels.length || 1);
+    }
+
     return this.useVerticalGuide ? this.verticalChannelPageSize : this.timelineChannelPageSize;
   }
 
@@ -1340,6 +1360,10 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     }
 
     return !!element.closest('.epg-header-controls-scroll, .epg-filter');
+  }
+
+  private isCapacitorNativePlatform(): boolean {
+    return !!(window as any)?.Capacitor?.isNativePlatform?.();
   }
 
   private focusProgramForChannelTarget(target: EventTarget | null): boolean {

@@ -14,7 +14,7 @@
     <div class="player-screen__actions">
       <button class="tv-btn" type="button" tvFocusable (click)="goBack()">← Back</button>
       <button class="tv-btn" type="button" tvFocusable (click)="openExternal()">{{ getExternalActionLabel() }}</button>
-      <button class="tv-btn" type="button" tvFocusable (click)="openInVLC()" *ngIf="hasAc3Audio">🎬 Open in VLC</button>
+      <button class="tv-btn" type="button" tvFocusable (click)="openInVLC()" *ngIf="diagnosticsEnabled && hasAc3Audio">🎬 Open in VLC</button>
     </div>
   </header>
 
@@ -40,7 +40,7 @@
     <button class="tv-btn" type="button" tvFocusable (click)="restartRecording()">Start Over</button>
   </section>
 
-  <ng-container *ngIf="!isCapacitorNative()">
+  <ng-container *ngIf="!isCapacitorNative() && diagnosticsEnabled">
   <section class="player-screen__transports">
     <div class="player-screen__transports-copy">
       <h2 class="player-screen__transports-title">Transport Mode</h2>

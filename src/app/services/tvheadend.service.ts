@@ -40,6 +40,8 @@ export class TvheadendService {
   private apiBase = this.resolveApiBase();
   private browserStreamBase = this.resolveBrowserStreamBase();
   private streamBase = this.resolveStreamBase();
+  private browserRecordingBase = this.resolveBrowserRecordingBase();
+  private recordingBase = this.resolveRecordingBase();
   private xmltvBase = this.resolveXmltvBase();
   private readonly streamProfile = this.resolveStreamProfile();
   private readonly nativeBufferedPlayback = this.resolveNativeBufferedPlayback();
@@ -120,6 +122,37 @@ export class TvheadendService {
     return base;
   }
 
+  private resolveRecordingBase(): string {
+    const env: any = environment;
+    const configuredStreamBase = String(env.streamUrl || '').trim().replace(/\/+$/, '');
+    if (configuredStreamBase) {
+      return configuredStreamBase === '/stream'
+        ? ''
+        : configuredStreamBase.replace(/\/stream\/?$/, '');
+    }
+
+    const base = this.apiBase.replace(/\/api\/?$/, '');
+    if (base && !base.startsWith('http')) {
+      return window.location.origin + base;
+    }
+    if (!base) {
+      return window.location.origin;
+    }
+    return base;
+  }
+
+  private resolveBrowserRecordingBase(): string {
+    const base = this.apiBase.replace(/\/api\/?$/, '');
+
+    if (base && !base.startsWith('http')) {
+      return window.location.origin + base;
+    }
+    if (!base) {
+      return window.location.origin;
+    }
+    return base;
+  }
+
   private resolveXmltvBase(): string {
     const base = this.apiBase.replace(/\/api\/?$/, '');
     const xmltvBase = `${base}/xmltv`.replace(/\/+$/, '');
@@ -143,6 +176,10 @@ export class TvheadendService {
       const parsed = new URL(normalized, window.location.origin);
 
       if (parsed.origin === window.location.origin) {
+        return parsed.toString();
+      }
+
+      if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
         return parsed.toString();
       }
 
@@ -335,8 +372,11 @@ export class TvheadendService {
 
     try {
       const parsed = new URL(url, window.location.origin);
+      parsed.username = this.authCredentials.username;
+      parsed.password = this.authCredentials.password;
       // Native Android media pipelines can ignore URL userinfo (user:pass@host).
-      // TVHeadend also accepts query auth, which is more reliable for <video src>.
+      // Keep query auth as well because some media stacks only preserve query
+      // parameters across internal redirects.
       parsed.searchParams.set('username', this.authCredentials.username);
       parsed.searchParams.set('password', this.authCredentials.password);
       return parsed.toString();
@@ -815,6 +855,10 @@ export class TvheadendService {
       if (match?.uuid) {
         channelUuidMap.set(String(channel?.id || '').trim(), String(match.uuid).trim());
       }
+
+      if (!channel?.icon && (match?.icon_public_url || match?.icon)) {
+        channel.icon = this.normalizeChannelIconUrl(String(match?.icon_public_url || match?.icon || '').trim());
+      }
     }
   }
 
@@ -847,7 +891,7 @@ export class TvheadendService {
         channelIndex.set(channelId, {
           id: channelId,
           name: resolvedName,
-          icon: '',
+          icon: this.normalizeChannelIconUrl(String(channelFromGrid?.icon_public_url || channelFromGrid?.icon || '').trim()),
         });
       }
 
@@ -1054,7 +1098,7 @@ export class TvheadendService {
   }
 
   getRecordingStreamUrl(recordingRef: string, options?: { proxied?: boolean; includeAuth?: boolean }): string {
-    const streamRoot = options?.proxied ? this.browserStreamBase : this.streamBase;
+    const streamRoot = options?.proxied ? this.browserRecordingBase : this.recordingBase;
     const streamUrl = this.buildRecordingUrl(streamRoot, recordingRef);
 
     if (options?.includeAuth === false) {

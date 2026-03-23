@@ -12,6 +12,7 @@ import { environment } from '../../../environments/environment';
 
 const NativeVideo = registerPlugin<{
   open(options: { url: string; title?: string; mimeType?: string; authHeader?: string; allowLiveFallback?: boolean; fallbackProfiles?: string; currentChannelId?: string; liveChannelsJson?: string; returnTo?: string; returnToken?: string; programTitle?: string; programTime?: string; programDescription?: string; programCategory?: string }): Promise<{ launched: boolean }>;
+  openExternal(options: { url: string; title?: string; mimeType?: string; authHeader?: string; preferredPackage?: string; chooserTitle?: string }): Promise<{ launched: boolean; package?: string }>;
   openKodiHtsp(options: { url: string; title?: string; fallbackUrl?: string }): Promise<{ launched: boolean; fallback?: boolean }>;
 }>('NativeVideo');
 
@@ -78,6 +79,8 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
   hasResumePoint = false;
   resumePositionLabel = '';
   showProgramInfo = false;
+  resolvedRecordingPlaybackUrl = '';
+  loadingRecordingBlob = false;
   readonly diagnosticsEnabled = false;
 
   private mpegtsPlayer: any | null = null;
@@ -96,6 +99,7 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
   private loadingLiveChannelsPromise: Promise<any[]> | null = null;
   private channelSurfInProgress = false;
   private programInfoHideTimer: number | null = null;
+  private recordingObjectUrl: string | null = null;
 
   constructor(
     private route: ActivatedRoute,
@@ -107,7 +111,7 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
   ) {
     this.playbackType = this.route.snapshot.queryParamMap.get('playback') === 'recording' ? 'recording' : 'live';
     this.channelId = this.route.snapshot.paramMap.get('channelId') || '';
-    this.recordingRef = String(this.route.snapshot.queryParamMap.get('recordingRef') || '').trim();
+    this.recordingRef = String(this.route.snapshot.queryParamMap.get('recordingRef') || this.channelId || '').trim();
     this.channelName = this.route.snapshot.queryParamMap.get('name') || (this.isRecordingPlayback() ? 'Recording' : 'Live TV');
     this.programTitle = String(this.route.snapshot.queryParamMap.get('programTitle') || '').trim();
     this.programTimeLabel = this.buildProgramTimeLabel(
@@ -118,6 +122,7 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
     this.programCategory = String(this.route.snapshot.queryParamMap.get('programCategory') || '').trim();
     this.nativeFallbackProfiles = this.buildNativeFallbackProfiles();
     this.selectedTransport = this.isCapacitorNative() ? 'native' : 'direct';
+    this.resolvedRecordingPlaybackUrl = this.isRecordingPlayback() ? this.buildRecordingUrlFromCurrentLocation() : '';
     const requestedReturnTo = this.route.snapshot.queryParamMap.get('returnTo') || '';
     if (requestedReturnTo.startsWith('/')) {
       this.returnTo = requestedReturnTo;
@@ -136,6 +141,7 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
   ngOnDestroy(): void {
     this.clearProgramInfoHideTimer();
     this.destroyMpegtsPlayer();
+    this.releaseRecordingObjectUrl();
 
     const video = this.playerVideo?.nativeElement;
     if (!video) {
@@ -149,8 +155,19 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
   }
 
   async startPlayback(): Promise<void> {
-    const video = this.playerVideo?.nativeElement;
-    if (!this.isCapacitorNative() && (!video || !this.streamUrl)) {
+    const video = this.resolveVideoElement();
+    if (!this.isCapacitorNative() && this.isRecordingPlayback()) {
+      this.recoverRecordingPlaybackUrlsFromLocation();
+    }
+
+    if (!this.isCapacitorNative() && this.isRecordingPlayback() && !video) {
+      setTimeout(() => {
+        void this.startPlayback();
+      }, 0);
+      return;
+    }
+
+    if (!this.isCapacitorNative() && !this.isRecordingPlayback() && (!video || !this.streamUrl)) {
       this.playerError = this.isRecordingPlayback()
         ? 'Missing playback URL for this recording.'
         : 'Missing stream URL for this channel.';
@@ -180,6 +197,11 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
     this.awaitingNativeInteraction = false;
     this.playerStatus = 'Starting playback...';
     this.refreshDiagnostics();
+
+    if (!this.isCapacitorNative() && this.isRecordingPlayback()) {
+      await this.startBrowserRecordingPlayback(video!);
+      return;
+    }
 
     if (this.isCapacitorNative()) {
       await this.openNativeAndroidPlayer();
@@ -213,7 +235,7 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
   }
 
   openExternal(): void {
-    window.open(this.rawStreamUrl, '_blank', 'noopener');
+    void this.openExternalPlayer();
   }
 
   openInVLC(): void {
@@ -338,7 +360,60 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
   }
 
   getExternalActionLabel(): string {
-    return this.isRecordingPlayback() ? 'Open Recording File' : 'Open Raw Stream';
+    if (this.isCapacitorNative()) {
+      return 'Open in External Player';
+    }
+
+    return this.isRecordingPlayback() ? 'Open Recording Externally' : 'Open Channel Externally';
+  }
+
+  private async openExternalPlayer(): Promise<void> {
+    const externalUrl = this.resolveExternalPlaybackUrl();
+    if (!externalUrl) {
+      this.playerError = this.isRecordingPlayback()
+        ? 'Missing playback URL for this recording.'
+        : 'Missing stream URL for this channel.';
+      this.playerStatus = this.isRecordingPlayback() ? 'No recording URL' : 'No stream URL';
+      this.refreshDiagnostics();
+      return;
+    }
+
+    if (!this.isCapacitorNative()) {
+      window.open(externalUrl, '_blank', 'noopener');
+      return;
+    }
+
+    const authHeader = this.tvh.getAuthHeader() || undefined;
+    const mimeType = this.isRecordingPlayback()
+      ? this.inferRecordingMimeType(externalUrl)
+      : this.resolveNativeMimeType(this.nativeFallbackProfiles[0] || 'pass');
+    const preferredPackage = this.getPreferredExternalPlayerPackage();
+
+    this.playerError = '';
+    this.playerStatus = this.isRecordingPlayback()
+      ? 'Opening recording in external player...'
+      : 'Opening channel in external player...';
+    this.refreshDiagnostics();
+
+    try {
+      await NativeVideo.openExternal({
+        url: externalUrl,
+        title: this.channelName,
+        mimeType,
+        authHeader,
+        preferredPackage,
+        chooserTitle: this.isRecordingPlayback() ? 'Open recording with' : 'Open channel with'
+      });
+
+      this.playerStatus = preferredPackage
+        ? 'External player launched'
+        : 'External player chooser opened';
+      this.refreshDiagnostics();
+    } catch (error: any) {
+      this.playerError = `Failed to open external player: ${String(error?.message || error || 'unknown error')}`;
+      this.playerStatus = 'External player launch failed';
+      this.refreshDiagnostics();
+    }
   }
 
   goBack(): void {
@@ -658,7 +733,16 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
   }
 
   onVideoError(): void {
-    this.playerError = 'The browser could not play this stream directly. Try Open Raw Stream or verify TVHeadend stream permissions.';
+    if (this.isRecordingPlayback() && this.hasAc3Audio) {
+      this.playerError = 'This recording uses AC-3 audio, which this browser cannot decode. Use Open Recording Externally for playback.';
+      this.playerStatus = 'Recording codec unsupported in browser';
+      this.refreshDiagnostics();
+      return;
+    }
+
+    this.playerError = this.isRecordingPlayback()
+      ? 'The browser could not play this recording directly. Use the external playback option if this keeps failing.'
+      : 'The browser could not play this stream directly. Verify TVHeadend stream permissions or try another supported player.';
     this.playerStatus = 'Video element reported an error';
     this.refreshDiagnostics();
   }
@@ -713,9 +797,14 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
 
             if (this.isUnsupportedAc3Error(errorDetail, errorInfo)) {
               this.hasAc3Audio = true;
-              this.playerError = this.isRecordingPlayback()
-                ? 'This recording uses AC-3 audio, which this browser cannot play through MSE. Try "🎬 Open in VLC" or "Open Recording File" to play it in an external media player.'
-                : 'This stream uses AC-3 audio, which this browser cannot play through MSE. Try "🎬 Open in VLC" or "Open Raw Stream" to play in an external media player.';
+              if (this.isRecordingPlayback()) {
+                this.playerError = 'This recording uses AC-3 audio, which this browser cannot decode. Use Open Recording Externally for playback.';
+                this.playerStatus = 'Recording codec unsupported in browser';
+                this.refreshDiagnostics();
+                return;
+              }
+
+              this.playerError = 'This stream uses AC-3 audio, which this browser cannot play through MSE. Use an external media player that supports AC-3 playback.';
               this.playerStatus = 'Switching to native/raw playback';
               this.selectedTransport = 'native';
               this.streamUrl = this.resolveActiveStreamUrl();
@@ -734,6 +823,13 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
       const playPromise = video.play();
       if (playPromise) {
         playPromise.catch(() => {
+          if (this.isRecordingPlayback() && this.hasAc3Audio) {
+            this.playerError = 'This recording uses AC-3 audio, which this browser cannot decode. Use Open Recording Externally for playback.';
+            this.playerStatus = 'Recording codec unsupported in browser';
+            this.refreshDiagnostics();
+            return;
+          }
+
           this.playerError = 'Playback could not start automatically. Press play or verify TVHeadend stream permissions.';
           this.playerStatus = 'Autoplay blocked or playback failed';
           this.refreshDiagnostics();
@@ -842,7 +938,7 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
           }
 
           this.awaitingNativeInteraction = true;
-          this.playerError = 'Playback is still blocked. Press Start Playback again or switch transport mode.';
+          this.playerError = 'Playback is still blocked. Press Start Playback again.';
           this.playerStatus = 'Native playback retry failed';
           this.refreshDiagnostics();
         });
@@ -879,6 +975,7 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
   private destroyCurrentPlayback(): void {
     this.persistRecordingProgress(true);
     this.destroyMpegtsPlayer();
+    this.releaseRecordingObjectUrl();
 
     const video = this.playerVideo?.nativeElement;
     if (!video) {
@@ -889,6 +986,113 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
     video.removeAttribute('src');
     video.load();
     this.activePlaybackMode = 'none';
+  }
+
+  private async startBrowserRecordingPlayback(video: HTMLVideoElement): Promise<void> {
+    const sourceUrl = this.sanitizeUrlForFetch(this.rawStreamUrl || this.resolvedRecordingPlaybackUrl || this.streamUrl);
+    if (!sourceUrl) {
+      this.playerError = 'Missing playback URL for this recording.';
+      this.playerStatus = 'No recording URL';
+      this.refreshDiagnostics();
+      return;
+    }
+
+    this.loadingRecordingBlob = true;
+    this.playerStatus = 'Loading recording playback...';
+    this.refreshDiagnostics();
+
+    try {
+      const response = await fetch(sourceUrl, {
+        method: 'GET',
+        headers: this.tvh.getStreamRequestHeaders(),
+        cache: 'no-store'
+      });
+
+      if (!response.ok) {
+        this.playerError = response.status === 401 || response.status === 403
+          ? 'Recording playback was rejected by TVHeadend. Check recording access permissions for this account.'
+          : `Recording playback failed with HTTP ${response.status}.`;
+        this.playerStatus = 'Recording request failed';
+        this.refreshDiagnostics();
+        return;
+      }
+
+      const mediaBlob = await response.blob();
+      this.releaseRecordingObjectUrl();
+      this.recordingObjectUrl = URL.createObjectURL(mediaBlob);
+      video.pause();
+      video.src = this.recordingObjectUrl;
+      video.load();
+
+      try {
+        const playPromise = video.play();
+        if (playPromise) {
+          await playPromise;
+        }
+      } catch {
+        this.releaseRecordingObjectUrl();
+        video.pause();
+        video.removeAttribute('src');
+        video.load();
+
+        this.streamUrl = sourceUrl;
+        this.playerStatus = 'Blob playback unsupported, trying mpegts.js...';
+        this.refreshDiagnostics();
+
+        const mpegtsStarted = await this.startMpegtsPlayback(video);
+        if (mpegtsStarted) {
+          this.activePlaybackMode = 'mpegts.js recording playback';
+          this.playerStatus = 'Recording playback started';
+          this.playerError = '';
+          this.refreshDiagnostics();
+          return;
+        }
+
+        throw new Error('Failed to load because no supported source was found.');
+      }
+
+      this.streamUrl = this.recordingObjectUrl;
+      this.activePlaybackMode = 'browser recording blob';
+      this.playerStatus = 'Recording playback started';
+      this.playerError = '';
+      this.refreshDiagnostics();
+    } catch (error: any) {
+      this.playerError = `Recording playback could not be prepared: ${String(error?.message || error || 'unknown error')}`;
+      this.playerStatus = 'Recording fetch failed';
+      this.refreshDiagnostics();
+    } finally {
+      this.loadingRecordingBlob = false;
+    }
+  }
+
+  private releaseRecordingObjectUrl(): void {
+    if (!this.recordingObjectUrl) {
+      return;
+    }
+
+    URL.revokeObjectURL(this.recordingObjectUrl);
+    this.recordingObjectUrl = null;
+  }
+
+  private resolveVideoElement(): HTMLVideoElement | null {
+    return this.playerVideo?.nativeElement
+      || document.querySelector('video.player-screen__video');
+  }
+
+  private sanitizeUrlForFetch(url: string): string {
+    const normalizedUrl = String(url || '').trim();
+    if (!normalizedUrl) {
+      return '';
+    }
+
+    try {
+      const parsed = new URL(normalizedUrl, window.location.origin);
+      parsed.username = '';
+      parsed.password = '';
+      return parsed.toString();
+    } catch {
+      return normalizedUrl.replace(/^(https?:\/\/)[^/@]+@/i, '$1');
+    }
   }
 
   private refreshDiagnostics(): void {
@@ -926,13 +1130,22 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
 
   private refreshStreamUrls(): void {
     if (this.isRecordingPlayback()) {
-      this.directStreamUrl = this.tvh.getRecordingStreamUrl(this.recordingRef, {
+      const recordingRef = this.resolveRecordingRef();
+      this.recordingRef = recordingRef;
+
+      this.directStreamUrl = this.tvh.getRecordingStreamUrl(recordingRef, {
         includeAuth: true
       });
-      this.proxyStreamUrl = this.tvh.getRecordingStreamUrl(this.recordingRef, {
+      this.proxyStreamUrl = this.tvh.getRecordingStreamUrl(recordingRef, {
         proxied: true,
         includeAuth: true
       });
+
+      if (!this.directStreamUrl || !this.proxyStreamUrl) {
+        const fallbackUrl = this.buildRecordingFallbackUrl();
+        this.directStreamUrl = this.directStreamUrl || fallbackUrl;
+        this.proxyStreamUrl = this.proxyStreamUrl || fallbackUrl;
+      }
     } else {
       this.directStreamUrl = this.tvh.getChannelStreamUrl(this.channelId, {
         includeAuth: true
@@ -944,13 +1157,120 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
     }
     this.proxiedStreamUrlWithAuth = this.proxyStreamUrl;
     this.rawStreamUrl = this.isRecordingPlayback()
-      ? this.tvh.getRecordingStreamUrl(this.recordingRef, {
+      ? this.tvh.getRecordingStreamUrl(this.resolveRecordingRef(), {
           includeAuth: true
         })
       : this.tvh.getChannelStreamUrl(this.channelId, {
           includeAuth: true
         });
+
+    if (this.isRecordingPlayback() && !this.rawStreamUrl) {
+      this.rawStreamUrl = this.buildRecordingFallbackUrl();
+    }
+
+    if (this.isRecordingPlayback() && !this.resolvedRecordingPlaybackUrl) {
+      this.resolvedRecordingPlaybackUrl = this.buildRecordingUrlFromCurrentLocation();
+    }
+
     this.streamUrl = this.resolveActiveStreamUrl();
+  }
+
+  private buildRecordingFallbackUrl(): string {
+    const normalizedRef = this.resolveRecordingRef().replace(/^\/+/, '');
+    if (!normalizedRef) {
+      return '';
+    }
+
+    const dvrPath = normalizedRef.startsWith('dvrfile/')
+      ? normalizedRef
+      : `dvrfile/${encodeURIComponent(normalizedRef)}`;
+
+    try {
+      const credentials = this.tvh.getStoredCredentials();
+      const url = new URL(`/${dvrPath}`, window.location.origin);
+
+      if (credentials?.username && credentials?.password) {
+        url.username = credentials.username;
+        url.password = credentials.password;
+        url.searchParams.set('username', credentials.username);
+        url.searchParams.set('password', credentials.password);
+      }
+
+      return url.toString();
+    } catch {
+      return `/${dvrPath}`;
+    }
+  }
+
+  private recoverRecordingPlaybackUrlsFromLocation(): void {
+    const fallbackRef = this.resolveRecordingRefFromLocation();
+    if (!fallbackRef) {
+      return;
+    }
+
+    this.recordingRef = fallbackRef;
+    this.resolvedRecordingPlaybackUrl = this.buildRecordingUrlFromCurrentLocation();
+    const fallbackUrl = this.buildRecordingFallbackUrl();
+    if (!fallbackUrl) {
+      return;
+    }
+
+    this.directStreamUrl = this.directStreamUrl || fallbackUrl;
+    this.proxyStreamUrl = this.proxyStreamUrl || fallbackUrl;
+    this.rawStreamUrl = this.rawStreamUrl || fallbackUrl;
+    this.proxiedStreamUrlWithAuth = this.proxyStreamUrl || fallbackUrl;
+    this.streamUrl = this.resolveActiveStreamUrl() || fallbackUrl;
+  }
+
+  private resolveRecordingRefFromLocation(): string {
+    try {
+      const currentUrl = new URL(window.location.href);
+      const queryRef = String(currentUrl.searchParams.get('recordingRef') || '').trim();
+      if (queryRef) {
+        return queryRef;
+      }
+
+      const pathSegments = currentUrl.pathname.split('/').filter(Boolean);
+      if (pathSegments.length > 1) {
+        return String(pathSegments[pathSegments.length - 1] || '').trim();
+      }
+    } catch {
+      // Ignore URL parsing issues and fall back to existing route values.
+    }
+
+    return this.resolveRecordingRef();
+  }
+
+  private buildRecordingUrlFromCurrentLocation(): string {
+    const recordingRef = this.resolveRecordingRefFromLocation();
+    if (!recordingRef) {
+      return '';
+    }
+
+    const normalizedRef = recordingRef.replace(/^\/+/, '');
+    const dvrPath = normalizedRef.startsWith('dvrfile/')
+      ? normalizedRef
+      : `dvrfile/${encodeURIComponent(normalizedRef)}`;
+
+    try {
+      const credentials = this.tvh.getStoredCredentials();
+      const url = new URL(`/${dvrPath}`, window.location.origin);
+
+      if (credentials?.username && credentials?.password) {
+        url.username = credentials.username;
+        url.password = credentials.password;
+        url.searchParams.set('username', credentials.username);
+        url.searchParams.set('password', credentials.password);
+      }
+
+      return url.toString();
+    } catch {
+      return `/${dvrPath}`;
+    }
+  }
+
+  private resolveRecordingRef(): string {
+    return String(this.recordingRef || this.channelId || '').trim();
   }
 
   private restoreRecordingResumeState(): void {
@@ -1496,11 +1816,11 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
     const playbackTarget = this.isRecordingPlayback() ? 'recording' : 'live stream';
 
     if (this.isUnsupportedAc3Error(errorDetail, errorInfo)) {
-      return `This ${playbackTarget} contains AC-3 audio which the browser cannot decode. Use the "🎬 Open in VLC" button to play it in VLC Media Player, or use the external file option for other media players.`;
+      return `This ${playbackTarget} contains AC-3 audio which the browser cannot decode. Use an external media player that supports AC-3 playback.`;
     }
 
     if (errorInfo?.code === 504) {
-      return `The dev proxy timed out while tunneling the ${playbackTarget}. Direct browser playback avoids that proxy, but then TVHeadend must allow cross-origin requests.`;
+      return `The playback request timed out while tunneling the ${playbackTarget}. Verify the proxy path and TVHeadend stream availability.`;
     }
 
     if (errorInfo?.msg?.includes('Failed to fetch')) {
@@ -1511,7 +1831,7 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
       return `TVHeadend rejected the playback request with HTTP ${errorInfo?.code || 'error'}. Verify stream permissions and credentials.`;
     }
 
-    return `mpegts.js could not start playback. Try the external file option or verify the TVHeadend ${playbackTarget} URL, credentials, and transport policy.`;
+    return `mpegts.js could not start playback. Verify the TVHeadend ${playbackTarget} URL, credentials, and stream delivery configuration.`;
   }
 
   private getSanitizedStreamHost(): string {
@@ -1561,6 +1881,18 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
       return 'video/mp4';
     }
     return 'video/mp2t';
+  }
+
+  private resolveExternalPlaybackUrl(): string {
+    return this.rawStreamUrl || this.resolvedRecordingPlaybackUrl || this.streamUrl;
+  }
+
+  private getPreferredExternalPlayerPackage(): string | undefined {
+    if (this.isRecordingPlayback() || this.hasAc3Audio) {
+      return 'org.videolan.vlc';
+    }
+
+    return undefined;
   }
 
   private buildNativeFallbackProfiles(): string[] {

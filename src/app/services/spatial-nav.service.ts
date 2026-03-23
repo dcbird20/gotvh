@@ -76,6 +76,9 @@ export class SpatialNavService {
     const key = String(event.key || '');
     const code = String((event as any).code || '');
     const keyCode = Number((event as any).keyCode || (event as any).which || 0);
+    const looksLikePrintableKeyboardInput = (key.length === 1 && key !== ' ')
+      || code.startsWith('Key')
+      || code.startsWith('Digit');
 
     return key === 'Enter'
       || key === 'BrowserSelect'
@@ -91,7 +94,7 @@ export class SpatialNavService {
       || keyCode === 13
       || keyCode === 23
       || keyCode === 32
-      || keyCode === 66
+        || (keyCode === 66 && !looksLikePrintableKeyboardInput)
       || keyCode === 160;
   }
 

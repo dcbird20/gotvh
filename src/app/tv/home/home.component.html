@@ -18,6 +18,14 @@
       <div class="hero__bg"></div>
       <div class="hero__content">
         <span class="hero__live-badge">LIVE</span>
+        <div class="hero__channel-visual">
+          <ng-container *ngIf="hasRenderableHeroIcon(); else heroChannelPlaceholder">
+            <img class="hero__channel-logo" [src]="heroChannel.icon" [alt]="heroChannel.name" (error)="handleHeroIconError()" />
+          </ng-container>
+          <ng-template #heroChannelPlaceholder>
+            <span class="hero__channel-logo hero__channel-logo--placeholder">TV</span>
+          </ng-template>
+        </div>
         <div class="hero__channel-name">{{ heroChannel.name }}</div>
         <h1 class="hero__title">{{ heroProgram?.title || 'Live TV' }}</h1>
         <p class="hero__time" *ngIf="heroProgram">
@@ -46,6 +54,7 @@
           [title]="item.channel.name"
           [subtitle]="item.program?.title || 'Live'"
           [channelNumber]="item.channel.number"
+          [icon]="item.channel.icon"
           [badge]="'LIVE'"
           tvFocusable
           (click)="watchChannel(item.channel, 'on-now')"
@@ -62,6 +71,7 @@
           [title]="rec.disp_title || rec.title || 'Recording'"
           [subtitle]="rec.channelname || ''"
           [meta]="formatRecordingTime(rec)"
+          [icon]="getRecordingIcon(rec)"
           [badge]="'⏺'"
           tvFocusable
         ></app-tv-card>
@@ -78,6 +88,7 @@
           [title]="rec.disp_title || rec.title || 'Recording'"
           [subtitle]="rec.channelname || ''"
           [meta]="formatDuration(rec)"
+          [icon]="getRecordingIcon(rec)"
           [badge]="'✓'"
           tvFocusable
           (click)="watchRecording(rec)"

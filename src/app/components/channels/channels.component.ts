@@ -24,12 +24,15 @@ export class ChannelsComponent implements OnInit, OnDestroy {
   epgEvents: any[] = [];
   focusedChannel: any = null;
   focusedChannelProgram: any = null;
+  focusedNextProgram: any = null;
   searchQuery = '';
   searchVisible = false;
+  favoritesOnly = false;
   loading = true;
   errorMessage = '';
   epgWarning = '';
   favorites: Set<string> = new Set();
+  brokenChannelIcons = new Set<string>();
   private pendingReturnContext: ReturnNavigationContext | null = null;
   private activationInProgress = false;
 
@@ -79,6 +82,7 @@ export class ChannelsComponent implements OnInit, OnDestroy {
       next: ({ channels, epg }) => {
         this.channels = [...channels].sort((a, b) => (a.number ?? 0) - (b.number ?? 0));
         this.epgEvents = epg;
+        this.brokenChannelIcons.clear();
         if (!this.epgWarning && this.channels.length > 0 && this.epgEvents.length === 0) {
           this.epgWarning = 'Programme listings are temporarily unavailable from TVHeadend right now. Channels can still be opened.';
         }
@@ -145,30 +149,47 @@ export class ChannelsComponent implements OnInit, OnDestroy {
       ? this.channels.filter(ch =>
           (ch.name || '').toLowerCase().includes(q) ||
           String(ch.number || '').includes(q) ||
+          String(this.getCurrentProgram(ch)?.title || '').toLowerCase().includes(q) ||
           (ch.__resolvedTagNames || []).some((t: string) =>
             t.toLowerCase().includes(q)
           )
         )
       : [...this.channels];
 
+    const scopeFiltered = this.favoritesOnly
+      ? filtered.filter(ch => this.favorites.has(ch.uuid))
+      : filtered;
+
     // Favorites first
     this.filteredChannels = [
-      ...filtered.filter(ch => this.favorites.has(ch.uuid)),
-      ...filtered.filter(ch => !this.favorites.has(ch.uuid))
+      ...scopeFiltered.filter(ch => this.favorites.has(ch.uuid)),
+      ...scopeFiltered.filter(ch => !this.favorites.has(ch.uuid))
     ];
+
+    const currentUuid = String(this.focusedChannel?.uuid || '').trim();
+    const currentMatch = this.filteredChannels.find(ch => String(ch?.uuid || '').trim() === currentUuid);
+    if (currentMatch) {
+      this.selectChannel(currentMatch);
+    } else if (this.filteredChannels.length > 0) {
+      this.selectChannel(this.filteredChannels[0]);
+    } else {
+      this.focusedChannel = null;
+      this.focusedChannelProgram = null;
+      this.focusedNextProgram = null;
+    }
 
     this.persistViewState();
   }
 
   selectChannel(channel: any): void {
     this.focusedChannel = channel;
-    const nowSec = Date.now() / 1000;
-    this.focusedChannelProgram = this.epgEvents.find(e =>
-      e.channelUuid === channel.uuid &&
-      Number(e.start) <= nowSec &&
-      Number(e.stop) >= nowSec
-    ) ?? null;
+    this.focusedChannelProgram = this.getCurrentProgram(channel);
+    this.focusedNextProgram = this.getNextProgram(channel);
     this.persistViewState();
+  }
+
+  handleChannelCardClick(channel: any): void {
+    this.selectChannel(channel);
   }
 
   activateChannel(channel: any): void {
@@ -222,6 +243,12 @@ export class ChannelsComponent implements OnInit, OnDestroy {
   @HostListener('document:keydown', ['$event'])
   handleChannelTileSelect(event: KeyboardEvent): void {
     this.captureRemoteKey(event);
+
+    if (this.handleDirectionalFocus(event)) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
 
     if (!this.isSelectKey(event) || this.loading || !!this.errorMessage || this.activationInProgress) {
       return;
@@ -297,6 +324,7 @@ export class ChannelsComponent implements OnInit, OnDestroy {
       epgEvents: any[];
       searchQuery: string;
       searchVisible: boolean;
+      favoritesOnly: boolean;
       focusedChannelUuid: string;
     }>(this.viewCacheKey);
 
@@ -308,6 +336,7 @@ export class ChannelsComponent implements OnInit, OnDestroy {
     this.epgEvents = cached.epgEvents || [];
     this.searchQuery = String(cached.searchQuery || '');
     this.searchVisible = !!cached.searchVisible;
+    this.favoritesOnly = !!cached.favoritesOnly;
     this.filterChannels();
 
     const focusedUuid = String(cached.focusedChannelUuid || '').trim();
@@ -331,6 +360,7 @@ export class ChannelsComponent implements OnInit, OnDestroy {
       epgEvents: this.epgEvents,
       searchQuery: this.searchQuery,
       searchVisible: this.searchVisible,
+      favoritesOnly: this.favoritesOnly,
       focusedChannelUuid: String(this.focusedChannel?.uuid || '').trim()
     });
   }
@@ -353,8 +383,42 @@ export class ChannelsComponent implements OnInit, OnDestroy {
     }
   }
 
+  toggleFavoritesOnly(): void {
+    this.favoritesOnly = !this.favoritesOnly;
+    this.filterChannels();
+  }
+
   isFavorite(channel: any): boolean {
     return this.favorites.has(channel.uuid);
+  }
+
+  hasRenderableChannelIcon(channel: any): boolean {
+    const channelId = String(channel?.uuid || channel?.id || '').trim();
+    return !!String(channel?.icon || '').trim() && !this.brokenChannelIcons.has(channelId);
+  }
+
+  handleChannelIconError(channel: any): void {
+    const channelId = String(channel?.uuid || channel?.id || '').trim();
+    if (!channelId) {
+      return;
+    }
+
+    this.brokenChannelIcons.add(channelId);
+  }
+
+  getResultCountSummary(): string {
+    const total = this.channels.length;
+    const visible = this.filteredChannels.length;
+    if (this.favoritesOnly && this.searchQuery.trim()) {
+      return `${visible} favorite result${visible === 1 ? '' : 's'}`;
+    }
+    if (this.favoritesOnly) {
+      return `${visible} favorite channel${visible === 1 ? '' : 's'}`;
+    }
+    if (this.searchQuery.trim()) {
+      return `${visible} of ${total} channels`;
+    }
+    return `${visible} channels`;
   }
 
   getCurrentProgram(channel: any): any {
@@ -366,6 +430,48 @@ export class ChannelsComponent implements OnInit, OnDestroy {
     ) ?? null;
   }
 
+  getNextProgram(channel: any): any {
+    const nowSec = Date.now() / 1000;
+    return this.getChannelPrograms(channel).find(e => Number(e.start) > nowSec) ?? null;
+  }
+
+  getProgramProgressPercent(program: any): number {
+    if (!program) {
+      return 0;
+    }
+
+    const nowSec = Date.now() / 1000;
+    const start = Number(program.start || 0);
+    const stop = Number(program.stop || 0);
+    if (!start || !stop || stop <= start) {
+      return 0;
+    }
+
+    const progress = ((nowSec - start) / (stop - start)) * 100;
+    return Math.max(0, Math.min(100, progress));
+  }
+
+  hasActiveFilters(): boolean {
+    return this.favoritesOnly || !!this.searchQuery.trim();
+  }
+
+  getEmptyStateTitle(): string {
+    return this.hasActiveFilters() ? 'No matching channels' : 'No channels found';
+  }
+
+  getEmptyStateMessage(): string {
+    if (this.favoritesOnly && this.searchQuery.trim()) {
+      return 'Try a different search or turn off Favorites only.';
+    }
+    if (this.favoritesOnly) {
+      return 'Mark some channels as favorites to build a quicker watch list.';
+    }
+    if (this.searchQuery.trim()) {
+      return 'Try a different channel name, number, tag, or current show.';
+    }
+    return 'TVHeadend did not return any channels.';
+  }
+
   formatTimeRange(program: any): string {
     if (!program) { return ''; }
     const fmt = (t: number) =>
@@ -373,10 +479,88 @@ export class ChannelsComponent implements OnInit, OnDestroy {
     return `${fmt(Number(program.start))} – ${fmt(Number(program.stop))}`;
   }
 
+  private getChannelPrograms(channel: any): any[] {
+    return this.epgEvents
+      .filter(e => e.channelUuid === channel.uuid)
+      .sort((left, right) => Number(left?.start || 0) - Number(right?.start || 0));
+  }
+
+  private handleDirectionalFocus(event: KeyboardEvent): boolean {
+    if (this.loading || !!this.errorMessage || this.isEditableTarget(event.target as HTMLElement | null)) {
+      return false;
+    }
+
+    if (this.isDirectionalKey(event, 'down')) {
+      const activeElement = document.activeElement as HTMLElement | null;
+      const channelCard = activeElement?.closest('.channel-card') as HTMLElement | null;
+      if (channelCard && this.isLastChannelRow(channelCard)) {
+        return this.focusDetailActionButton();
+      }
+    }
+
+    if (this.isDirectionalKey(event, 'up')) {
+      const activeElement = document.activeElement as HTMLElement | null;
+      const actionArea = activeElement?.closest('.detail-strip__actions') as HTMLElement | null;
+      if (actionArea) {
+        return this.focusSelectedChannelCard();
+      }
+    }
+
+    return false;
+  }
+
+  private isLastChannelRow(channelCard: HTMLElement): boolean {
+    const cards = Array.from(document.querySelectorAll('.channel-grid .channel-card')) as HTMLElement[];
+    if (!cards.length) {
+      return false;
+    }
+
+    const lastRowTop = Math.max(...cards.map(card => Math.round(card.getBoundingClientRect().top)));
+    const activeTop = Math.round(channelCard.getBoundingClientRect().top);
+    return Math.abs(activeTop - lastRowTop) <= 8;
+  }
+
+  private focusDetailActionButton(): boolean {
+    const target = document.querySelector('.detail-strip__actions .tv-btn') as HTMLElement | null;
+    if (!target) {
+      return false;
+    }
+
+    target.focus();
+    return true;
+  }
+
+  private focusSelectedChannelCard(): boolean {
+    const channelUuid = String(this.focusedChannel?.uuid || '').trim();
+    if (!channelUuid) {
+      return false;
+    }
+
+    const escapedUuid = channelUuid.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    const target = document.querySelector(`.channel-card[data-channel-uuid="${escapedUuid}"]`) as HTMLElement | null;
+    if (!target) {
+      return false;
+    }
+
+    target.focus();
+    return true;
+  }
+
+  private isEditableTarget(target: HTMLElement | null): boolean {
+    if (!target) {
+      return false;
+    }
+
+    return !!target.closest('input, textarea, [contenteditable="true"], [contenteditable=""]');
+  }
+
   private isSelectKey(event: KeyboardEvent): boolean {
     const key = String(event.key || '');
     const code = String((event as any).code || '');
     const keyCode = Number((event as any).keyCode || (event as any).which || 0);
+    const looksLikePrintableKeyboardInput = (key.length === 1 && key !== ' ')
+      || code.startsWith('Key')
+      || code.startsWith('Digit');
 
     return key === 'Enter'
       || key === 'BrowserSelect'
@@ -392,8 +576,28 @@ export class ChannelsComponent implements OnInit, OnDestroy {
       || keyCode === 13
       || keyCode === 23
       || keyCode === 32
-      || keyCode === 66
+        || (keyCode === 66 && !looksLikePrintableKeyboardInput)
       || keyCode === 160;
+  }
+
+  private isDirectionalKey(event: KeyboardEvent, direction: 'up' | 'down' | 'left' | 'right'): boolean {
+    const key = String(event.key || '');
+    const code = String((event as any).code || '');
+    const keyCode = Number((event as any).keyCode || (event as any).which || 0);
+
+    if (direction === 'up') {
+      return key === 'ArrowUp' || code === 'ArrowUp' || keyCode === 19 || keyCode === 38;
+    }
+
+    if (direction === 'down') {
+      return key === 'ArrowDown' || code === 'ArrowDown' || keyCode === 20 || keyCode === 40;
+    }
+
+    if (direction === 'left') {
+      return key === 'ArrowLeft' || code === 'ArrowLeft' || keyCode === 21 || keyCode === 37;
+    }
+
+    return key === 'ArrowRight' || code === 'ArrowRight' || keyCode === 22 || keyCode === 39;
   }
 
   private captureRemoteKey(event: KeyboardEvent): void {

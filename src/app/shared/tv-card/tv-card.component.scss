@@ -46,6 +46,34 @@
     font-weight: 500;
   }
 
+  &__logo-wrap {
+    height: 30px;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+  }
+
+  &__logo {
+    width: auto;
+    max-width: 100%;
+    height: 30px;
+    object-fit: contain;
+    border-radius: 8px;
+
+    &--placeholder {
+      width: 44px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(18, 43, 84, 0.95);
+      border: 1px solid rgba(94, 128, 192, 0.28);
+      color: #d7e6ff;
+      font-size: 10px;
+      font-weight: 900;
+      letter-spacing: 0.08em;
+    }
+  }
+
   &__title {
     font-size: 15px;
     font-weight: 600;

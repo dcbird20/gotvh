@@ -2,6 +2,14 @@
   <span class="tv-card__badge" *ngIf="badge">{{ badge }}</span>
 
   <div class="tv-card__number" *ngIf="channelNumber">{{ channelNumber }}</div>
+  <div class="tv-card__logo-wrap">
+    <ng-container *ngIf="hasRenderableIcon(); else tvCardFallbackLogo">
+      <img class="tv-card__logo" [src]="icon" [alt]="title" (error)="handleIconError()" />
+    </ng-container>
+    <ng-template #tvCardFallbackLogo>
+      <span class="tv-card__logo tv-card__logo--placeholder">TV</span>
+    </ng-template>
+  </div>
   <div class="tv-card__title">{{ title }}</div>
   <div class="tv-card__subtitle" *ngIf="subtitle">{{ subtitle }}</div>
   <div class="tv-card__meta" *ngIf="meta">{{ meta }}</div>

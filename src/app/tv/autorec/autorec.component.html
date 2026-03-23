@@ -41,14 +41,28 @@
       <label class="composer-field">
         <span>Match Mode</span>
         <select [(ngModel)]="form.matchMode" (ngModelChange)="queueGuidePreview()" tvFocusable>
-          <option value="title">Title only</option>
-          <option value="fulltext">Full-text</option>
+          <option value="title">Title</option>
+          <option value="fulltext">Title + details</option>
         </select>
       </label>
 
       <label class="composer-field">
         <span>Filter Channels</span>
         <input type="text" [(ngModel)]="channelFilter" placeholder="Type channel number or name" />
+      </label>
+    </div>
+
+    <p class="composer-card__note">Use Starts with or Ends with to narrow title matches.</p>
+
+    <div class="anchor-row" *ngIf="form.matchMode === 'title'">
+      <label class="anchor-chip">
+        <input type="checkbox" [(ngModel)]="form.startsWith" (ngModelChange)="queueGuidePreview()" />
+        <span>Starts with</span>
+      </label>
+
+      <label class="anchor-chip">
+        <input type="checkbox" [(ngModel)]="form.endsWith" (ngModelChange)="queueGuidePreview()" />
+        <span>Ends with</span>
       </label>
     </div>
 
@@ -85,7 +99,7 @@
       <div class="composer-preview__header">
         <div>
           <h3 class="composer-preview__title">Guide Preview</h3>
-          <p class="composer-preview__subtitle">{{ describePreviewMatchMode() }}. Preview refreshes automatically as you type or change scope.</p>
+          <p class="composer-preview__subtitle">{{ describePreviewMatchMode() }}. {{ getGuidePreviewHelpText() }}</p>
         </div>
       </div>
 
@@ -162,16 +176,25 @@
 
         <ng-template #editRuleTemplate>
           <div class="stack-card__edit-grid">
-            <label class="composer-field">
+            <label class="composer-field" *ngIf="!editForm.customRegex; else customRegexField">
               <span>Title</span>
               <input type="text" [(ngModel)]="editForm.title" />
+                <small class="composer-field__help">Plain text is saved literally. Use Starts with or Ends with for tighter title matching.</small>
             </label>
+
+            <ng-template #customRegexField>
+              <label class="composer-field composer-field--full">
+                <span>Title Regex</span>
+                <input type="text" [(ngModel)]="editForm.rawPattern" />
+                <small class="composer-field__help">This rule already uses a custom match pattern. Saving will keep it as entered.</small>
+              </label>
+            </ng-template>
 
             <label class="composer-field">
               <span>Match Mode</span>
               <select [(ngModel)]="editForm.matchMode" tvFocusable>
-                <option value="title">Title only</option>
-                <option value="fulltext">Full-text</option>
+                <option value="title">Title</option>
+                <option value="fulltext">Title + details</option>
               </select>
             </label>
 
@@ -179,6 +202,21 @@
               <span>Filter Channels</span>
               <input type="text" [(ngModel)]="editChannelFilter" placeholder="Type channel number or name" />
             </label>
+
+            <div class="composer-field composer-field--full" *ngIf="editForm.matchMode === 'title' && !editForm.customRegex">
+              <span>Title Anchors</span>
+              <div class="anchor-row anchor-row--edit">
+                <label class="anchor-chip">
+                  <input type="checkbox" [(ngModel)]="editForm.startsWith" />
+                  <span>Starts with</span>
+                </label>
+
+                <label class="anchor-chip">
+                  <input type="checkbox" [(ngModel)]="editForm.endsWith" />
+                  <span>Ends with</span>
+                </label>
+              </div>
+            </div>
 
             <label class="composer-field composer-field--full">
               <span class="composer-field__label-row">

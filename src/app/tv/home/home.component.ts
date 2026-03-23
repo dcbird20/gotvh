@@ -24,6 +24,7 @@ interface OnNowItem {
 })
 export class HomeComponent implements OnInit, OnDestroy {
   private readonly viewCacheKey = 'home';
+  channels: any[] = [];
   onNowItems: OnNowItem[] = [];
   upcomingRecordings: any[] = [];
   finishedRecordings: any[] = [];
@@ -38,6 +39,7 @@ export class HomeComponent implements OnInit, OnDestroy {
   private heroTimer?: ReturnType<typeof setInterval>;
   private destroy$ = new Subject<void>();
   private pendingReturnContext: ReturnNavigationContext | null = null;
+  private brokenHeroChannelUuid = '';
 
   constructor(
     private tvh: TvheadendService,
@@ -81,6 +83,7 @@ export class HomeComponent implements OnInit, OnDestroy {
     }).pipe(takeUntil(this.destroy$)).subscribe({
       next: ({ channels, epg, upcoming, finished }) => {
         const sorted = [...channels].sort((a, b) => (a.number ?? 0) - (b.number ?? 0));
+        this.channels = sorted;
 
         this.onNowItems = sorted.slice(0, 20).map(channel => {
           const program = epg.find((e: any) =>
@@ -145,6 +148,7 @@ export class HomeComponent implements OnInit, OnDestroy {
       this.heroIndex = index;
       this.heroChannel = item.channel;
       this.heroProgram = item.program;
+      this.brokenHeroChannelUuid = '';
       this.persistViewState();
     }
   }
@@ -323,5 +327,43 @@ export class HomeComponent implements OnInit, OnDestroy {
     if (!rec?.start || !rec?.stop) { return ''; }
     const mins = Math.round((Number(rec.stop) - Number(rec.start)) / 60);
     return mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins}m`;
+  }
+
+  getRecordingIcon(recording: any): string {
+    return this.resolveRecordingChannel(recording)?.icon || '';
+  }
+
+  hasRenderableHeroIcon(): boolean {
+    const heroChannelUuid = String(this.heroChannel?.uuid || '').trim();
+    return !!String(this.heroChannel?.icon || '').trim() && !!heroChannelUuid && this.brokenHeroChannelUuid !== heroChannelUuid;
+  }
+
+  handleHeroIconError(): void {
+    this.brokenHeroChannelUuid = String(this.heroChannel?.uuid || '').trim();
+  }
+
+  private resolveRecordingChannel(recording: any): any | null {
+    const directChannelUuid = String(recording?.channel || '').trim();
+    if (directChannelUuid) {
+      const directMatch = this.channels.find(channel => String(channel?.uuid || '').trim() === directChannelUuid);
+      if (directMatch) {
+        return directMatch;
+      }
+    }
+
+    const channelName = String(recording?.channelname || '').trim().toLowerCase();
+    if (!channelName) {
+      return null;
+    }
+
+    const exactMatch = this.channels.find(channel => String(channel?.name || '').trim().toLowerCase() === channelName);
+    if (exactMatch) {
+      return exactMatch;
+    }
+
+    return this.channels.find(channel => {
+      const candidate = String(channel?.name || '').trim().toLowerCase();
+      return !!candidate && (candidate.includes(channelName) || channelName.includes(candidate));
+    }) || null;
   }
 }

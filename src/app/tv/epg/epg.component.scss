@@ -1,5 +1,6 @@
 :host {
   --epg-channel-col-width: 210px;
+  --epg-hour-width: 225px;
   --epg-row-height: 50px;
   --epg-header-height: 56px;
   --epg-board-background: #09182f;
@@ -285,9 +286,9 @@
 }
 
 .epg-hour {
-  width: 150px;
-  min-width: 150px;
-  flex: 0 0 150px;
+  width: var(--epg-hour-width);
+  min-width: var(--epg-hour-width);
+  flex: 0 0 var(--epg-hour-width);
   display: grid;
   place-items: center;
   padding: 6px 0 5px;
@@ -409,7 +410,7 @@
   position: relative;
   min-height: var(--epg-row-height);
   background:
-    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 0 1px, transparent 1px 150px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 0 1px, transparent 1px var(--epg-hour-width)),
     linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0));
 }
 

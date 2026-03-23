@@ -99,6 +99,13 @@
     display: flex;
     justify-content: flex-end;
   }
+
+  &__note {
+    margin: 0 0 14px;
+    color: var(--tv-text-subtle);
+    font-size: 12px;
+    line-height: 1.4;
+  }
 }
 
 .composer-preview {
@@ -206,6 +213,12 @@
     font-weight: 500;
   }
 
+  &__help {
+    color: var(--tv-text-subtle);
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
   &--full {
     margin-bottom: 14px;
   }
@@ -222,6 +235,33 @@
 
   select {
     appearance: none;
+  }
+}
+
+.anchor-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0 0 14px;
+
+  &--edit {
+    margin-bottom: 0;
+  }
+}
+
+.anchor-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--tv-text);
+
+  input {
+    margin: 0;
   }
 }
 

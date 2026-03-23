@@ -2,6 +2,7 @@ package io.gotvh.app;
 
 import android.content.Intent;
 import android.net.Uri;
+import android.os.Bundle;
 
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -56,6 +57,60 @@ public class NativeVideoPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void openExternal(PluginCall call) {
+        String url = call.getString("url");
+        String title = call.getString("title", "Video");
+        String mimeType = call.getString("mimeType");
+        String authHeader = call.getString("authHeader");
+        String preferredPackage = call.getString("preferredPackage");
+        String chooserTitle = call.getString("chooserTitle", title);
+
+        if (url == null || url.trim().isEmpty()) {
+            call.reject("Missing playback URL");
+            return;
+        }
+
+        Intent baseIntent = new Intent(Intent.ACTION_VIEW);
+        Uri uri = Uri.parse(url);
+        if (mimeType != null && !mimeType.trim().isEmpty()) {
+            baseIntent.setDataAndType(uri, mimeType);
+        } else {
+            baseIntent.setData(uri);
+        }
+        baseIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        baseIntent.putExtra(Intent.EXTRA_TITLE, title);
+        attachHttpHeaders(baseIntent, authHeader);
+
+        try {
+            if (preferredPackage != null && !preferredPackage.trim().isEmpty()) {
+                Intent preferredIntent = new Intent(baseIntent);
+                preferredIntent.setPackage(preferredPackage.trim());
+                getActivity().startActivity(preferredIntent);
+
+                JSObject result = new JSObject();
+                result.put("launched", true);
+                result.put("package", preferredPackage.trim());
+                call.resolve(result);
+                return;
+            }
+        } catch (Exception preferredError) {
+            android.util.Log.w("NativeVideo", "Preferred external player failed: " + preferredError.getMessage());
+        }
+
+        try {
+            Intent chooserIntent = Intent.createChooser(new Intent(baseIntent), chooserTitle);
+            chooserIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getActivity().startActivity(chooserIntent);
+
+            JSObject result = new JSObject();
+            result.put("launched", true);
+            call.resolve(result);
+        } catch (Exception genericError) {
+            call.reject("External playback failed: " + genericError.getMessage());
+        }
+    }
+
+    @PluginMethod
     public void openKodiHtsp(PluginCall call) {
         String url = call.getString("url");
         String fallbackUrl = call.getString("fallbackUrl");
@@ -104,5 +159,16 @@ public class NativeVideoPlugin extends Plugin {
         JSObject result = new JSObject();
         result.put("launched", true);
         call.resolve(result);
+    }
+
+    private void attachHttpHeaders(Intent intent, String authHeader) {
+        if (authHeader == null || authHeader.trim().isEmpty()) {
+            return;
+        }
+
+        Bundle headers = new Bundle();
+        headers.putString("Authorization", authHeader);
+        intent.putExtra("com.android.browser.headers", headers);
+        intent.putExtra("android.media.intent.extra.HTTP_HEADERS", headers);
     }
 }

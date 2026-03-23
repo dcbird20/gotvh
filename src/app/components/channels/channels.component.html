@@ -3,10 +3,21 @@
   <!-- Header -->
   <div class="channels-screen__header">
     <h1>Channels</h1>
-    <button class="tv-btn" tvFocusable (click)="toggleSearch()">
-      <span>🔍</span>
-      <span>Search</span>
-    </button>
+    <div class="channels-screen__actions">
+      <button class="tv-btn" tvFocusable [class.tv-btn--primary]="favoritesOnly" (click)="toggleFavoritesOnly()">
+        <span>{{ favoritesOnly ? '★' : '☆' }}</span>
+        <span>Favorites Only</span>
+      </button>
+      <button class="tv-btn" tvFocusable (click)="toggleSearch()">
+        <span>🔍</span>
+        <span>Search</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="channels-screen__context" *ngIf="!loading && !errorMessage">
+    <span class="context-pill">{{ getResultCountSummary() }}</span>
+    <span class="context-pill context-pill--muted" *ngIf="favoritesOnly">Favorites only</span>
   </div>
 
   <!-- Search bar -->
@@ -28,38 +39,81 @@
   <div class="home__error" *ngIf="!loading && errorMessage">
     <p>⚠️ {{ errorMessage }}</p>
   </div>
-    <div class="epg-warning" *ngIf="epgWarning">
-      <p>⚠️ {{ epgWarning }}</p>
-    </div>
+  <div class="epg-warning" *ngIf="epgWarning">
+    <p>⚠️ {{ epgWarning }}</p>
+  </div>
+
+  <div class="channels-empty" *ngIf="!loading && !errorMessage && filteredChannels.length === 0">
+    <h2>{{ getEmptyStateTitle() }}</h2>
+    <p>{{ getEmptyStateMessage() }}</p>
+  </div>
 
   <!-- Channel grid -->
-  <div class="channel-grid" data-tv-scroll-container="true" *ngIf="!loading && !errorMessage">
-    <button
+  <div class="channel-grid" data-tv-scroll-container="true" *ngIf="!loading && !errorMessage && filteredChannels.length > 0">
+    <div
       *ngFor="let ch of filteredChannels"
-      type="button"
       class="channel-card"
       [class.channel-card--focused]="ch === focusedChannel"
       [class.channel-card--favorite]="isFavorite(ch)"
       [attr.data-channel-uuid]="ch.uuid"
+      role="button"
       tvFocusable
       (focus)="selectChannel(ch)"
-      (click)="activateChannel(ch)"
+      (click)="handleChannelCardClick(ch)"
     >
       <div class="channel-card__badge" *ngIf="isFavorite(ch)">★</div>
       <div class="channel-card__number">{{ ch.number }}</div>
+      <div class="channel-card__logo-wrap">
+        <ng-container *ngIf="hasRenderableChannelIcon(ch); else channelCardFallbackIcon">
+          <img class="channel-card__logo" [src]="ch.icon" [alt]="ch.name" (error)="handleChannelIconError(ch)" />
+        </ng-container>
+        <ng-template #channelCardFallbackIcon>
+          <span class="channel-card__logo channel-card__logo--placeholder">TV</span>
+        </ng-template>
+      </div>
       <div class="channel-card__name">{{ ch.name }}</div>
       <div class="channel-card__now">{{ getCurrentProgram(ch)?.title || '&nbsp;' }}</div>
-    </button>
+    </div>
   </div>
 
   <!-- Detail strip -->
   <div class="detail-strip" *ngIf="focusedChannel && !loading && !errorMessage">
+    <div class="detail-strip__channel-visual">
+      <ng-container *ngIf="hasRenderableChannelIcon(focusedChannel); else detailFallbackIcon">
+        <img class="detail-strip__channel-icon" [src]="focusedChannel.icon" [alt]="focusedChannel.name" (error)="handleChannelIconError(focusedChannel)" />
+      </ng-container>
+      <ng-template #detailFallbackIcon>
+        <span class="detail-strip__channel-icon detail-strip__channel-icon--placeholder">TV</span>
+      </ng-template>
+    </div>
+
     <div class="detail-strip__main">
       <div class="detail-strip__name">{{ focusedChannel.name }}</div>
-      <div class="detail-strip__program" *ngIf="focusedChannelProgram">
-        <span class="detail-strip__prog-title">{{ focusedChannelProgram.title }}</span>
-        <span class="detail-strip__prog-time">{{ formatTimeRange(focusedChannelProgram) }}</span>
+      <div class="detail-strip__program" *ngIf="focusedChannelProgram; else noProgramTemplate">
+        <div class="detail-strip__row">
+          <span class="detail-strip__label">Now</span>
+          <span class="detail-strip__prog-title">{{ focusedChannelProgram.title }}</span>
+          <span class="detail-strip__prog-time">{{ formatTimeRange(focusedChannelProgram) }}</span>
+        </div>
+        <div class="detail-strip__progress">
+          <div class="detail-strip__progress-bar" [style.width.%]="getProgramProgressPercent(focusedChannelProgram)"></div>
+        </div>
       </div>
+      <div class="detail-strip__program detail-strip__program--next" *ngIf="focusedNextProgram">
+        <div class="detail-strip__row">
+          <span class="detail-strip__label">Next</span>
+          <span class="detail-strip__prog-title">{{ focusedNextProgram.title }}</span>
+          <span class="detail-strip__prog-time">{{ formatTimeRange(focusedNextProgram) }}</span>
+        </div>
+      </div>
+      <ng-template #noProgramTemplate>
+        <div class="detail-strip__program detail-strip__program--empty">
+          <div class="detail-strip__row">
+            <span class="detail-strip__label">Now</span>
+            <span class="detail-strip__prog-time">Programme information unavailable</span>
+          </div>
+        </div>
+      </ng-template>
       <div class="detail-strip__tags" *ngIf="focusedChannel.__resolvedTagNames?.length">
         <span class="detail-strip__tag" *ngFor="let tag of focusedChannel.__resolvedTagNames">
           {{ tag }}

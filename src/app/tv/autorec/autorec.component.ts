@@ -4,9 +4,25 @@ import { FormsModule } from '@angular/forms';
 import { Subject, Subscription, forkJoin, of } from 'rxjs';
 import { catchError, debounceTime, distinctUntilChanged, map, switchMap } from 'rxjs/operators';
 import { TvFocusableDirective } from '../../directives/tv-focusable.directive';
-import { TvheadendService } from '../../services/tvheadend.service';
+import { GuideDataSnapshot, TvheadendService } from '../../services/tvheadend.service';
 
 type MatchMode = 'title' | 'fulltext';
+
+interface GuidePreviewQuery {
+  title: string;
+  channel: string;
+  matchMode: MatchMode;
+  startsWith: boolean;
+  endsWith: boolean;
+}
+
+interface ParsedTitlePattern {
+  title: string;
+  startsWith: boolean;
+  endsWith: boolean;
+  customRegex: boolean;
+  rawPattern: string;
+}
 
 @Component({
   selector: 'app-autorec',
@@ -19,7 +35,7 @@ export class AutorecComponent implements OnInit, OnDestroy {
   private readonly previewLimit = 12;
   private readonly previewDebounceMs = 400;
   private readonly previewSearchLimit = 200;
-  private readonly guidePreviewQuery$ = new Subject<{ title: string; channel: string; matchMode: MatchMode }>();
+  private readonly guidePreviewQuery$ = new Subject<GuidePreviewQuery>();
   private guidePreviewSubscription: Subscription | null = null;
   loading = true;
   saving = false;
@@ -42,6 +58,8 @@ export class AutorecComponent implements OnInit, OnDestroy {
     title: '',
     channel: '',
     matchMode: 'title' as MatchMode,
+    startsWith: false,
+    endsWith: false,
     config: '',
     comment: ''
   };
@@ -49,6 +67,10 @@ export class AutorecComponent implements OnInit, OnDestroy {
     title: '',
     channel: '',
     matchMode: 'title' as MatchMode,
+    startsWith: false,
+    endsWith: false,
+    customRegex: false,
+    rawPattern: '',
     config: '',
     comment: ''
   };
@@ -88,7 +110,7 @@ export class AutorecComponent implements OnInit, OnDestroy {
   }
 
   createRule(): void {
-    const title = String(this.form.title || '').trim();
+    const title = this.buildRuleTitlePattern(this.form.title, this.form.matchMode, this.form.startsWith, this.form.endsWith);
     if (!title) {
       this.error = 'A rule title is required.';
       return;
@@ -117,7 +139,7 @@ export class AutorecComponent implements OnInit, OnDestroy {
       next: () => {
         this.saving = false;
         this.pendingFocusTarget = 'create';
-        this.form = { title: '', channel: '', matchMode: 'title', config: '', comment: '' };
+        this.form = { title: '', channel: '', matchMode: 'title', startsWith: false, endsWith: false, config: '', comment: '' };
         this.channelFilter = '';
         this.clearGuidePreview();
         this.refresh();
@@ -178,10 +200,15 @@ export class AutorecComponent implements OnInit, OnDestroy {
 
     this.editingRuleUuid = uuid;
     this.editChannelFilter = '';
+    const parsedPattern = this.parseStoredTitlePattern(String(rule?.title || rule?.name || '').trim());
     this.editForm = {
-      title: String(rule?.title || rule?.name || '').trim(),
+      title: parsedPattern.title,
       channel: String(rule?.channel || '').trim(),
       matchMode: this.normalizeMatchMode(rule?.fulltext),
+      startsWith: parsedPattern.startsWith,
+      endsWith: parsedPattern.endsWith,
+      customRegex: parsedPattern.customRegex,
+      rawPattern: parsedPattern.rawPattern,
       config: this.normalizeConfigSelection(String(rule?.config_name || rule?.config || '').trim()),
       comment: String(rule?.comment || '').trim()
     };
@@ -190,12 +217,24 @@ export class AutorecComponent implements OnInit, OnDestroy {
   cancelEditRule(): void {
     this.editingRuleUuid = '';
     this.editChannelFilter = '';
-    this.editForm = { title: '', channel: '', matchMode: 'title', config: '', comment: '' };
+    this.editForm = {
+      title: '',
+      channel: '',
+      matchMode: 'title',
+      startsWith: false,
+      endsWith: false,
+      customRegex: false,
+      rawPattern: '',
+      config: '',
+      comment: ''
+    };
   }
 
   saveRuleEdits(rule: any): void {
     const uuid = String(rule?.uuid || '').trim();
-    const title = String(this.editForm.title || '').trim();
+    const title = this.editForm.customRegex
+      ? String(this.editForm.rawPattern || '').trim()
+      : this.buildRuleTitlePattern(this.editForm.title, this.editForm.matchMode, this.editForm.startsWith, this.editForm.endsWith);
     if (!uuid || !title || this.ruleActionUuid) {
       if (!title) {
         this.error = 'A rule title is required.';
@@ -313,11 +352,13 @@ export class AutorecComponent implements OnInit, OnDestroy {
     const title = String(this.form.title || '').trim();
     const channel = String(this.form.channel || '').trim();
     const matchMode = this.form.matchMode;
+    const startsWith = matchMode === 'title' ? this.form.startsWith : false;
+    const endsWith = matchMode === 'title' ? this.form.endsWith : false;
 
     this.guidePreviewError = '';
     this.guidePreviewSearched = !!title;
     this.guidePreviewLoading = !!title;
-    this.guidePreviewQuery$.next({ title, channel, matchMode });
+    this.guidePreviewQuery$.next({ title, channel, matchMode, startsWith, endsWith });
 
     if (!title) {
       this.clearGuidePreview();
@@ -350,7 +391,26 @@ export class AutorecComponent implements OnInit, OnDestroy {
   }
 
   describePreviewMatchMode(): string {
-    return this.form.matchMode === 'fulltext' ? 'Full-text preview' : 'Title-only preview';
+    const anchorParts: string[] = [];
+    if (this.form.matchMode === 'title') {
+      if (this.form.startsWith) {
+        anchorParts.push('starts with');
+      }
+      if (this.form.endsWith) {
+        anchorParts.push('ends with');
+      }
+    }
+
+    const modeLabel = this.form.matchMode === 'fulltext' ? 'Title and details preview' : 'Title preview';
+    return anchorParts.length > 0 ? `${modeLabel} with ${anchorParts.join(' and ')} matching` : modeLabel;
+  }
+
+  getGuidePreviewHelpText(): string {
+    if (this.form.matchMode === 'title' && (this.form.startsWith || this.form.endsWith)) {
+      return 'Preview uses the cached guide so Starts with and Ends with match the way the saved rule will behave.';
+    }
+
+    return 'Preview refreshes automatically as you type or change scope.';
   }
 
   getRuleFilterSummary(): string {
@@ -460,16 +520,30 @@ export class AutorecComponent implements OnInit, OnDestroy {
   }
 
   describeMatchMode(rule: any): string {
-    return rule?.fulltext ? 'Full-text match' : 'Title match';
+    return rule?.fulltext ? 'Title and details match' : 'Title match';
   }
 
   private bindGuidePreview(): void {
     this.guidePreviewSubscription = this.guidePreviewQuery$.pipe(
       debounceTime(this.previewDebounceMs),
-      distinctUntilChanged((left, right) => left.title === right.title && left.channel === right.channel && left.matchMode === right.matchMode),
-      switchMap(({ title, channel, matchMode }) => {
+      distinctUntilChanged((left, right) =>
+        left.title === right.title
+        && left.channel === right.channel
+        && left.matchMode === right.matchMode
+        && left.startsWith === right.startsWith
+        && left.endsWith === right.endsWith
+      ),
+      switchMap(({ title, channel, matchMode, startsWith, endsWith }) => {
         if (!title) {
           return of({ total: 0, results: [], error: '', searched: false });
+        }
+
+        if (matchMode === 'title' && (startsWith || endsWith)) {
+          return this.tvh.getGuideData().pipe(
+            map(snapshot => this.buildAnchoredGuidePreview(snapshot, title, channel, startsWith, endsWith)),
+            map(result => ({ ...result, searched: true })),
+            catchError(() => of({ total: 0, results: [], error: 'Guide preview is unavailable right now. Check TVHeadend and try again.', searched: true }))
+          );
         }
 
         return this.tvh.searchAutorecPreview(title, channel, matchMode === 'fulltext', this.previewSearchLimit).pipe(
@@ -529,6 +603,162 @@ export class AutorecComponent implements OnInit, OnDestroy {
       total: filtered.length,
       results,
     };
+  }
+
+  private buildAnchoredGuidePreview(
+    snapshot: GuideDataSnapshot,
+    title: string,
+    channelUuid: string,
+    startsWith: boolean,
+    endsWith: boolean
+  ): { total: number; results: any[]; error?: string } {
+    const regex = this.buildAnchoredRegex(title, startsWith, endsWith);
+    const channelNameById = new Map<string, string>();
+    for (const channel of snapshot.channels || []) {
+      const channelId = String(channel?.id || '').trim();
+      const channelName = String(channel?.name || channelId || '').trim();
+      if (channelId) {
+        channelNameById.set(channelId, channelName);
+      }
+    }
+
+    const matchingChannelIds = new Set<string>();
+    const normalizedChannelUuid = String(channelUuid || '').trim();
+    if (normalizedChannelUuid) {
+      for (const [channelId, uuid] of snapshot.channelUuidEntries || []) {
+        if (String(uuid || '').trim() === normalizedChannelUuid) {
+          matchingChannelIds.add(String(channelId || '').trim());
+        }
+      }
+    }
+
+    const entries = (snapshot.programs || [])
+      .filter(program => {
+        const channelId = String(program?.channel || '').trim();
+        if (matchingChannelIds.size > 0 && !matchingChannelIds.has(channelId)) {
+          return false;
+        }
+
+        const programTitle = String(program?.title || '').trim();
+        return !!programTitle && regex.test(programTitle);
+      })
+      .map(program => ({
+        title: String(program?.title || 'Untitled').trim() || 'Untitled',
+        channelName: channelNameById.get(String(program?.channel || '').trim()) || String(program?.channel || 'Unknown Channel').trim() || 'Unknown Channel',
+        start: Math.floor(Number(program?.startTime || 0) / 1000),
+        stop: Math.floor(Number(program?.endTime || 0) / 1000),
+        summary: String(program?.desc || '').trim(),
+        category: program?.category || '',
+      }));
+
+    return this.decorateGuidePreview(entries, title);
+  }
+
+  private buildRuleTitlePattern(title: string, matchMode: MatchMode, startsWith: boolean, endsWith: boolean): string {
+    const normalizedTitle = String(title || '').trim();
+    if (!normalizedTitle) {
+      return '';
+    }
+
+    const escapedTitle = this.escapeRegex(normalizedTitle);
+    if (matchMode !== 'title') {
+      return escapedTitle;
+    }
+
+    const prefix = startsWith ? '^' : '';
+    const suffix = endsWith ? '$' : '';
+    return `${prefix}${escapedTitle}${suffix}`;
+  }
+
+  private buildAnchoredRegex(title: string, startsWith: boolean, endsWith: boolean): RegExp {
+    const pattern = this.buildRuleTitlePattern(title, 'title', startsWith, endsWith);
+    return new RegExp(pattern, 'i');
+  }
+
+  private parseStoredTitlePattern(pattern: string): ParsedTitlePattern {
+    const rawPattern = String(pattern || '').trim();
+    if (!rawPattern) {
+      return {
+        title: '',
+        startsWith: false,
+        endsWith: false,
+        customRegex: false,
+        rawPattern: ''
+      };
+    }
+
+    let startsWith = false;
+    let endsWith = false;
+    let startIndex = 0;
+    let endIndex = rawPattern.length;
+
+    if (rawPattern.startsWith('^')) {
+      startsWith = true;
+      startIndex = 1;
+    }
+
+    if (endIndex > startIndex && rawPattern.endsWith('$') && !this.isEscaped(rawPattern, rawPattern.length - 1)) {
+      endsWith = true;
+      endIndex -= 1;
+    }
+
+    const corePattern = rawPattern.slice(startIndex, endIndex);
+    let title = '';
+    for (let index = 0; index < corePattern.length; index += 1) {
+      const current = corePattern[index];
+      if (current === '\\') {
+        const next = corePattern[index + 1];
+        if (!next || !this.isRegexMetaCharacter(next)) {
+          return {
+            title: rawPattern,
+            startsWith: false,
+            endsWith: false,
+            customRegex: true,
+            rawPattern,
+          };
+        }
+
+        title += next;
+        index += 1;
+        continue;
+      }
+
+      if (this.isRegexMetaCharacter(current)) {
+        return {
+          title: rawPattern,
+          startsWith: false,
+          endsWith: false,
+          customRegex: true,
+          rawPattern,
+        };
+      }
+
+      title += current;
+    }
+
+    return {
+      title,
+      startsWith,
+      endsWith,
+      customRegex: false,
+      rawPattern,
+    };
+  }
+
+  private escapeRegex(value: string): string {
+    return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  private isRegexMetaCharacter(value: string): boolean {
+    return /[.*+?^${}()|[\]\\]/.test(value);
+  }
+
+  private isEscaped(value: string, index: number): boolean {
+    let slashCount = 0;
+    for (let cursor = index - 1; cursor >= 0 && value[cursor] === '\\'; cursor -= 1) {
+      slashCount += 1;
+    }
+    return slashCount % 2 === 1;
   }
 
   private formatPreviewCategory(value: any): string {
