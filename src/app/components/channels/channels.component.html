@@ -5,11 +5,10 @@
     <h1>Channels</h1>
     <div class="channels-screen__actions">
       <button class="tv-btn" tvFocusable [class.tv-btn--primary]="favoritesOnly" (click)="toggleFavoritesOnly()">
-        <span>{{ favoritesOnly ? '★' : '☆' }}</span>
         <span>Favorites Only</span>
       </button>
       <button class="tv-btn" tvFocusable (click)="toggleSearch()">
-        <span>🔍</span>
+        <span class="tv-btn__icon" aria-hidden="true">🔍</span>
         <span>Search</span>
       </button>
     </div>
@@ -42,6 +41,9 @@
   <div class="epg-warning" *ngIf="epgWarning">
     <p>⚠️ {{ epgWarning }}</p>
   </div>
+  <div class="epg-warning" *ngIf="favoriteWarning">
+    <p>⚠️ {{ favoriteWarning }}</p>
+  </div>
 
   <div class="channels-empty" *ngIf="!loading && !errorMessage && filteredChannels.length === 0">
     <h2>{{ getEmptyStateTitle() }}</h2>
@@ -59,9 +61,12 @@
       role="button"
       tvFocusable
       (focus)="selectChannel(ch)"
-      (click)="handleChannelCardClick(ch)"
+      (pointerdown)="handleChannelCardPointerDown($event, ch)"
+      (click)="handleChannelCardClick($event, ch)"
     >
-      <div class="channel-card__badge" *ngIf="isFavorite(ch)">★</div>
+      <div class="channel-card__badge" *ngIf="isFavorite(ch)">
+        <span class="channel-card__badge-label">FAV</span>
+      </div>
       <div class="channel-card__number">{{ ch.number }}</div>
       <div class="channel-card__logo-wrap">
         <ng-container *ngIf="hasRenderableChannelIcon(ch); else channelCardFallbackIcon">
@@ -130,7 +135,7 @@
         tvFocusable
         (click)="toggleFavorite(focusedChannel)"
       >
-        {{ isFavorite(focusedChannel) ? '★ Unfavourite' : '☆ Favourite' }}
+        <span>{{ isFavorite(focusedChannel) ? 'Unfavourite' : 'Favourite' }}</span>
       </button>
     </div>
   </div>

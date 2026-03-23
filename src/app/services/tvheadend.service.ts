@@ -37,6 +37,7 @@ export interface TvheadendAuthState {
 })
 export class TvheadendService {
   private readonly authStorageKey = 'gotvh_tvh_basic_auth';
+  private readonly favoriteTagNameCandidates = ['streaming favorites', 'favorites'];
   private apiBase = this.resolveApiBase();
   private browserStreamBase = this.resolveBrowserStreamBase();
   private streamBase = this.resolveStreamBase();
@@ -574,6 +575,44 @@ export class TvheadendService {
     );
   }
 
+  getFavoriteChannelTagUuid(): Observable<string | null> {
+    return this.getChannelTags().pipe(
+      map(tags => this.resolveFavoriteChannelTagUuid(tags)),
+      catchError(() => of(null))
+    );
+  }
+
+  updateChannelFavorite(channel: any, favoriteTagUuid: string, favorite: boolean): Observable<string[]> {
+    const channelUuid = String(channel?.uuid || '').trim();
+    const normalizedFavoriteTagUuid = String(favoriteTagUuid || '').trim();
+
+    if (!channelUuid) {
+      return throwError(new Error('Missing channel UUID.'));
+    }
+
+    if (!normalizedFavoriteTagUuid) {
+      return throwError(new Error('Missing favorite tag UUID.'));
+    }
+
+    const currentTags = this.extractChannelTagIds(channel);
+    const nextTags = favorite
+      ? Array.from(new Set([...currentTags, normalizedFavoriteTagUuid]))
+      : currentTags.filter(tagUuid => tagUuid !== normalizedFavoriteTagUuid);
+
+    return this.http.post<any>(
+      this.buildUrl('idnode/save'),
+      this.buildFormBody({
+        node: JSON.stringify({
+          uuid: channelUuid,
+          tags: nextTags
+        })
+      }),
+      this.getFormRequestOptions()
+    ).pipe(
+      map(() => nextTags)
+    );
+  }
+
   private enrichChannelsWithResolvedTags(channels: any[], tags: any[]): any[] {
     const tagMap = this.buildChannelTagMap(tags);
     return (channels || []).map(channel => {
@@ -619,6 +658,34 @@ export class TvheadendService {
     });
 
     return map;
+  }
+
+  private resolveFavoriteChannelTagUuid(tags: any[]): string | null {
+    const normalizedTags = Array.isArray(tags) ? tags : [];
+
+    for (const candidateName of this.favoriteTagNameCandidates) {
+      const match = normalizedTags.find(tag => String(tag?.name || tag?.title || tag?.val || '').trim().toLowerCase() === candidateName);
+      const tagUuid = String(match?.uuid || match?.key || match?.id || '').trim();
+      if (tagUuid) {
+        return tagUuid;
+      }
+    }
+
+    const fuzzyMatch = normalizedTags.find(tag => String(tag?.name || tag?.title || tag?.val || '').trim().toLowerCase().includes('favorite'));
+    return String(fuzzyMatch?.uuid || fuzzyMatch?.key || fuzzyMatch?.id || '').trim() || null;
+  }
+
+  private extractChannelTagIds(channel: any): string[] {
+    const rawValues = this.flattenTagSourceValues([
+      channel?.tags,
+      channel?.tag,
+      channel?.channelTags,
+      channel?.channeltags,
+    ]);
+
+    return Array.from(new Set(rawValues
+      .map(value => String(value || '').trim())
+      .filter(Boolean)));
   }
 
   private resolveChannelTagNames(channel: any, tagMap: Record<string, string>): string[] {

@@ -19,6 +19,7 @@ import { ViewStateCacheService } from '../../services/view-state-cache.service';
 })
 export class ChannelsComponent implements OnInit, OnDestroy {
   private readonly viewCacheKey = 'channels';
+  private readonly favoritesStorageKey = 'gotvh_fav_channels';
   channels: any[] = [];
   filteredChannels: any[] = [];
   epgEvents: any[] = [];
@@ -31,8 +32,11 @@ export class ChannelsComponent implements OnInit, OnDestroy {
   loading = true;
   errorMessage = '';
   epgWarning = '';
+  favoriteWarning = '';
   favorites: Set<string> = new Set();
   brokenChannelIcons = new Set<string>();
+  private favoriteTagUuid: string | null = null;
+  private favoriteSaveInFlight = new Set<string>();
   private pendingReturnContext: ReturnNavigationContext | null = null;
   private activationInProgress = false;
 
@@ -60,7 +64,7 @@ export class ChannelsComponent implements OnInit, OnDestroy {
 
   private loadFavorites(): void {
     try {
-      const saved = JSON.parse(localStorage.getItem('gotvh_fav_channels') || '[]');
+      const saved = JSON.parse(localStorage.getItem(this.favoritesStorageKey) || '[]');
       this.favorites = new Set(saved);
     } catch {
       this.favorites = new Set();
@@ -72,6 +76,9 @@ export class ChannelsComponent implements OnInit, OnDestroy {
 
     forkJoin({
       channels: this.tvh.getChannelsWithResolvedTags(),
+      favoriteTagUuid: this.tvh.getFavoriteChannelTagUuid().pipe(
+        catchError(() => of(null))
+      ),
       epg: this.tvh.getEpg().pipe(
         catchError((error: any) => {
           this.epgWarning = this.resolveEpgWarning(error);
@@ -79,10 +86,13 @@ export class ChannelsComponent implements OnInit, OnDestroy {
         })
       )
     }).pipe(takeUntil(this.destroy$)).subscribe({
-      next: ({ channels, epg }) => {
+      next: ({ channels, favoriteTagUuid, epg }) => {
         this.channels = [...channels].sort((a, b) => (a.number ?? 0) - (b.number ?? 0));
+        this.favoriteTagUuid = favoriteTagUuid;
         this.epgEvents = epg;
         this.brokenChannelIcons.clear();
+        this.syncFavoritesFromChannels();
+        this.updateFavoriteWarning();
         if (!this.epgWarning && this.channels.length > 0 && this.epgEvents.length === 0) {
           this.epgWarning = 'Programme listings are temporarily unavailable from TVHeadend right now. Channels can still be opened.';
         }
@@ -188,8 +198,28 @@ export class ChannelsComponent implements OnInit, OnDestroy {
     this.persistViewState();
   }
 
-  handleChannelCardClick(channel: any): void {
+  handleChannelCardPointerDown(event: PointerEvent, channel: any): void {
+    if (!event.isPrimary) {
+      return;
+    }
+
     this.selectChannel(channel);
+
+    const target = event.currentTarget as HTMLElement | null;
+    target?.focus({ preventScroll: true });
+  }
+
+  handleChannelCardClick(event: MouseEvent, channel: any): void {
+    this.selectChannel(channel);
+
+    const target = event.currentTarget as HTMLElement | null;
+    target?.focus({ preventScroll: true });
+
+    // Remote/select activation arrives here as a synthetic click from the
+    // focus directive, so route it into the detail actions explicitly.
+    if (event.detail === 0) {
+      this.focusDetailActionButton();
+    }
   }
 
   activateChannel(channel: any): void {
@@ -272,7 +302,8 @@ export class ChannelsComponent implements OnInit, OnDestroy {
 
     event.preventDefault();
     event.stopPropagation();
-    this.activateChannel(match);
+    this.selectChannel(match);
+    this.focusDetailActionButton();
   }
 
   private capturePendingReturnContext(): void {
@@ -366,13 +397,34 @@ export class ChannelsComponent implements OnInit, OnDestroy {
   }
 
   toggleFavorite(channel: any): void {
-    if (this.favorites.has(channel.uuid)) {
-      this.favorites.delete(channel.uuid);
-    } else {
-      this.favorites.add(channel.uuid);
+    const channelUuid = String(channel?.uuid || '').trim();
+    if (!channelUuid || this.favoriteSaveInFlight.has(channelUuid)) {
+      return;
     }
-    localStorage.setItem('gotvh_fav_channels', JSON.stringify([...this.favorites]));
-    this.filterChannels();
+
+    const nextFavoriteState = !this.favorites.has(channelUuid);
+    this.applyFavoriteState(channelUuid, nextFavoriteState);
+
+    if (!this.favoriteTagUuid) {
+      this.updateFavoriteWarning();
+      return;
+    }
+
+    this.favoriteSaveInFlight.add(channelUuid);
+    this.tvh.updateChannelFavorite(channel, this.favoriteTagUuid, nextFavoriteState)
+      .pipe(takeUntil(this.destroy$))
+      .subscribe({
+        next: (nextTags) => {
+          this.favoriteSaveInFlight.delete(channelUuid);
+          this.assignChannelTags(channelUuid, nextTags);
+          this.persistFavoritesLocally();
+        },
+        error: () => {
+          this.favoriteSaveInFlight.delete(channelUuid);
+          this.applyFavoriteState(channelUuid, !nextFavoriteState);
+          this.favoriteWarning = 'Could not save favorites to TVHeadend. Your last change was not persisted.';
+        }
+      });
   }
 
   toggleSearch(): void {
@@ -390,6 +442,145 @@ export class ChannelsComponent implements OnInit, OnDestroy {
 
   isFavorite(channel: any): boolean {
     return this.favorites.has(channel.uuid);
+  }
+
+  private syncFavoritesFromChannels(): void {
+    if (!this.favoriteTagUuid) {
+      this.persistFavoritesLocally();
+      return;
+    }
+
+    const tagUuid = this.favoriteTagUuid;
+    this.favorites = new Set(
+      this.channels
+        .filter(channel => this.getChannelTagIds(channel).includes(tagUuid))
+        .map(channel => String(channel?.uuid || '').trim())
+        .filter(Boolean)
+    );
+    this.persistFavoritesLocally();
+  }
+
+  private updateFavoriteWarning(): void {
+    if (this.favoriteTagUuid) {
+      if (this.favoriteWarning.startsWith('Favorites are being stored on this device')) {
+        this.favoriteWarning = '';
+      }
+      return;
+    }
+
+    this.favoriteWarning = 'Favorites are being stored on this device because TVHeadend has no favorites channel tag configured.';
+  }
+
+  private applyFavoriteState(channelUuid: string, favorite: boolean): void {
+    if (favorite) {
+      this.favorites.add(channelUuid);
+    } else {
+      this.favorites.delete(channelUuid);
+    }
+
+    if (this.favoriteTagUuid) {
+      this.assignChannelFavoriteTag(channelUuid, favorite);
+    }
+
+    this.persistFavoritesLocally();
+    this.filterChannels();
+  }
+
+  private assignChannelFavoriteTag(channelUuid: string, favorite: boolean): void {
+    if (!this.favoriteTagUuid) {
+      return;
+    }
+
+    const favoriteTagUuid = this.favoriteTagUuid;
+    this.forEachChannelByUuid(channelUuid, channel => {
+      const nextTags = favorite
+        ? Array.from(new Set([...this.getChannelTagIds(channel), favoriteTagUuid]))
+        : this.getChannelTagIds(channel).filter(tagUuid => tagUuid !== favoriteTagUuid);
+
+      channel.tags = nextTags;
+      channel.__resolvedTagNames = this.resolveLocalTagNames(channel, nextTags);
+    });
+  }
+
+  private assignChannelTags(channelUuid: string, tags: string[]): void {
+    this.forEachChannelByUuid(channelUuid, channel => {
+      channel.tags = [...tags];
+      channel.__resolvedTagNames = this.resolveLocalTagNames(channel, tags);
+    });
+  }
+
+  private forEachChannelByUuid(channelUuid: string, callback: (channel: any) => void): void {
+    const seen = new Set<any>();
+    [this.channels, this.filteredChannels, [this.focusedChannel]].forEach(group => {
+      (group || []).forEach((channel: any) => {
+        if (!channel || seen.has(channel)) {
+          return;
+        }
+
+        if (String(channel?.uuid || '').trim() === channelUuid) {
+          seen.add(channel);
+          callback(channel);
+        }
+      });
+    });
+  }
+
+  private getChannelTagIds(channel: any): string[] {
+    const sourceValues = [channel?.tags, channel?.tag, channel?.channelTags, channel?.channeltags];
+    const flattened: string[] = [];
+
+    sourceValues.forEach(value => this.flattenTagValues(value, flattened));
+
+    return Array.from(new Set(flattened.map(value => String(value || '').trim()).filter(Boolean)));
+  }
+
+  private flattenTagValues(value: any, accumulator: string[]): void {
+    if (value === null || value === undefined) {
+      return;
+    }
+
+    if (Array.isArray(value)) {
+      value.forEach(entry => this.flattenTagValues(entry, accumulator));
+      return;
+    }
+
+    if (typeof value === 'object') {
+      [value.uuid, value.id, value.key, value.name, value.title, value.tag].forEach(entry => this.flattenTagValues(entry, accumulator));
+      return;
+    }
+
+    const normalized = String(value || '').trim();
+    if (!normalized) {
+      return;
+    }
+
+    if (normalized.includes(',') || normalized.includes(';')) {
+      normalized.split(/[;,]/).forEach(entry => this.flattenTagValues(entry, accumulator));
+      return;
+    }
+
+    accumulator.push(normalized);
+  }
+
+  private resolveLocalTagNames(channel: any, tags: string[]): string[] {
+    const existingNames = Array.isArray(channel?.__resolvedTagNames)
+      ? channel.__resolvedTagNames.map((name: any) => String(name || '').trim()).filter(Boolean)
+      : [];
+
+    if (!this.favoriteTagUuid) {
+      return existingNames;
+    }
+
+    const namesWithoutFavorite = existingNames.filter(name => name.toLowerCase() !== 'streaming favorites' && name.toLowerCase() !== 'favorites');
+    if (tags.includes(this.favoriteTagUuid)) {
+      namesWithoutFavorite.push('Streaming Favorites');
+    }
+
+    return Array.from(new Set(namesWithoutFavorite));
+  }
+
+  private persistFavoritesLocally(): void {
+    localStorage.setItem(this.favoritesStorageKey, JSON.stringify([...this.favorites]));
   }
 
   hasRenderableChannelIcon(channel: any): boolean {

@@ -22,21 +22,15 @@ export class TvFocusableDirective implements FocusableItem, OnInit, OnDestroy {
     if (!el.getAttribute('tabindex')) {
       el.setAttribute('tabindex', '0');
     }
-    el.addEventListener('mouseenter', this.onMouseEnter);
     el.addEventListener('focus', this.onNativeFocus);
     el.addEventListener('keydown', this.onKeydown);
   }
 
   ngOnDestroy(): void {
     this.nav.unregister(this);
-    this.el.nativeElement.removeEventListener('mouseenter', this.onMouseEnter);
     this.el.nativeElement.removeEventListener('focus', this.onNativeFocus);
     this.el.nativeElement.removeEventListener('keydown', this.onKeydown);
   }
-
-  private onMouseEnter = (): void => {
-    this.nav.setFocus(this);
-  };
 
   private onNativeFocus = (): void => {
     this.nav.setFocus(this);

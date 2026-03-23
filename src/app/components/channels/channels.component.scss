@@ -172,8 +172,23 @@
     position: absolute;
     top: 8px;
     right: 8px;
-    color: var(--tv-live);
-    font-size: 16px;
+    min-width: 34px;
+    height: 18px;
+    padding: 0 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: rgba(67, 160, 71, 0.18);
+    border: 1px solid rgba(67, 160, 71, 0.36);
+    color: #9be08f;
+  }
+
+  &__badge-label {
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    line-height: 1;
   }
 
   &__number {
