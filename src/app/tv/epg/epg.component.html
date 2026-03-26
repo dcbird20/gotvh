@@ -40,6 +40,14 @@
         type="button"
         class="epg-toggle-btn"
         tvFocusable
+        (click)="cycleChannelSortMode()"
+      >{{ getChannelSortButtonLabel() }}</button>
+
+      <button
+        *ngIf="filteredChannels.length"
+        type="button"
+        class="epg-toggle-btn"
+        tvFocusable
         (click)="shiftTimelineWindow(-1)"
       >Earlier</button>
 
@@ -71,6 +79,7 @@
       >Reset</button>
 
       <span *ngIf="filteredChannels.length" class="epg-summary-inline">{{ filteredChannels.length }} channels</span>
+      <span *ngIf="filteredChannels.length" class="epg-summary-inline">{{ getChannelSortSummary() }}</span>
     </div>
   </header>
 
@@ -98,6 +107,7 @@
   >
     <div class="epg-timeline-header">
       <div class="epg-channel-col-header">Channel</div>
+      <div class="epg-lane-gutter" aria-hidden="true"></div>
       <div class="epg-header-right" [style.width.px]="timelineWidthPx">
         <div class="epg-hours">
           <div
@@ -141,6 +151,7 @@
           </div>
         </button>
 
+        <div class="epg-lane-gutter" aria-hidden="true"></div>
         <div class="epg-programs-row" [style.width.px]="timelineWidthPx">
           <div *ngIf="isNowInTimelineWindow" class="epg-now-line" [style.left.px]="nowOffsetPx"></div>
           <div
@@ -158,6 +169,7 @@
               type="button"
               class="epg-program-bar"
               [class.current]="isCurrent(program)"
+              [class.left-clipped]="program.__leftClipped"
               tvFocusable
               [style.left.px]="program.__leftPx"
               [style.width.px]="program.__widthPx"
@@ -192,7 +204,7 @@
           <h3>{{ selectedProgram.title }}</h3>
           <p>{{ selectedProgram.startTime | date:'EEE d MMM, HH:mm' }} – {{ selectedProgram.endTime | date:'HH:mm' }}</p>
         </div>
-        <button type="button" class="epg-close-btn" (click)="closeProgramDetails()">✕</button>
+        <button type="button" class="epg-close-btn" tvFocusable (click)="closeProgramDetails()">✕</button>
       </div>
 
       <div class="epg-modal-meta-row">

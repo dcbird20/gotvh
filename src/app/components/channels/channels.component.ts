@@ -29,6 +29,7 @@ export class ChannelsComponent implements OnInit, OnDestroy {
   searchQuery = '';
   searchVisible = false;
   favoritesOnly = false;
+  sortMode: 'favorites' | 'number' | 'name' = 'favorites';
   loading = true;
   errorMessage = '';
   epgWarning = '';
@@ -87,7 +88,7 @@ export class ChannelsComponent implements OnInit, OnDestroy {
       )
     }).pipe(takeUntil(this.destroy$)).subscribe({
       next: ({ channels, favoriteTagUuid, epg }) => {
-        this.channels = [...channels].sort((a, b) => (a.number ?? 0) - (b.number ?? 0));
+        this.channels = [...channels].sort((a, b) => this.compareByChannelNumber(a, b));
         this.favoriteTagUuid = favoriteTagUuid;
         this.epgEvents = epg;
         this.brokenChannelIcons.clear();
@@ -170,11 +171,7 @@ export class ChannelsComponent implements OnInit, OnDestroy {
       ? filtered.filter(ch => this.favorites.has(ch.uuid))
       : filtered;
 
-    // Favorites first
-    this.filteredChannels = [
-      ...scopeFiltered.filter(ch => this.favorites.has(ch.uuid)),
-      ...scopeFiltered.filter(ch => !this.favorites.has(ch.uuid))
-    ];
+    this.filteredChannels = this.sortVisibleChannels(scopeFiltered);
 
     const currentUuid = String(this.focusedChannel?.uuid || '').trim();
     const currentMatch = this.filteredChannels.find(ch => String(ch?.uuid || '').trim() === currentUuid);
@@ -189,6 +186,39 @@ export class ChannelsComponent implements OnInit, OnDestroy {
     }
 
     this.persistViewState();
+  }
+
+  cycleSortMode(): void {
+    this.sortMode = this.sortMode === 'favorites'
+      ? 'number'
+      : this.sortMode === 'number'
+        ? 'name'
+        : 'favorites';
+    this.filterChannels();
+  }
+
+  getSortModeLabel(): string {
+    if (this.sortMode === 'number') {
+      return 'Sort: Channel #';
+    }
+
+    if (this.sortMode === 'name') {
+      return 'Sort: Name';
+    }
+
+    return 'Sort: Favorites';
+  }
+
+  getSortSummary(): string {
+    if (this.sortMode === 'number') {
+      return 'Sorted by channel number';
+    }
+
+    if (this.sortMode === 'name') {
+      return 'Sorted by channel name';
+    }
+
+    return 'Favorites first';
   }
 
   selectChannel(channel: any): void {
@@ -356,6 +386,7 @@ export class ChannelsComponent implements OnInit, OnDestroy {
       searchQuery: string;
       searchVisible: boolean;
       favoritesOnly: boolean;
+      sortMode: 'favorites' | 'number' | 'name';
       focusedChannelUuid: string;
     }>(this.viewCacheKey);
 
@@ -368,6 +399,9 @@ export class ChannelsComponent implements OnInit, OnDestroy {
     this.searchQuery = String(cached.searchQuery || '');
     this.searchVisible = !!cached.searchVisible;
     this.favoritesOnly = !!cached.favoritesOnly;
+    this.sortMode = cached.sortMode === 'number' || cached.sortMode === 'name' || cached.sortMode === 'favorites'
+      ? cached.sortMode
+      : 'favorites';
     this.filterChannels();
 
     const focusedUuid = String(cached.focusedChannelUuid || '').trim();
@@ -392,8 +426,56 @@ export class ChannelsComponent implements OnInit, OnDestroy {
       searchQuery: this.searchQuery,
       searchVisible: this.searchVisible,
       favoritesOnly: this.favoritesOnly,
+      sortMode: this.sortMode,
       focusedChannelUuid: String(this.focusedChannel?.uuid || '').trim()
     });
+  }
+
+  private sortVisibleChannels(channels: any[]): any[] {
+    const source = [...(channels || [])];
+
+    if (this.sortMode === 'number') {
+      return source.sort((left, right) => this.compareByChannelNumber(left, right));
+    }
+
+    if (this.sortMode === 'name') {
+      return source.sort((left, right) => this.compareByChannelName(left, right));
+    }
+
+    const favorites = source
+      .filter(channel => this.favorites.has(String(channel?.uuid || '').trim()))
+      .sort((left, right) => this.compareByChannelNumber(left, right));
+    const nonFavorites = source
+      .filter(channel => !this.favorites.has(String(channel?.uuid || '').trim()))
+      .sort((left, right) => this.compareByChannelNumber(left, right));
+
+    return [...favorites, ...nonFavorites];
+  }
+
+  private compareByChannelNumber(left: any, right: any): number {
+    const leftNumber = this.resolveChannelNumberSortValue(left);
+    const rightNumber = this.resolveChannelNumberSortValue(right);
+    if (leftNumber !== rightNumber) {
+      return leftNumber - rightNumber;
+    }
+
+    return this.compareByChannelName(left, right);
+  }
+
+  private resolveChannelNumberSortValue(channel: any): number {
+    const raw = String(channel?.number ?? '').trim();
+    const parsed = Number.parseFloat(raw);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+
+    return Number.MAX_SAFE_INTEGER;
+  }
+
+  private compareByChannelName(left: any, right: any): number {
+    const leftName = String(left?.name || '').trim();
+    const rightName = String(right?.name || '').trim();
+    return leftName.localeCompare(rightName, undefined, { numeric: true, sensitivity: 'base' });
   }
 
   toggleFavorite(channel: any): void {
@@ -594,6 +676,10 @@ export class ChannelsComponent implements OnInit, OnDestroy {
       return;
     }
 
+    this.tvh.recordChannelIconLoadFailure(String(channel?.icon || '').trim());
+    if (channel && typeof channel === 'object') {
+      channel.icon = '';
+    }
     this.brokenChannelIcons.add(channelId);
   }
 

@@ -11,7 +11,7 @@ import { TvheadendService } from '../../services/tvheadend.service';
 import { environment } from '../../../environments/environment';
 
 const NativeVideo = registerPlugin<{
-  open(options: { url: string; title?: string; mimeType?: string; authHeader?: string; allowLiveFallback?: boolean; fallbackProfiles?: string; currentChannelId?: string; liveChannelsJson?: string; returnTo?: string; returnToken?: string; programTitle?: string; programTime?: string; programDescription?: string; programCategory?: string }): Promise<{ launched: boolean }>;
+  open(options: { url: string; title?: string; mimeType?: string; authHeader?: string; allowLiveFallback?: boolean; fallbackProfiles?: string; currentChannelId?: string; liveChannelsJson?: string; returnTo?: string; returnToken?: string; programTitle?: string; programTime?: string; programDescription?: string; programCategory?: string; recordingRef?: string }): Promise<{ launched: boolean }>;
   openExternal(options: { url: string; title?: string; mimeType?: string; authHeader?: string; preferredPackage?: string; chooserTitle?: string }): Promise<{ launched: boolean; package?: string }>;
   openKodiHtsp(options: { url: string; title?: string; fallbackUrl?: string }): Promise<{ launched: boolean; fallback?: boolean }>;
 }>('NativeVideo');
@@ -44,6 +44,8 @@ interface StreamHealthCheck {
 })
 export class PlayerComponent implements AfterViewInit, OnDestroy {
   readonly programInfoTimeoutMs = 9500;
+  readonly recordingRewindStepSeconds = 10;
+  readonly recordingFastForwardStepSeconds = 30;
   @ViewChild('playerVideo', { static: true })
   playerVideo?: ElementRef<HTMLVideoElement>;
 
@@ -423,6 +425,14 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
   @HostListener('document:keydown', ['$event'])
   handleRemoteChannelKey(event: KeyboardEvent): void {
     if (this.isRecordingPlayback()) {
+      const seekDelta = this.resolveRecordingSeekDelta(event);
+      if (seekDelta === null) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      this.seekRecordingBy(seekDelta);
       return;
     }
 
@@ -747,6 +757,48 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
     this.refreshDiagnostics();
   }
 
+  canShowRecordingTrickPlayControls(): boolean {
+    return this.isRecordingPlayback() && !this.isCapacitorNative();
+  }
+
+  seekRecordingBackward(): void {
+    this.seekRecordingBy(-this.recordingRewindStepSeconds);
+  }
+
+  seekRecordingForward(): void {
+    this.seekRecordingBy(this.recordingFastForwardStepSeconds);
+  }
+
+  toggleBrowserPlayback(): void {
+    const video = this.playerVideo?.nativeElement;
+    if (!video) {
+      return;
+    }
+
+    if (video.paused) {
+      const playPromise = video.play();
+      if (playPromise) {
+        void playPromise.then(() => {
+          this.playerStatus = 'Playing';
+          this.refreshDiagnostics();
+        }).catch(() => {
+          this.playerError = 'Playback could not be resumed.';
+          this.playerStatus = 'Playback resume failed';
+          this.refreshDiagnostics();
+        });
+      }
+      return;
+    }
+
+    video.pause();
+    this.playerStatus = 'Paused';
+    this.refreshDiagnostics();
+  }
+
+  getBrowserPlaybackToggleLabel(): string {
+    return this.playerVideo?.nativeElement?.paused ? 'Play' : 'Pause';
+  }
+
   private async startMpegtsPlayback(video: HTMLVideoElement, disableWorker = false): Promise<boolean> {
     try {
       const imported = await import('mpegts.js');
@@ -989,7 +1041,7 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
   }
 
   private async startBrowserRecordingPlayback(video: HTMLVideoElement): Promise<void> {
-    const sourceUrl = this.sanitizeUrlForFetch(this.rawStreamUrl || this.resolvedRecordingPlaybackUrl || this.streamUrl);
+    const sourceUrl = String(this.rawStreamUrl || this.resolvedRecordingPlaybackUrl || this.streamUrl || '').trim();
     if (!sourceUrl) {
       this.playerError = 'Missing playback URL for this recording.';
       this.playerStatus = 'No recording URL';
@@ -997,8 +1049,92 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
-    this.loadingRecordingBlob = true;
     this.playerStatus = 'Loading recording playback...';
+    this.refreshDiagnostics();
+
+    try {
+      const directPlaybackStarted = await this.tryDirectBrowserRecordingPlayback(video, sourceUrl);
+      if (directPlaybackStarted) {
+        return;
+      }
+
+      await this.startBrowserRecordingBlobPlayback(video, this.sanitizeUrlForFetch(sourceUrl));
+    } catch (error: any) {
+      this.playerError = `Recording playback could not be prepared: ${String(error?.message || error || 'unknown error')}`;
+      this.playerStatus = 'Recording fetch failed';
+      this.refreshDiagnostics();
+    }
+  }
+
+  private async tryDirectBrowserRecordingPlayback(video: HTMLVideoElement, sourceUrl: string): Promise<boolean> {
+    try {
+      video.pause();
+      video.src = sourceUrl;
+      video.load();
+
+      const playPromise = video.play();
+      if (playPromise) {
+        await playPromise;
+      }
+
+      const ready = await this.waitForRecordingPlaybackReady(video);
+      if (!ready) {
+        throw new Error('Direct recording playback did not become ready.');
+      }
+
+      this.streamUrl = sourceUrl;
+      this.activePlaybackMode = 'browser recording stream';
+      this.playerStatus = 'Recording playback started';
+      this.playerError = '';
+      this.refreshDiagnostics();
+      return true;
+    } catch {
+      video.pause();
+      video.removeAttribute('src');
+      video.load();
+      return false;
+    }
+  }
+
+  private waitForRecordingPlaybackReady(video: HTMLVideoElement): Promise<boolean> {
+    if (video.readyState >= HTMLMediaElement.HAVE_METADATA) {
+      return Promise.resolve(true);
+    }
+
+    return new Promise<boolean>(resolve => {
+      const timeoutId = window.setTimeout(() => {
+        cleanup();
+        resolve(video.readyState >= HTMLMediaElement.HAVE_METADATA);
+      }, 2500);
+
+      const onReady = () => {
+        cleanup();
+        resolve(true);
+      };
+
+      const onError = () => {
+        cleanup();
+        resolve(false);
+      };
+
+      const cleanup = () => {
+        window.clearTimeout(timeoutId);
+        video.removeEventListener('loadedmetadata', onReady);
+        video.removeEventListener('canplay', onReady);
+        video.removeEventListener('playing', onReady);
+        video.removeEventListener('error', onError);
+      };
+
+      video.addEventListener('loadedmetadata', onReady, { once: true });
+      video.addEventListener('canplay', onReady, { once: true });
+      video.addEventListener('playing', onReady, { once: true });
+      video.addEventListener('error', onError, { once: true });
+    });
+  }
+
+  private async startBrowserRecordingBlobPlayback(video: HTMLVideoElement, sourceUrl: string): Promise<void> {
+    this.loadingRecordingBlob = true;
+    this.playerStatus = 'Direct playback unavailable, buffering recording...';
     this.refreshDiagnostics();
 
     try {
@@ -1009,56 +1145,28 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
       });
 
       if (!response.ok) {
-        this.playerError = response.status === 401 || response.status === 403
+        throw new Error(response.status === 401 || response.status === 403
           ? 'Recording playback was rejected by TVHeadend. Check recording access permissions for this account.'
-          : `Recording playback failed with HTTP ${response.status}.`;
-        this.playerStatus = 'Recording request failed';
-        this.refreshDiagnostics();
-        return;
+          : `Recording playback failed with HTTP ${response.status}.`);
       }
 
       const mediaBlob = await response.blob();
       this.releaseRecordingObjectUrl();
       this.recordingObjectUrl = URL.createObjectURL(mediaBlob);
+
       video.pause();
       video.src = this.recordingObjectUrl;
       video.load();
 
-      try {
-        const playPromise = video.play();
-        if (playPromise) {
-          await playPromise;
-        }
-      } catch {
-        this.releaseRecordingObjectUrl();
-        video.pause();
-        video.removeAttribute('src');
-        video.load();
-
-        this.streamUrl = sourceUrl;
-        this.playerStatus = 'Blob playback unsupported, trying mpegts.js...';
-        this.refreshDiagnostics();
-
-        const mpegtsStarted = await this.startMpegtsPlayback(video);
-        if (mpegtsStarted) {
-          this.activePlaybackMode = 'mpegts.js recording playback';
-          this.playerStatus = 'Recording playback started';
-          this.playerError = '';
-          this.refreshDiagnostics();
-          return;
-        }
-
-        throw new Error('Failed to load because no supported source was found.');
+      const playPromise = video.play();
+      if (playPromise) {
+        await playPromise;
       }
 
       this.streamUrl = this.recordingObjectUrl;
       this.activePlaybackMode = 'browser recording blob';
       this.playerStatus = 'Recording playback started';
       this.playerError = '';
-      this.refreshDiagnostics();
-    } catch (error: any) {
-      this.playerError = `Recording playback could not be prepared: ${String(error?.message || error || 'unknown error')}`;
-      this.playerStatus = 'Recording fetch failed';
       this.refreshDiagnostics();
     } finally {
       this.loadingRecordingBlob = false;
@@ -1092,6 +1200,69 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
       return parsed.toString();
     } catch {
       return normalizedUrl.replace(/^(https?:\/\/)[^/@]+@/i, '$1');
+    }
+  }
+
+  private resolveRecordingSeekDelta(event: KeyboardEvent): number | null {
+    const key = String(event.key || '').trim();
+    const code = String((event as any).code || '').trim();
+    const keyCode = Number((event as any).keyCode || (event as any).which || 0);
+
+    if (
+      key === 'ArrowLeft'
+      || key === 'Left'
+      || key === 'MediaRewind'
+      || code === 'ArrowLeft'
+      || code === 'MediaRewind'
+      || keyCode === 37
+      || keyCode === 89
+      || keyCode === 168
+      || keyCode === 412
+    ) {
+      return -this.recordingRewindStepSeconds;
+    }
+
+    if (
+      key === 'ArrowRight'
+      || key === 'Right'
+      || key === 'MediaFastForward'
+      || code === 'ArrowRight'
+      || code === 'MediaFastForward'
+      || keyCode === 39
+      || keyCode === 90
+      || keyCode === 208
+      || keyCode === 417
+    ) {
+      return this.recordingFastForwardStepSeconds;
+    }
+
+    return null;
+  }
+
+  private seekRecordingBy(deltaSeconds: number): void {
+    if (!this.isRecordingPlayback() || !deltaSeconds) {
+      return;
+    }
+
+    const video = this.playerVideo?.nativeElement;
+    if (!video) {
+      return;
+    }
+
+    const duration = Number(video.duration || 0);
+    const currentTime = Number(video.currentTime || 0);
+    const nextTime = Math.max(0, duration > 0 ? Math.min(currentTime + deltaSeconds, duration) : currentTime + deltaSeconds);
+
+    try {
+      video.currentTime = nextTime;
+      this.playerStatus = `${deltaSeconds > 0 ? 'Skipped ahead' : 'Rewound'} to ${this.formatPlaybackClock(nextTime)}`;
+      this.playerError = '';
+      this.refreshDiagnostics();
+      this.persistRecordingProgress(true);
+    } catch {
+      this.playerError = 'This recording cannot be seeked in the current playback mode.';
+      this.playerStatus = 'Seek unavailable';
+      this.refreshDiagnostics();
     }
   }
 
@@ -1472,6 +1643,7 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
         mimeType,
         authHeader,
         allowLiveFallback: false,
+        recordingRef: this.recordingRef,
         returnTo: this.returnTo,
         returnToken: this.returnToken || undefined,
         programTitle: this.programTitle || undefined,

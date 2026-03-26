@@ -7,6 +7,7 @@ import { catchError } from 'rxjs/operators';
 import { TvFocusableDirective } from '../../directives/tv-focusable.directive';
 import { RecordingPlaybackProgressService } from '../../services/recording-playback-progress.service';
 import { ReturnNavigationContext, ReturnNavigationService } from '../../services/return-navigation.service';
+import { SpatialNavService } from '../../services/spatial-nav.service';
 import { TvheadendService } from '../../services/tvheadend.service';
 
 @Component({
@@ -29,6 +30,7 @@ export class RecordingsComponent implements OnInit {
   filterQuery = '';
   pendingActionUuid = '';
   confirmingRemoveUuid = '';
+  expandedActionsUuid = '';
   editingUuid = '';
   editForm = {
     title: '',
@@ -44,7 +46,8 @@ export class RecordingsComponent implements OnInit {
     private router: Router,
     private route: ActivatedRoute,
     private returnNavigation: ReturnNavigationService,
-    private recordingProgress: RecordingPlaybackProgressService
+    private recordingProgress: RecordingPlaybackProgressService,
+    private spatialNav: SpatialNavService
   ) {}
 
   ngOnInit(): void {
@@ -65,9 +68,9 @@ export class RecordingsComponent implements OnInit {
     }).subscribe({
       next: ({ channels, upcoming, finished, failed }) => {
         this.channels = channels;
-        this.upcoming = upcoming;
-        this.finished = finished;
-        this.failed = failed;
+        this.upcoming = this.sortUpcomingFirst(upcoming);
+        this.finished = this.sortMostRecentFirst(finished);
+        this.failed = this.sortMostRecentFirst(failed);
         this.brokenChannelIcons.clear();
         this.loading = false;
         this.restoreReturnFocusIfNeeded();
@@ -83,6 +86,7 @@ export class RecordingsComponent implements OnInit {
   selectTab(tab: 'upcoming' | 'finished' | 'failed'): void {
     this.activeTab = tab;
     this.confirmingRemoveUuid = '';
+    this.expandedActionsUuid = '';
     this.cancelEdit();
   }
 
@@ -120,6 +124,16 @@ export class RecordingsComponent implements OnInit {
     return `${visible} of ${total} shown`;
   }
 
+  getWatchedSummary(): string {
+    const activeEntries = this.getActiveEntries();
+    if (!activeEntries.length || this.activeTab === 'upcoming') {
+      return '';
+    }
+
+    const watchedCount = activeEntries.filter(entry => this.isMarkedWatched(entry)).length;
+    return `${watchedCount} watched`;
+  }
+
   getActiveTabLabel(): string {
     if (this.activeTab === 'finished') {
       return 'Completed library';
@@ -128,6 +142,14 @@ export class RecordingsComponent implements OnInit {
       return 'Failures needing attention';
     }
     return 'Upcoming queue';
+  }
+
+  getSortSummary(): string {
+    if (this.activeTab === 'upcoming') {
+      return 'Soonest first';
+    }
+
+    return 'Newest first';
   }
 
   getEntryStateLabel(entry: any): string {
@@ -152,6 +174,14 @@ export class RecordingsComponent implements OnInit {
     return this.activeTab !== 'upcoming' && !!this.getRecordingRef(entry) && !Number(entry?.fileremoved || 0);
   }
 
+  getPrimaryWatchLabel(entry: any): string {
+    return this.getResumeLabel(entry) ? 'Resume Recording' : 'Play Recording';
+  }
+
+  getPrimaryWatchCompactLabel(entry: any): string {
+    return this.getResumeLabel(entry) ? 'Resume' : 'Play';
+  }
+
   canEdit(entry: any): boolean {
     return !!String(entry?.uuid || '').trim();
   }
@@ -172,12 +202,17 @@ export class RecordingsComponent implements OnInit {
 
     this.actionError = '';
     this.confirmingRemoveUuid = '';
+    this.expandedActionsUuid = '';
     this.editingUuid = uuid;
     this.editForm = {
       title: String(entry?.disp_title || entry?.title || '').trim(),
       start: this.formatDateTimeInput(entry?.start),
       stop: this.formatDateTimeInput(entry?.stop)
     };
+
+    setTimeout(() => {
+      this.spatialNav.focusByElementId(`recording-edit-start-earlier-hour-${uuid}`);
+    });
   }
 
   cancelEdit(): void {
@@ -187,6 +222,358 @@ export class RecordingsComponent implements OnInit {
       start: '',
       stop: ''
     };
+  }
+
+  isActionPanelOpen(entry: any): boolean {
+    const uuid = String(entry?.uuid || '').trim();
+    return !!uuid && (this.expandedActionsUuid === uuid || this.confirmingRemoveUuid === uuid);
+  }
+
+  toggleActionPanel(entry: any): void {
+    const uuid = String(entry?.uuid || '').trim();
+    if (!uuid || this.pendingActionUuid) {
+      return;
+    }
+
+    this.expandedActionsUuid = this.expandedActionsUuid === uuid ? '' : uuid;
+  }
+
+  handleRowLongPress(entry: any, event?: Event): void {
+    if (!this.hasSecondaryActions(entry) || this.isEditing(entry)) {
+      return;
+    }
+
+    if (event?.cancelable) {
+      event.preventDefault();
+    }
+
+    const uuid = String(entry?.uuid || '').trim();
+    if (!uuid || this.pendingActionUuid) {
+      return;
+    }
+
+    this.confirmingRemoveUuid = '';
+    this.expandedActionsUuid = uuid;
+
+    setTimeout(() => {
+      const firstActionId = this.getSecondaryActionFirstId(entry);
+      if (firstActionId) {
+        this.spatialNav.focusByElementId(firstActionId);
+      }
+    });
+  }
+
+  handleRowContextMenu(entry: any, event: MouseEvent): void {
+    event.preventDefault();
+    this.handleRowLongPress(entry, event);
+  }
+
+  hasSecondaryActions(entry: any): boolean {
+    return !!this.getResumeLabel(entry)
+      || this.canExtendStop(entry)
+      || !!String(entry?.uuid || '').trim()
+      || this.activeTab !== 'upcoming';
+  }
+
+  getActionPanelLabel(entry: any): string {
+    return this.isActionPanelOpen(entry) ? 'Hide Tools' : 'Tools';
+  }
+
+  getActionPanelCompactLabel(entry: any): string {
+    return this.isActionPanelOpen(entry) ? 'Less' : 'More';
+  }
+
+  useBrowserEllipsisActions(): boolean {
+    return !this.isCapacitorNativePlatform();
+  }
+
+  /**
+   * Returns the ID of the button immediately to the LEFT of the action-panel toggle
+   * in the primary action row, matching the visual DOM order:
+   *   upcoming:  ... Adjust → Cancel → [toggle]
+   *   watchable: ... Play → [toggle]
+   *   other:     body → [toggle]
+   */
+  getActionToggleNavLeft(entry: any): string {
+    if (this.canWatch(entry)) {
+      return this.getPrimaryWatchId(entry);
+    }
+    if (this.activeTab === 'upcoming') {
+      return this.getPrimaryCancelId(entry);
+    }
+    return this.getRowBodyId(entry);
+  }
+
+  getRowBodyId(entry: any): string {
+    const uuid = String(entry?.uuid || '').trim();
+    return uuid ? `recording-body-${uuid}` : '';
+  }
+
+  getPrimaryWatchId(entry: any): string {
+    const uuid = String(entry?.uuid || '').trim();
+    return uuid ? `recording-primary-watch-${uuid}` : '';
+  }
+
+  getPrimaryAdjustId(entry: any): string {
+    const uuid = String(entry?.uuid || '').trim();
+    return uuid ? `recording-primary-adjust-${uuid}` : '';
+  }
+
+  getPrimaryCancelId(entry: any): string {
+    const uuid = String(entry?.uuid || '').trim();
+    return uuid ? `recording-primary-cancel-${uuid}` : '';
+  }
+
+  getPrimaryActionEntryId(entry: any): string {
+    if (this.canWatch(entry)) {
+      return this.getPrimaryWatchId(entry);
+    }
+
+    if (this.activeTab === 'upcoming' && this.canEdit(entry)) {
+      return this.getPrimaryAdjustId(entry);
+    }
+
+    if (this.activeTab === 'upcoming') {
+      return this.getPrimaryCancelId(entry);
+    }
+
+    if (this.hasSecondaryActions(entry)) {
+      return this.getActionPanelToggleId(entry);
+    }
+
+    return '';
+  }
+
+  getActionPanelToggleId(entry: any): string {
+    const uuid = String(entry?.uuid || '').trim();
+    return uuid ? `recording-tools-toggle-${uuid}` : '';
+  }
+
+  getVerticalTargetId(entry: any, direction: 'up' | 'down', controlType: string): string {
+    const currentControlId = this.getControlIdForEntry(entry, controlType);
+    const adjacentEntry = this.getAdjacentVisibleEntry(entry, direction);
+
+    if (!adjacentEntry) {
+      return currentControlId;
+    }
+
+    const sameControlId = this.getControlIdForEntry(adjacentEntry, controlType);
+    if (sameControlId) {
+      return sameControlId;
+    }
+
+    const adjacentPrimary = this.getPrimaryActionEntryId(adjacentEntry);
+    if (adjacentPrimary) {
+      return adjacentPrimary;
+    }
+
+    return this.getRowBodyId(adjacentEntry) || currentControlId;
+  }
+
+  getSecondaryActionFirstId(entry: any): string {
+    const uuid = String(entry?.uuid || '').trim();
+    if (!uuid) {
+      return '';
+    }
+
+    if (this.showWatchedAction(entry)) {
+      return `recording-secondary-watched-${uuid}`;
+    }
+
+    if (this.canExtendStop(entry)) {
+      return `recording-secondary-extend-5-${uuid}`;
+    }
+
+    if (this.getResumeLabel(entry)) {
+      return `recording-secondary-restart-${uuid}`;
+    }
+
+    if (this.showSecondaryAutorecAction()) {
+      return `recording-secondary-autorec-${uuid}`;
+    }
+
+    if (this.showSecondaryEditAction(entry)) {
+      return `recording-secondary-edit-${uuid}`;
+    }
+
+    if (this.activeTab !== 'upcoming') {
+      return this.isConfirmingRemove(entry)
+        ? `recording-secondary-remove-now-${uuid}`
+        : `recording-secondary-remove-${uuid}`;
+    }
+
+    return '';
+  }
+
+  showSecondaryAutorecAction(): boolean {
+    return this.activeTab !== 'finished';
+  }
+
+  showSecondaryEditAction(entry: any): boolean {
+    return this.activeTab !== 'upcoming' && this.activeTab !== 'finished' && this.canEdit(entry);
+  }
+
+  getRestartActionLabel(entry: any): string {
+    return this.activeTab === 'failed' ? 'Restart Capture' : 'Start Over';
+  }
+
+  showWatchedAction(entry: any): boolean {
+    return this.activeTab !== 'upcoming' && !!String(entry?.uuid || '').trim();
+  }
+
+  isMarkedWatched(entry: any): boolean {
+    return Number(entry?.watched ?? 0) > 0;
+  }
+
+  toggleWatched(entry: any): void {
+    const uuid = String(entry?.uuid || '').trim();
+    if (!uuid || this.pendingActionUuid) {
+      return;
+    }
+
+    const nowWatched = !this.isMarkedWatched(entry);
+    this.pendingActionUuid = uuid;
+    this.actionError = '';
+
+    this.tvh.markRecordingWatched(uuid, nowWatched).subscribe({
+      next: () => {
+        this.pendingActionUuid = '';
+        entry.watched = nowWatched ? 1 : 0;
+        this.actionMessage = nowWatched ? 'Marked as watched.' : 'Marked as unwatched.';
+      },
+      error: (error: any) => {
+        this.pendingActionUuid = '';
+        this.actionError = this.describeError(error);
+      }
+    });
+  }
+
+  getWatchedActionLabel(entry: any): string {
+    return this.isMarkedWatched(entry) ? 'Mark Unwatched' : 'Mark Watched';
+  }
+
+  getSecondaryWatchedRightId(entry: any): string {
+    const uuid = String(entry?.uuid || '').trim();
+    if (!uuid) { return ''; }
+    if (this.getResumeLabel(entry)) { return `recording-secondary-restart-${uuid}`; }
+    if (this.showSecondaryAutorecAction()) { return `recording-secondary-autorec-${uuid}`; }
+    if (this.showSecondaryEditAction(entry)) { return `recording-secondary-edit-${uuid}`; }
+    if (this.isConfirmingRemove(entry)) { return `recording-secondary-remove-now-${uuid}`; }
+    return `recording-secondary-remove-${uuid}`;
+  }
+
+  getSecondaryRestartLeftId(entry: any): string {
+    const uuid = String(entry?.uuid || '').trim();
+    if (!uuid) { return ''; }
+    return this.showWatchedAction(entry) ? `recording-secondary-watched-${uuid}` : `recording-secondary-restart-${uuid}`;
+  }
+
+  getSecondaryRestartRightId(entry: any): string {
+    const uuid = String(entry?.uuid || '').trim();
+    if (!uuid) { return ''; }
+    if (this.showSecondaryAutorecAction()) { return `recording-secondary-autorec-${uuid}`; }
+    if (this.showSecondaryEditAction(entry)) { return `recording-secondary-edit-${uuid}`; }
+    if (this.isConfirmingRemove(entry)) { return `recording-secondary-remove-now-${uuid}`; }
+    return `recording-secondary-remove-${uuid}`;
+  }
+
+  getSecondaryAutorecLeftId(entry: any): string {
+    const uuid = String(entry?.uuid || '').trim();
+    if (!uuid) { return ''; }
+    if (this.getResumeLabel(entry)) { return `recording-secondary-restart-${uuid}`; }
+    if (this.showWatchedAction(entry)) { return `recording-secondary-watched-${uuid}`; }
+    return `recording-secondary-autorec-${uuid}`;
+  }
+
+  getSecondaryRemoveLeftId(entry: any): string {
+    const uuid = String(entry?.uuid || '').trim();
+    if (!uuid) { return ''; }
+    if (this.showSecondaryEditAction(entry)) { return `recording-secondary-edit-${uuid}`; }
+    if (this.showSecondaryAutorecAction()) { return `recording-secondary-autorec-${uuid}`; }
+    if (this.getResumeLabel(entry)) { return `recording-secondary-restart-${uuid}`; }
+    if (this.showWatchedAction(entry)) { return `recording-secondary-watched-${uuid}`; }
+    return this.isConfirmingRemove(entry) ? `recording-secondary-remove-now-${uuid}` : `recording-secondary-remove-${uuid}`;
+  }
+
+  private getControlIdForEntry(entry: any, controlType: string): string {
+    const uuid = String(entry?.uuid || '').trim();
+    if (!uuid) {
+      return '';
+    }
+
+    switch (controlType) {
+      case 'row-body':
+        return this.getRowBodyId(entry);
+      case 'primary-watch':
+        return this.canWatch(entry) ? this.getPrimaryWatchId(entry) : '';
+      case 'primary-adjust':
+        return this.activeTab === 'upcoming' && this.canEdit(entry) ? this.getPrimaryAdjustId(entry) : '';
+      case 'primary-cancel':
+        return this.activeTab === 'upcoming' ? this.getPrimaryCancelId(entry) : '';
+      case 'action-toggle':
+        return this.hasSecondaryActions(entry) ? this.getActionPanelToggleId(entry) : '';
+      case 'secondary-watched':
+        return this.isActionPanelOpen(entry) && this.showWatchedAction(entry) ? `recording-secondary-watched-${uuid}` : '';
+      case 'secondary-restart':
+        return this.isActionPanelOpen(entry) && !!this.getResumeLabel(entry) ? `recording-secondary-restart-${uuid}` : '';
+      case 'secondary-autorec':
+        return this.isActionPanelOpen(entry) && this.showSecondaryAutorecAction() ? `recording-secondary-autorec-${uuid}` : '';
+      case 'secondary-edit':
+        return this.isActionPanelOpen(entry) && this.showSecondaryEditAction(entry) ? `recording-secondary-edit-${uuid}` : '';
+      case 'secondary-remove':
+        if (!this.isActionPanelOpen(entry) || this.activeTab === 'upcoming') {
+          return '';
+        }
+        return this.isConfirmingRemove(entry)
+          ? `recording-secondary-remove-now-${uuid}`
+          : `recording-secondary-remove-${uuid}`;
+      case 'secondary-keep':
+        return this.isActionPanelOpen(entry) && this.activeTab !== 'upcoming' && this.isConfirmingRemove(entry)
+          ? `recording-secondary-keep-${uuid}`
+          : '';
+      default:
+        return '';
+    }
+  }
+
+  private getAdjacentVisibleEntry(entry: any, direction: 'up' | 'down'): any | null {
+    const currentUuid = String(entry?.uuid || '').trim();
+    if (!currentUuid) {
+      return null;
+    }
+
+    const visibleEntries = this.getFilteredEntries();
+    const index = visibleEntries.findIndex(candidate => String(candidate?.uuid || '').trim() === currentUuid);
+    if (index < 0) {
+      return null;
+    }
+
+    const adjacentIndex = direction === 'up' ? index - 1 : index + 1;
+    if (adjacentIndex < 0 || adjacentIndex >= visibleEntries.length) {
+      return null;
+    }
+
+    return visibleEntries[adjacentIndex];
+  }
+
+  getAutorecActionLabel(): string {
+    return this.activeTab === 'upcoming' ? 'Create Rule' : 'Series Rule';
+  }
+
+  getEditActionLabel(): string {
+    return this.activeTab === 'upcoming' ? 'Adjust' : 'Edit Details';
+  }
+
+  getRemoveActionLabel(): string {
+    return this.activeTab === 'failed' ? 'Clear Failure' : 'Remove Recording';
+  }
+
+  getConfirmRemoveActionLabel(): string {
+    if (this.pendingActionUuid) {
+      return this.activeTab === 'failed' ? 'Clearing…' : 'Removing…';
+    }
+
+    return this.activeTab === 'failed' ? 'Clear Now' : 'Remove Now';
   }
 
   isEditing(entry: any): boolean {
@@ -479,6 +866,33 @@ export class RecordingsComponent implements OnInit {
     this.confirmingRemoveUuid = '';
   }
 
+  getEditDateTimeLabel(value: string): string {
+    const timestamp = this.parseDateTimeInput(value);
+    if (!timestamp) {
+      return 'Time unavailable';
+    }
+
+    return this.formatDateTime(timestamp);
+  }
+
+  shiftEditDateTime(field: 'start' | 'stop', minutes: number): void {
+    const currentValue = this.parseDateTimeInput(this.editForm[field]);
+    const deltaMinutes = Number(minutes || 0);
+    if (!currentValue || !deltaMinutes) {
+      return;
+    }
+
+    const nextValue = currentValue + (deltaMinutes * 60);
+    if (nextValue <= 0) {
+      return;
+    }
+
+    this.editForm = {
+      ...this.editForm,
+      [field]: this.formatDateTimeInput(nextValue)
+    };
+  }
+
   formatDateTime(value: any): string {
     const numericValue = Number(value || 0);
     if (!numericValue) {
@@ -596,6 +1010,14 @@ export class RecordingsComponent implements OnInit {
   handleChannelIconError(entry: any): void {
     const key = this.getChannelIconKey(entry);
     if (key) {
+      const channelUuid = this.resolveChannelUuid(entry);
+      if (channelUuid) {
+        const channel = this.channels.find(candidate => String(candidate?.uuid || '').trim() === channelUuid);
+        if (channel && typeof channel === 'object') {
+          this.tvh.recordChannelIconLoadFailure(String(channel?.icon || '').trim());
+          channel.icon = '';
+        }
+      }
       this.brokenChannelIcons.add(key);
     }
   }
@@ -642,6 +1064,7 @@ export class RecordingsComponent implements OnInit {
       this.getFailureDetail(entry),
       this.getSummary(entry),
       this.getFileStateLabel(entry),
+      this.isMarkedWatched(entry) ? 'watched' : 'unwatched',
       this.formatDateTime(entry?.start),
       this.formatDuration(entry)
     ].map(value => this.flattenValue(value).trim().toLowerCase()).filter(Boolean).join(' ');
@@ -716,6 +1139,66 @@ export class RecordingsComponent implements OnInit {
     }
 
     return `${minutes}:${String(seconds).padStart(2, '0')}`;
+  }
+
+  private sortMostRecentFirst(entries: any[]): any[] {
+    return [...(entries || [])].sort((left, right) => this.resolveEntryRecency(right) - this.resolveEntryRecency(left));
+  }
+
+  private isCapacitorNativePlatform(): boolean {
+    return !!(window as any)?.Capacitor?.isNativePlatform?.();
+  }
+
+  private sortUpcomingFirst(entries: any[]): any[] {
+    return [...(entries || [])].sort((left, right) => this.resolveUpcomingOrder(left) - this.resolveUpcomingOrder(right));
+  }
+
+  private resolveEntryRecency(entry: any): number {
+    const candidates = [
+      entry?.stop,
+      entry?.start,
+      entry?.sched_status_stamp,
+      entry?.last_error,
+      entry?.updated,
+      entry?.timestamp,
+    ];
+
+    for (const candidate of candidates) {
+      const normalized = this.normalizeEpoch(candidate);
+      if (normalized > 0) {
+        return normalized;
+      }
+    }
+
+    return 0;
+  }
+
+  private resolveUpcomingOrder(entry: any): number {
+    const candidates = [
+      entry?.start,
+      entry?.stop,
+      entry?.sched_status_stamp,
+      entry?.updated,
+      entry?.timestamp,
+    ];
+
+    for (const candidate of candidates) {
+      const normalized = this.normalizeEpoch(candidate);
+      if (normalized > 0) {
+        return normalized;
+      }
+    }
+
+    return Number.MAX_SAFE_INTEGER;
+  }
+
+  private normalizeEpoch(value: any): number {
+    const numericValue = Number(value || 0);
+    if (!Number.isFinite(numericValue) || numericValue <= 0) {
+      return 0;
+    }
+
+    return numericValue > 100000000000 ? numericValue : numericValue * 1000;
   }
 
   private describeError(error: any): string {

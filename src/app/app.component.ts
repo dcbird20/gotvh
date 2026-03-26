@@ -184,6 +184,10 @@ export class AppComponent implements OnInit, OnDestroy {
       return;
     }
 
+    if (isTextEntryTarget && this.spatialNav.isSelectKey(event)) {
+      return;
+    }
+
     if (isTypingTarget && !isNavKey) {
       return;
     }
@@ -387,11 +391,20 @@ export class AppComponent implements OnInit, OnDestroy {
       return false;
     }
 
-    const isManagedStatusTarget = !!activeElement?.closest('[data-status-refresh], [data-status-anchor]');
-    const hasLostStatusFocus = !activeElement
+    // Only intercept when focus is genuinely missing or inside the status page scope.
+    // If focus is in the sidebar or any other scope outside status-page, let normal
+    // spatial nav handle it so the sidebar D-pad chain isn't hijacked.
+    const isInsideStatusScope = !!activeElement?.closest('[data-tv-nav-scope="status-page"]');
+    const hasNoFocus = !activeElement
       || activeElement === document.body
-      || activeElement === document.documentElement
-      || !isManagedStatusTarget;
+      || activeElement === document.documentElement;
+
+    if (!isInsideStatusScope && !hasNoFocus) {
+      return false;
+    }
+
+    const isManagedStatusTarget = !!activeElement?.closest('[data-status-refresh], [data-status-anchor]');
+    const hasLostStatusFocus = hasNoFocus || !isManagedStatusTarget;
 
     if (this.isDirectionalKey(event, 'down') && hasLostStatusFocus) {
       const target = document.querySelector('.tv-focused[data-status-anchor], [data-status-first-anchor="true"], [data-status-anchor], [data-status-refresh]') as HTMLElement | null;
@@ -582,6 +595,19 @@ export class AppComponent implements OnInit, OnDestroy {
   private handleBackAction(): void {
     if (this.authDialogState.open) {
       this.cancelAuth();
+      return;
+    }
+
+    // If any modal/overlay is open (e.g. EPG program details), close it instead
+    // of navigating away. Components handle their own close via the Escape key.
+    if (document.querySelector('[aria-modal="true"]')) {
+      const escEvent = new KeyboardEvent('keydown', {
+        key: 'Escape',
+        code: 'Escape',
+        bubbles: true,
+        cancelable: true,
+      });
+      document.dispatchEvent(escEvent);
       return;
     }
 

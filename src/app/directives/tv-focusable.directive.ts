@@ -8,6 +8,10 @@ import { FocusableItem, SpatialNavService } from '../services/spatial-nav.servic
 })
 export class TvFocusableDirective implements FocusableItem, OnInit, OnDestroy {
   readonly id: number;
+  private readonly longPressDurationMs = 650;
+  private selectKeyActive = false;
+  private longPressTriggered = false;
+  private longPressTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     private el: ElementRef<HTMLElement>,
@@ -23,27 +27,79 @@ export class TvFocusableDirective implements FocusableItem, OnInit, OnDestroy {
       el.setAttribute('tabindex', '0');
     }
     el.addEventListener('focus', this.onNativeFocus);
+    el.addEventListener('blur', this.onNativeBlur);
     el.addEventListener('keydown', this.onKeydown);
+    el.addEventListener('keyup', this.onKeyup);
   }
 
   ngOnDestroy(): void {
     this.nav.unregister(this);
     this.el.nativeElement.removeEventListener('focus', this.onNativeFocus);
+    this.el.nativeElement.removeEventListener('blur', this.onNativeBlur);
     this.el.nativeElement.removeEventListener('keydown', this.onKeydown);
+    this.el.nativeElement.removeEventListener('keyup', this.onKeyup);
+    this.resetSelectPressState();
   }
 
   private onNativeFocus = (): void => {
     this.nav.setFocus(this);
   };
 
+  private onNativeBlur = (): void => {
+    this.resetSelectPressState();
+  };
+
   private onKeydown = (event: KeyboardEvent): void => {
+    if (this.isEditableElement()) {
+      return;
+    }
+
     if (!this.nav.isSelectKey(event)) {
       return;
     }
 
     event.preventDefault();
     event.stopPropagation();
-    this.triggerSelect();
+
+    if (this.selectKeyActive) {
+      return;
+    }
+
+    this.selectKeyActive = true;
+    this.longPressTriggered = false;
+    this.clearLongPressTimer();
+    this.longPressTimer = setTimeout(() => {
+      if (!this.selectKeyActive) {
+        return;
+      }
+
+      this.longPressTriggered = true;
+      this.triggerLongPress();
+    }, this.longPressDurationMs);
+  };
+
+  private onKeyup = (event: KeyboardEvent): void => {
+    if (this.isEditableElement()) {
+      return;
+    }
+
+    if (!this.nav.isSelectKey(event)) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (!this.selectKeyActive) {
+      return;
+    }
+
+    const shouldTriggerSelect = !this.longPressTriggered;
+    this.resetSelectPressState();
+
+    if (shouldTriggerSelect) {
+      this.triggerSelect();
+    }
   };
 
   getElement(): HTMLElement {
@@ -71,6 +127,48 @@ export class TvFocusableDirective implements FocusableItem, OnInit, OnDestroy {
 
   triggerSelect(): void {
     this.el.nativeElement.click();
+  }
+
+  private triggerLongPress(): void {
+    const event = new CustomEvent('tv-long-press', {
+      bubbles: true,
+      cancelable: true,
+      detail: {
+        source: 'ok',
+        durationMs: this.longPressDurationMs,
+      },
+    });
+    this.el.nativeElement.dispatchEvent(event);
+  }
+
+  private resetSelectPressState(): void {
+    this.selectKeyActive = false;
+    this.longPressTriggered = false;
+    this.clearLongPressTimer();
+  }
+
+  private clearLongPressTimer(): void {
+    if (this.longPressTimer) {
+      clearTimeout(this.longPressTimer);
+      this.longPressTimer = null;
+    }
+  }
+
+  private isEditableElement(): boolean {
+    const element = this.el.nativeElement;
+    const tagName = element.tagName;
+
+    if (tagName === 'TEXTAREA' || element.isContentEditable) {
+      return true;
+    }
+
+    if (tagName !== 'INPUT') {
+      return false;
+    }
+
+    const input = element as HTMLInputElement;
+    const inputType = String(input.type || 'text').toLowerCase();
+    return !['button', 'checkbox', 'color', 'file', 'hidden', 'image', 'radio', 'range', 'reset', 'submit'].includes(inputType);
   }
 
   private scrollNearestContainerIntoView(element: HTMLElement): void {

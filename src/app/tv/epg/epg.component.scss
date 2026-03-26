@@ -83,7 +83,7 @@
 
 .epg-filter-input {
   flex: 1 1 auto;
-  min-width: 0;
+  min-width: 10ch;
   border: 0;
   background: transparent;
   color: #ffffff;
@@ -262,7 +262,18 @@
   max-width: var(--epg-channel-col-width);
 }
 
+.epg-lane-gutter {
+  width: 32px;
+  min-width: 32px;
+  flex: 0 0 32px;
+  background: linear-gradient(90deg, rgba(12, 28, 55, 0.98) 0%, rgba(15, 32, 60, 0.82) 100%);
+  border-right: 1px solid rgba(94, 128, 192, 0.18);
+}
+
 .epg-channel-col-header {
+  position: sticky;
+  left: 0;
+  z-index: 50;
   display: flex;
   align-items: center;
   padding: 0 12px;
@@ -329,7 +340,9 @@
 }
 
 .epg-channel-col {
-  position: relative;
+  position: sticky;
+  left: 0;
+  z-index: 120;
   padding: 6px 10px;
   border: 0;
   border-right: 1px solid rgba(94, 128, 192, 0.22);
@@ -337,12 +350,9 @@
   color: #eef5ff;
   text-align: left;
   scroll-margin-top: 60px;
+  box-shadow: 8px 0 12px rgba(3, 10, 24, 0.35);
 }
 
-.epg-channel-col:focus,
-.epg-channel-col.tv-focused,
-.epg-program-bar:focus,
-.epg-program-bar.tv-focused,
 .epg-filter-clear:focus,
 .epg-filter-clear.tv-focused,
 .epg-toggle-btn:focus,
@@ -359,8 +369,32 @@
     0 0 0 7px rgba(255, 222, 107, 0.22) !important;
 }
 
-.epg-channel-col.tv-focused,
-.epg-program-bar.tv-focused,
+.epg-channel-col:focus,
+.epg-channel-col.tv-focused {
+  outline: none;
+  background:
+    linear-gradient(180deg, rgba(45, 58, 86, 0.99) 0%, rgba(29, 40, 66, 0.99) 100%),
+    linear-gradient(90deg, rgba(255, 224, 126, 0.16) 0%, rgba(255, 236, 172, 0.05) 100%);
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 238, 176, 0.74),
+    inset 0 0 0 5px rgba(255, 210, 80, 0.18),
+    inset 0 0 14px rgba(255, 226, 120, 0.1),
+    inset 0 0 28px rgba(115, 162, 245, 0.1) !important;
+}
+
+.epg-channel-col:focus .epg-channel-name,
+.epg-channel-col.tv-focused .epg-channel-name {
+  color: #f9f2da;
+  text-shadow: 0 0 6px rgba(255, 233, 152, 0.16);
+}
+
+.epg-channel-col:focus .epg-channel-icon,
+.epg-channel-col.tv-focused .epg-channel-icon {
+  background: rgba(255, 224, 118, 0.09);
+  border-color: rgba(255, 236, 170, 0.34);
+  box-shadow: inset 0 0 8px rgba(255, 239, 173, 0.1);
+}
+
 .epg-filter-clear.tv-focused,
 .epg-toggle-btn.tv-focused,
 .range-btn.tv-focused,
@@ -368,6 +402,12 @@
 .epg-modal-btn.tv-focused {
   transform: none !important;
   z-index: auto !important;
+}
+
+.epg-channel-col.tv-focused,
+.epg-channel-col:focus {
+  transform: none !important;
+  z-index: 140 !important;
 }
 
 .epg-channel-main {
@@ -408,7 +448,9 @@
 
 .epg-programs-row {
   position: relative;
+  z-index: 1;
   min-height: var(--epg-row-height);
+  overflow: hidden;
   background:
     linear-gradient(90deg, rgba(255, 255, 255, 0.02) 0 1px, transparent 1px var(--epg-hour-width)),
     linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0));
@@ -425,7 +467,7 @@
 .epg-now-line {
   width: 3px;
   background: linear-gradient(180deg, #ffdc6b 0%, #fff0b3 100%);
-  box-shadow: 0 0 12px rgba(255, 224, 110, 0.55);
+  box-shadow: none;
   z-index: 2;
 }
 
@@ -435,13 +477,15 @@
 }
 
 .epg-row-empty {
-  position: absolute;
-  left: 12px;
-  top: 50%;
-  transform: translateY(-50%);
+  position: relative;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  height: 100%;
   color: #7f9bc7;
   font-size: 0.76rem;
   font-weight: 700;
+  pointer-events: none;
 }
 
 .epg-program-bar {
@@ -463,15 +507,41 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.14),
     0 8px 18px rgba(0, 0, 0, 0.18);
 
+  &.left-clipped {
+    justify-content: flex-start;
+    padding-left: 12px;
+    text-align: left;
+  }
+
   &.current {
     box-shadow:
       inset 0 0 0 2px rgba(255, 235, 154, 0.44),
       inset 0 1px 0 rgba(255, 255, 255, 0.14),
       0 8px 18px rgba(0, 0, 0, 0.18);
   }
+
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(180deg, rgba(8, 16, 30, 0.14) 0%, rgba(8, 16, 30, 0.28) 100%);
+  }
+}
+
+.epg-program-bar:focus,
+.epg-program-bar.tv-focused {
+  outline: none;
+  transform: none !important;
+  z-index: 3 !important;
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 222, 107, 0.95),
+    inset 0 0 0 5px rgba(255, 222, 107, 0.22) !important;
 }
 
 .epg-program-title {
+  position: relative;
+  z-index: 1;
   width: 100%;
   line-height: 1.05;
   overflow: hidden;
@@ -485,6 +555,7 @@
 
 .epg-program-recorded-badge {
   position: absolute;
+  z-index: 1;
   top: 3px;
   right: 4px;
   min-height: 16px;
@@ -675,6 +746,7 @@
 
   .epg-filter {
     flex-basis: 168px;
+    min-width: 12ch;
   }
 
   .epg-header-controls-scroll {

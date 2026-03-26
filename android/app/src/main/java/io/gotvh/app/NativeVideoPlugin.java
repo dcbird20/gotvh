@@ -28,6 +28,7 @@ public class NativeVideoPlugin extends Plugin {
         String programTime = call.getString("programTime");
         String programDescription = call.getString("programDescription");
         String programCategory = call.getString("programCategory");
+        String recordingRef = call.getString("recordingRef");
 
         if (url == null || url.trim().isEmpty()) {
             call.reject("Missing stream URL");
@@ -49,6 +50,7 @@ public class NativeVideoPlugin extends Plugin {
         intent.putExtra(NativeVideoActivity.EXTRA_PROGRAM_TIME, programTime);
         intent.putExtra(NativeVideoActivity.EXTRA_PROGRAM_DESCRIPTION, programDescription);
         intent.putExtra(NativeVideoActivity.EXTRA_PROGRAM_CATEGORY, programCategory);
+        intent.putExtra(NativeVideoActivity.EXTRA_RECORDING_REF, recordingRef);
         getActivity().startActivity(intent);
 
         JSObject result = new JSObject();

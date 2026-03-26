@@ -40,3 +40,4 @@ coverage/
 
 # Angular cache
 .angular/cache/
+*.apk

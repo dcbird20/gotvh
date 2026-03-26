@@ -37,6 +37,7 @@ export interface TvheadendAuthState {
 })
 export class TvheadendService {
   private readonly authStorageKey = 'gotvh_tvh_basic_auth';
+  private readonly badIconStorageKey = 'gotvh_bad_imagecache_urls';
   private readonly favoriteTagNameCandidates = ['streaming favorites', 'favorites'];
   private apiBase = this.resolveApiBase();
   private browserStreamBase = this.resolveBrowserStreamBase();
@@ -57,6 +58,7 @@ export class TvheadendService {
   private guideSnapshot: GuideDataSnapshot | null = null;
   private dvrConfigUuid$: Observable<string> | null = null;
   private authRequestResolver: ((value: boolean) => void) | null = null;
+  private badImagecacheUrls = new Set<string>();
 
   readonly authDialogState$ = new BehaviorSubject<TvheadendAuthDialogState>({
     open: false,
@@ -69,7 +71,79 @@ export class TvheadendService {
   });
 
   constructor(private http: HttpClient) {
+    this.restoreBadIconCache();
     this.restoreStoredAuth();
+  }
+
+  private restoreBadIconCache(): void {
+    if (typeof sessionStorage === 'undefined') {
+      return;
+    }
+
+    try {
+      const raw = sessionStorage.getItem(this.badIconStorageKey);
+      if (!raw) {
+        return;
+      }
+
+      const parsed = JSON.parse(raw);
+      const values = Array.isArray(parsed) ? parsed : [];
+      this.badImagecacheUrls = new Set(values.map(value => String(value || '').trim()).filter(Boolean));
+    } catch {
+      this.badImagecacheUrls = new Set<string>();
+    }
+  }
+
+  private persistBadIconCache(): void {
+    if (typeof sessionStorage === 'undefined') {
+      return;
+    }
+
+    try {
+      sessionStorage.setItem(this.badIconStorageKey, JSON.stringify(Array.from(this.badImagecacheUrls)));
+    } catch {
+      // Ignore storage failures in private/incognito or restricted environments.
+    }
+  }
+
+  private normalizeImagecacheKey(url: string): string {
+    const candidate = String(url || '').trim();
+    if (!candidate) {
+      return '';
+    }
+
+    try {
+      const parsed = new URL(candidate, window.location.origin);
+      const pathname = String(parsed.pathname || '').trim();
+      if (!pathname.startsWith('/imagecache/')) {
+        return '';
+      }
+      return pathname;
+    } catch {
+      if (candidate.startsWith('/imagecache/')) {
+        return candidate.split('?')[0].split('#')[0];
+      }
+      return '';
+    }
+  }
+
+  recordChannelIconLoadFailure(url: string): void {
+    const key = this.normalizeImagecacheKey(url);
+    if (!key) {
+      return;
+    }
+
+    this.badImagecacheUrls.add(key);
+    this.persistBadIconCache();
+  }
+
+  isSuppressedChannelIconUrl(url: string): boolean {
+    const key = this.normalizeImagecacheKey(url);
+    if (!key) {
+      return false;
+    }
+
+    return this.badImagecacheUrls.has(key);
   }
 
   private resolveApiBase(): string {
@@ -173,8 +247,30 @@ export class TvheadendService {
       return '';
     }
 
+    if (this.isSuppressedChannelIconUrl(normalized)) {
+      return '';
+    }
+
     try {
       const parsed = new URL(normalized, window.location.origin);
+      const pathname = parsed.pathname || '';
+      const backendOrigin = new URL(this.streamBase, window.location.origin).origin;
+
+      // Preserve third-party absolute icon URLs; only remap local/backend routes.
+      if (parsed.origin !== window.location.origin && parsed.origin !== backendOrigin) {
+        if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+          return parsed.toString();
+        }
+        return '';
+      }
+
+      if (pathname.startsWith('/imagecache/')) {
+        return `${window.location.origin}${pathname}${parsed.search}${parsed.hash}`;
+      }
+
+      if (pathname.startsWith('/api/')) {
+        return `${window.location.origin}${pathname}${parsed.search}${parsed.hash}`;
+      }
 
       if (parsed.origin === window.location.origin) {
         return parsed.toString();
@@ -184,13 +280,11 @@ export class TvheadendService {
         return parsed.toString();
       }
 
-      const backendOrigin = new URL(this.streamBase, window.location.origin).origin;
-      if (parsed.origin === backendOrigin && parsed.pathname.startsWith('/api/')) {
-        return `${window.location.origin}${parsed.pathname}${parsed.search}${parsed.hash}`;
-      }
-
       return '';
     } catch {
+      if (normalized.startsWith('/imagecache/')) {
+        return `${window.location.origin}${normalized}`;
+      }
       if (normalized.startsWith('/api/')) {
         return `${window.location.origin}${normalized}`;
       }
@@ -536,16 +630,27 @@ export class TvheadendService {
     const fallback = this.buildUrl('channels');
 
     return this.http.get<any>(primary, this.getRequestOptions()).pipe(
-      map(data => Array.isArray(data) ? data : data?.entries || []),
+      map(data => this.normalizeChannels(Array.isArray(data) ? data : data?.entries || [])),
       catchError(error => {
         if (error.status === 404 || error.status === 0) {
           return this.http.get<any>(fallback, this.getRequestOptions()).pipe(
-            map(data => Array.isArray(data) ? data : data?.entries || [])
+            map(data => this.normalizeChannels(Array.isArray(data) ? data : data?.entries || []))
           );
         }
         return throwError(error);
       })
     );
+  }
+
+  private normalizeChannels(channels: any[]): any[] {
+    return (channels || []).map(channel => {
+      const rawIcon = String(channel?.icon_public_url || channel?.icon || '').trim();
+      const normalizedIcon = this.normalizeChannelIconUrl(rawIcon);
+      return {
+        ...channel,
+        icon: normalizedIcon,
+      };
+    });
   }
 
   getChannelsWithResolvedTags(): Observable<any[]> {
@@ -886,7 +991,8 @@ export class TvheadendService {
       channels = (xmltv?.channels || []).map((channel: any) => ({
         id: channel.id,
         name: channel.name || channel.id || 'Unknown Channel',
-        icon: channel.icon || '',
+        number: '',
+        icon: this.normalizeChannelIconUrl(String(channel?.icon || '').trim()),
       }));
       programs = this.attachGuideMetadata(xmltvPrograms, channels, tvheadendEntries || []);
       this.buildGuideChannelUuidMap(channels, tvhChannels || [], channelUuidMap);
@@ -921,6 +1027,10 @@ export class TvheadendService {
 
       if (match?.uuid) {
         channelUuidMap.set(String(channel?.id || '').trim(), String(match.uuid).trim());
+      }
+
+      if (!channel?.number) {
+        channel.number = this.resolveGuideChannelNumber(match);
       }
 
       if (!channel?.icon && (match?.icon_public_url || match?.icon)) {
@@ -958,6 +1068,7 @@ export class TvheadendService {
         channelIndex.set(channelId, {
           id: channelId,
           name: resolvedName,
+          number: this.resolveGuideChannelNumber(channelFromGrid),
           icon: this.normalizeChannelIconUrl(String(channelFromGrid?.icon_public_url || channelFromGrid?.icon || '').trim()),
         });
       }
@@ -1069,6 +1180,32 @@ export class TvheadendService {
       numeric: true,
       sensitivity: 'base'
     });
+  }
+
+  private resolveGuideChannelNumber(channel: any): string {
+    if (!channel || typeof channel !== 'object') {
+      return '';
+    }
+
+    const directCandidates = [channel.number, channel.num, channel.channelNumber, channel.chno];
+    for (const candidate of directCandidates) {
+      const normalized = String(candidate ?? '').trim();
+      if (normalized) {
+        return normalized;
+      }
+    }
+
+    const major = Number.parseInt(String(channel.major ?? '').trim(), 10);
+    const minor = Number.parseInt(String(channel.minor ?? '').trim(), 10);
+    if (Number.isFinite(major)) {
+      if (Number.isFinite(minor)) {
+        return `${major}.${minor}`;
+      }
+      return String(major);
+    }
+
+    const fromName = String(channel.name || '').trim().match(/^\d+(?:\.\d+)?/);
+    return fromName ? fromName[0] : '';
   }
 
   private parseGuideXmltvDate(value: string): number {
@@ -1222,7 +1359,7 @@ export class TvheadendService {
       this.channelGrid$ = this.http
         .get<any>(this.buildUrl('channel/grid?start=0&limit=9999'), this.getRequestOptions())
         .pipe(
-          map(data => Array.isArray(data) ? data : (data?.entries || [])),
+          map(data => this.normalizeChannels(Array.isArray(data) ? data : (data?.entries || []))),
           shareReplay(1),
           catchError(() => of([]))
         );
@@ -1564,6 +1701,19 @@ export class TvheadendService {
     return this.http.post<any>(
       this.buildUrl('idnode/save'),
       this.buildFormBody({ node: JSON.stringify(node) }),
+      this.getFormRequestOptions()
+    );
+  }
+
+  markRecordingWatched(dvrUuid: string, watched: boolean): Observable<any> {
+    const normalizedUuid = String(dvrUuid || '').trim();
+    if (!normalizedUuid) {
+      return throwError(new Error('Missing DVR entry UUID.'));
+    }
+
+    return this.http.post<any>(
+      this.buildUrl('idnode/save'),
+      this.buildFormBody({ node: JSON.stringify({ uuid: normalizedUuid, watched: watched ? 1 : 0 }) }),
       this.getFormRequestOptions()
     );
   }

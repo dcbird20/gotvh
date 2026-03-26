@@ -4,6 +4,8 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
+import android.content.SharedPreferences;
 import android.content.Intent;
 import android.view.KeyEvent;
 import android.view.View;
@@ -31,6 +33,15 @@ import java.util.Map;
 
 public class NativeVideoActivity extends AppCompatActivity {
     private static final long PROGRAM_INFO_TIMEOUT_MS = 9500L;
+    private static final long RECORDING_REWIND_MS = 10_000L;
+    private static final long RECORDING_FAST_FORWARD_MS = 30_000L;
+    private static final int RESUME_OVERLAY_DURATION_MS = 3800;
+    private static final int RESUME_OVERLAY_SHOW_DELAY_MS = 350;
+    private static final long RESUME_PERSIST_INTERVAL_MS = 5_000L;
+    private static final long RESUME_MINIMUM_MS = 30_000L;
+    private static final long RESUME_COMPLETION_THRESHOLD_MS = 30_000L;
+    private static final String BOOKMARK_PREFS = "gotvh_recording_progress";
+    private static final String BOOKMARK_KEY_PREFIX = "bookmark:";
     public static final String EXTRA_URL = "streamUrl";
     public static final String EXTRA_TITLE = "streamTitle";
     public static final String EXTRA_MIME_TYPE = "streamMimeType";
@@ -46,6 +57,7 @@ public class NativeVideoActivity extends AppCompatActivity {
     public static final String EXTRA_PROGRAM_TIME = "programTime";
     public static final String EXTRA_PROGRAM_DESCRIPTION = "programDescription";
     public static final String EXTRA_PROGRAM_CATEGORY = "programCategory";
+    public static final String EXTRA_RECORDING_REF = "recordingRef";
 
     private static final class LiveChannelEntry {
         final String uuid;
@@ -81,7 +93,13 @@ public class NativeVideoActivity extends AppCompatActivity {
     private String programTime;
     private String programDescription;
     private String programCategory;
+    private String recordingRef;
     private long lastChannelSurfAtMs = 0L;
+    private long pendingResumePositionMs = 0L;
+    private boolean hasAppliedResumePosition = false;
+    private long lastSavedBookmarkPositionMs = -1L;
+    private long suppressGenericPlaybackOverlayUntilMs = 0L;
+    private SharedPreferences bookmarkPrefs;
     private final Handler overlayHandler = new Handler(Looper.getMainLooper());
     private final Runnable hideOverlayRunnable = () -> {
         if (statusOverlay != null) {
@@ -91,6 +109,13 @@ public class NativeVideoActivity extends AppCompatActivity {
     private final Runnable hideProgramInfoOverlayRunnable = () -> {
         if (programInfoOverlay != null) {
             programInfoOverlay.setVisibility(View.GONE);
+        }
+    };
+    private final Runnable saveBookmarkRunnable = new Runnable() {
+        @Override
+        public void run() {
+            saveRecordingBookmark(false);
+            overlayHandler.postDelayed(this, RESUME_PERSIST_INTERVAL_MS);
         }
     };
 
@@ -112,6 +137,7 @@ public class NativeVideoActivity extends AppCompatActivity {
         playerView.setFocusable(true);
         playerView.setFocusableInTouchMode(true);
         playerView.requestFocus();
+        playerView.post(this::wireControllerFocusTargets);
 
         String url = getIntent().getStringExtra(EXTRA_URL);
         String title = getIntent().getStringExtra(EXTRA_TITLE);
@@ -127,8 +153,11 @@ public class NativeVideoActivity extends AppCompatActivity {
         programTime = normalizeValue(getIntent().getStringExtra(EXTRA_PROGRAM_TIME));
         programDescription = normalizeValue(getIntent().getStringExtra(EXTRA_PROGRAM_DESCRIPTION));
         programCategory = normalizeValue(getIntent().getStringExtra(EXTRA_PROGRAM_CATEGORY));
+        recordingRef = normalizeValue(getIntent().getStringExtra(EXTRA_RECORDING_REF));
+        bookmarkPrefs = getSharedPreferences(BOOKMARK_PREFS, MODE_PRIVATE);
         liveChannels.clear();
         liveChannels.addAll(parseLiveChannels(getIntent().getStringExtra(EXTRA_LIVE_CHANNELS_JSON)));
+        restoreRecordingBookmark();
 
         if (title != null && !title.trim().isEmpty()) {
             setTitle(title);
@@ -165,6 +194,8 @@ public class NativeVideoActivity extends AppCompatActivity {
         super.onStop();
         overlayHandler.removeCallbacks(hideOverlayRunnable);
         overlayHandler.removeCallbacks(hideProgramInfoOverlayRunnable);
+        overlayHandler.removeCallbacks(saveBookmarkRunnable);
+        saveRecordingBookmark(true);
         if (player != null) {
             player.release();
             player = null;
@@ -177,6 +208,8 @@ public class NativeVideoActivity extends AppCompatActivity {
             playerView.hideController();
             return;
         }
+
+        saveRecordingBookmark(true);
 
         if (finishToReturnTarget()) {
             return;
@@ -192,6 +225,18 @@ public class NativeVideoActivity extends AppCompatActivity {
         }
 
         int keyCode = event.getKeyCode();
+
+        if (handleRecordingControllerNavigation(keyCode)) {
+            return true;
+        }
+
+        if (shouldLetControllerHandleKey(keyCode)) {
+            return super.dispatchKeyEvent(event);
+        }
+
+        if (handleRecordingTransportKey(keyCode)) {
+            return true;
+        }
 
         if (isDirectionalKey(keyCode) && playerView != null) {
             playerView.requestFocus();
@@ -248,10 +293,13 @@ public class NativeVideoActivity extends AppCompatActivity {
         }
 
         player = new ExoPlayer.Builder(this)
+            .setSeekBackIncrementMs(RECORDING_REWIND_MS)
+            .setSeekForwardIncrementMs(RECORDING_FAST_FORWARD_MS)
             .setMediaSourceFactory(new DefaultMediaSourceFactory(httpFactory))
             .build();
 
         playerView.setPlayer(player);
+        wireControllerFocusTargets();
         player.addListener(new Player.Listener() {
             @Override
             public void onPlaybackStateChanged(int state) {
@@ -259,16 +307,29 @@ public class NativeVideoActivity extends AppCompatActivity {
                     boolean seekable = player.isCurrentMediaItemSeekable();
                     long duration = player.getDuration();
                     android.util.Log.d("NativeVideo", "Playback ready | Seekable: " + seekable + " | Duration: " + duration + "ms");
-                    showStatusOverlay("Now playing", 1800);
+                    boolean resumedFromBookmark = applyPendingResumePosition();
+                    if (!resumedFromBookmark && !shouldSuppressGenericPlaybackOverlay()) {
+                        showStatusOverlay("Now playing", 1800);
+                    }
                     if (!seekable && duration > 0) {
                         android.util.Log.w("NativeVideo", "Stream marked as non-seekable but has duration - this may be a buffered stream");
                     }
+                } else if (state == Player.STATE_ENDED) {
+                    clearRecordingBookmark();
                 }
             }
 
             @Override
             public void onIsPlayingChanged(boolean isPlaying) {
-                showStatusOverlay(isPlaying ? "Playing" : "Paused", 1400);
+                if (!shouldSuppressGenericPlaybackOverlay()) {
+                    showStatusOverlay(isPlaying ? "Playing" : "Paused", 1400);
+                }
+                overlayHandler.removeCallbacks(saveBookmarkRunnable);
+                if (isPlaying && isRecordingPlaybackMode()) {
+                    overlayHandler.postDelayed(saveBookmarkRunnable, RESUME_PERSIST_INTERVAL_MS);
+                } else {
+                    saveRecordingBookmark(true);
+                }
             }
 
             @Override
@@ -372,6 +433,448 @@ public class NativeVideoActivity extends AppCompatActivity {
             || keyCode == KeyEvent.KEYCODE_DPAD_DOWN
             || keyCode == KeyEvent.KEYCODE_DPAD_LEFT
             || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT;
+    }
+
+    private boolean handleRecordingTransportKey(int keyCode) {
+        if (!isRecordingPlaybackMode() || player == null) {
+            return false;
+        }
+
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_MEDIA_REWIND:
+                return seekRecordingBy(-RECORDING_REWIND_MS, "Rewound 10s");
+            case KeyEvent.KEYCODE_MEDIA_FAST_FORWARD:
+                return seekRecordingBy(RECORDING_FAST_FORWARD_MS, "Skipped ahead 30s");
+            case KeyEvent.KEYCODE_DPAD_LEFT:
+                if (isControllerVisible() && !isControllerProgressFocused()) {
+                    return false;
+                }
+                return seekRecordingBy(-RECORDING_REWIND_MS, "Rewound 10s");
+            case KeyEvent.KEYCODE_DPAD_RIGHT:
+                if (isControllerVisible() && !isControllerProgressFocused()) {
+                    return false;
+                }
+                return seekRecordingBy(RECORDING_FAST_FORWARD_MS, "Skipped ahead 30s");
+            default:
+                return false;
+        }
+    }
+
+    private boolean shouldLetControllerHandleKey(int keyCode) {
+        if (!isRecordingPlaybackMode() || !isControllerVisible()) {
+            return false;
+        }
+
+        return keyCode == KeyEvent.KEYCODE_DPAD_CENTER
+            || keyCode == KeyEvent.KEYCODE_ENTER
+            || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
+            || keyCode == KeyEvent.KEYCODE_DPAD_UP
+            || keyCode == KeyEvent.KEYCODE_DPAD_DOWN;
+    }
+
+    private boolean isControllerVisible() {
+        return playerView != null && playerView.isControllerFullyVisible();
+    }
+
+    private boolean handleRecordingControllerNavigation(int keyCode) {
+        if (!isRecordingPlaybackMode() || !isControllerVisible()) {
+            return false;
+        }
+
+        if (isTransportControlFocused()) {
+            if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
+                return moveTransportFocus(-1);
+            }
+
+            if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                return moveTransportFocus(1);
+            }
+        }
+
+        if (keyCode == KeyEvent.KEYCODE_DPAD_UP && !isTransportControlFocused()) {
+            return focusPreferredTransportControl();
+        }
+
+        if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN && isTransportControlFocused()) {
+            focusControllerProgress();
+            return true;
+        }
+
+        return false;
+    }
+
+    private boolean moveTransportFocus(int direction) {
+        if (playerView == null || direction == 0) {
+            return false;
+        }
+
+        View focusedView = getCurrentFocus();
+        View[] orderedControls = getOrderedTransportControls();
+        int focusedIndex = -1;
+
+        for (int index = 0; index < orderedControls.length; index += 1) {
+            if (orderedControls[index] == focusedView) {
+                focusedIndex = index;
+                break;
+            }
+        }
+
+        if (focusedIndex < 0) {
+            return false;
+        }
+
+        int targetIndex = focusedIndex + direction;
+        if (targetIndex < 0 || targetIndex >= orderedControls.length) {
+            return true;
+        }
+
+        View targetView = orderedControls[targetIndex];
+        if (targetView == null) {
+            return true;
+        }
+
+        targetView.requestFocus();
+        return true;
+    }
+
+    private boolean isControllerProgressFocused() {
+        View progressView = getControllerView("exo_progress");
+        View progressPlaceholderView = getControllerView("exo_progress_placeholder");
+        if (playerView == null) {
+            return false;
+        }
+
+        if (progressView == null && progressPlaceholderView == null) {
+            return false;
+        }
+
+        View focusedView = getCurrentFocus();
+        return focusedView == null
+            || focusedView == playerView
+            || focusedView == progressView
+            || focusedView == progressPlaceholderView;
+    }
+
+    private boolean isTransportControlFocused() {
+        View focusedView = getCurrentFocus();
+        if (focusedView == null) {
+            return false;
+        }
+
+        for (int viewId : getPreferredTransportControlIds()) {
+            View controlView = getControllerView(viewId);
+            if (controlView != null && focusedView == controlView) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private boolean focusPreferredTransportControl() {
+        if (playerView == null) {
+            return false;
+        }
+
+        for (int viewId : getPreferredTransportControlIds()) {
+            View controlView = getControllerView(viewId);
+            if (controlView != null && controlView.getVisibility() == View.VISIBLE && controlView.isFocusable() && controlView.isEnabled()) {
+                controlView.post(controlView::requestFocus);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private int[] getPreferredTransportControlIds() {
+        return new int[] {
+            getControllerViewId("exo_rew_with_amount"),
+            getControllerViewId("exo_rew"),
+            getControllerViewId("exo_prev"),
+            getControllerViewId("exo_play_pause"),
+            getControllerViewId("exo_ffwd_with_amount"),
+            getControllerViewId("exo_ffwd"),
+            getControllerViewId("exo_next"),
+        };
+    }
+
+    private void focusControllerProgress() {
+        if (playerView == null) {
+            return;
+        }
+
+        View progressView = getControllerView("exo_progress");
+        View progressPlaceholderView = getControllerView("exo_progress_placeholder");
+        if (progressView != null) {
+            progressView.requestFocus();
+            return;
+        }
+
+        if (progressPlaceholderView != null) {
+            progressPlaceholderView.requestFocus();
+            return;
+        }
+
+        playerView.requestFocus();
+    }
+
+    private void wireControllerFocusTargets() {
+        View progressView = getControllerView("exo_progress");
+        View progressPlaceholderView = getControllerView("exo_progress_placeholder");
+        View preferredTransportView = getPreferredTransportControlView();
+        wireTransportControlChain();
+
+        if (preferredTransportView != null) {
+            preferredTransportView.setFocusable(true);
+            preferredTransportView.setNextFocusDownId(preferredTransportView.getId());
+            if (progressView != null) {
+                progressView.setFocusable(true);
+                progressView.setNextFocusUpId(preferredTransportView.getId());
+            }
+            if (progressPlaceholderView != null) {
+                progressPlaceholderView.setFocusable(true);
+                progressPlaceholderView.setNextFocusUpId(preferredTransportView.getId());
+            }
+        }
+
+        int progressTargetId = progressView != null ? progressView.getId() : progressPlaceholderView != null ? progressPlaceholderView.getId() : View.NO_ID;
+        if (progressTargetId != View.NO_ID) {
+            for (int viewId : getPreferredTransportControlIds()) {
+                View controlView = getControllerView(viewId);
+                if (controlView != null) {
+                    controlView.setFocusable(true);
+                    controlView.setNextFocusDownId(progressTargetId);
+                }
+            }
+        }
+    }
+
+    private void wireTransportControlChain() {
+        View previousFocusableControl = null;
+        for (View controlView : getOrderedTransportControls()) {
+            controlView.setFocusable(true);
+            if (previousFocusableControl != null) {
+                previousFocusableControl.setNextFocusRightId(controlView.getId());
+                controlView.setNextFocusLeftId(previousFocusableControl.getId());
+            }
+            previousFocusableControl = controlView;
+        }
+    }
+
+    private View[] getOrderedTransportControls() {
+        java.util.ArrayList<View> orderedControls = new java.util.ArrayList<>();
+        int[] orderedIds = new int[] {
+            getControllerViewId("exo_prev"),
+            getControllerViewId("exo_rew_with_amount"),
+            getControllerViewId("exo_rew"),
+            getControllerViewId("exo_play_pause"),
+            getControllerViewId("exo_ffwd"),
+            getControllerViewId("exo_ffwd_with_amount"),
+            getControllerViewId("exo_next"),
+        };
+
+        for (int viewId : orderedIds) {
+            View controlView = getControllerView(viewId);
+            if (controlView != null && controlView.getVisibility() == View.VISIBLE && controlView.isEnabled()) {
+                orderedControls.add(controlView);
+            }
+        }
+
+        return orderedControls.toArray(new View[0]);
+    }
+
+    private View getPreferredTransportControlView() {
+        for (int viewId : getPreferredTransportControlIds()) {
+            View controlView = getControllerView(viewId);
+            if (controlView != null && controlView.getVisibility() == View.VISIBLE && controlView.isEnabled()) {
+                return controlView;
+            }
+        }
+
+        return null;
+    }
+
+    private View getControllerView(String viewName) {
+        return getControllerView(getControllerViewId(viewName));
+    }
+
+    private View getControllerView(int viewId) {
+        if (playerView == null || viewId == View.NO_ID) {
+            return null;
+        }
+
+        return playerView.findViewById(viewId);
+    }
+
+    private int getControllerViewId(String viewName) {
+        int appViewId = getResources().getIdentifier(viewName, "id", getPackageName());
+        if (appViewId != 0) {
+            return appViewId;
+        }
+
+        int media3ViewId = getResources().getIdentifier(viewName, "id", "androidx.media3.ui");
+        if (media3ViewId != 0) {
+            return media3ViewId;
+        }
+
+        return View.NO_ID;
+    }
+
+    private boolean seekRecordingBy(long deltaMs, String overlayLabel) {
+        if (player == null) {
+            return false;
+        }
+
+        if (!player.isCurrentMediaItemSeekable()) {
+            showStatusOverlay("Seeking unavailable", 1800);
+            return true;
+        }
+
+        long durationMs = player.getDuration();
+        long targetPositionMs = Math.max(0L, player.getCurrentPosition() + deltaMs);
+        if (durationMs > 0) {
+            targetPositionMs = Math.min(targetPositionMs, durationMs);
+        }
+
+        player.seekTo(targetPositionMs);
+        if (playerView != null) {
+            playerView.showController();
+        }
+        focusControllerProgress();
+        showStatusOverlay(overlayLabel, 1400);
+        saveRecordingBookmark(true);
+        return true;
+    }
+
+    private boolean isRecordingPlaybackMode() {
+        return !recordingRef.isEmpty() || (currentUrl != null && currentUrl.contains("/dvrfile/"));
+    }
+
+    private void restoreRecordingBookmark() {
+        pendingResumePositionMs = 0L;
+        hasAppliedResumePosition = false;
+        lastSavedBookmarkPositionMs = -1L;
+
+        String bookmarkKey = getRecordingBookmarkKey();
+        if (bookmarkKey.isEmpty() || bookmarkPrefs == null) {
+            return;
+        }
+
+        long savedPositionMs = bookmarkPrefs.getLong(bookmarkKey + ":position", 0L);
+        if (savedPositionMs < RESUME_MINIMUM_MS) {
+            clearRecordingBookmark();
+            return;
+        }
+
+        pendingResumePositionMs = savedPositionMs;
+    }
+
+    private boolean applyPendingResumePosition() {
+        if (!isRecordingPlaybackMode() || player == null || hasAppliedResumePosition || pendingResumePositionMs < RESUME_MINIMUM_MS) {
+            return false;
+        }
+
+        long durationMs = player.getDuration();
+        long targetPositionMs = pendingResumePositionMs;
+        if (durationMs > RESUME_COMPLETION_THRESHOLD_MS) {
+            targetPositionMs = Math.min(targetPositionMs, durationMs - RESUME_COMPLETION_THRESHOLD_MS);
+        }
+
+        if (targetPositionMs < RESUME_MINIMUM_MS) {
+            clearRecordingBookmark();
+            return false;
+        }
+
+        player.seekTo(targetPositionMs);
+        final long resumeOverlayPositionMs = targetPositionMs;
+        hasAppliedResumePosition = true;
+        lastSavedBookmarkPositionMs = targetPositionMs;
+        suppressGenericPlaybackOverlay(RESUME_OVERLAY_DURATION_MS);
+        overlayHandler.post(() -> {
+            overlayHandler.removeCallbacks(hideOverlayRunnable);
+            overlayHandler.postDelayed(
+                () -> showStatusOverlay("Resumed at " + formatPlaybackClock(resumeOverlayPositionMs), RESUME_OVERLAY_DURATION_MS),
+                RESUME_OVERLAY_SHOW_DELAY_MS
+            );
+        });
+        return true;
+    }
+
+    private void saveRecordingBookmark(boolean force) {
+        if (!isRecordingPlaybackMode() || player == null || bookmarkPrefs == null) {
+            return;
+        }
+
+        long positionMs = Math.max(0L, player.getCurrentPosition());
+        long durationMs = Math.max(0L, player.getDuration());
+        if (positionMs < RESUME_MINIMUM_MS) {
+            return;
+        }
+
+        long remainingMs = durationMs > 0 ? durationMs - positionMs : Long.MAX_VALUE;
+        if (remainingMs <= RESUME_COMPLETION_THRESHOLD_MS) {
+            clearRecordingBookmark();
+            return;
+        }
+
+        if (!force && lastSavedBookmarkPositionMs >= 0L && Math.abs(positionMs - lastSavedBookmarkPositionMs) < RESUME_PERSIST_INTERVAL_MS) {
+            return;
+        }
+
+        String bookmarkKey = getRecordingBookmarkKey();
+        if (bookmarkKey.isEmpty()) {
+            return;
+        }
+
+        bookmarkPrefs.edit()
+            .putLong(bookmarkKey + ":position", positionMs)
+            .putLong(bookmarkKey + ":duration", durationMs)
+            .putString(bookmarkKey + ":title", String.valueOf(getTitle()))
+            .putLong(bookmarkKey + ":updatedAt", System.currentTimeMillis())
+            .apply();
+        lastSavedBookmarkPositionMs = positionMs;
+    }
+
+    private void clearRecordingBookmark() {
+        String bookmarkKey = getRecordingBookmarkKey();
+        if (!bookmarkKey.isEmpty() && bookmarkPrefs != null) {
+            bookmarkPrefs.edit()
+                .remove(bookmarkKey + ":position")
+                .remove(bookmarkKey + ":duration")
+                .remove(bookmarkKey + ":title")
+                .remove(bookmarkKey + ":updatedAt")
+                .apply();
+        }
+
+        pendingResumePositionMs = 0L;
+        hasAppliedResumePosition = false;
+        lastSavedBookmarkPositionMs = -1L;
+    }
+
+    private String getRecordingBookmarkKey() {
+        if (!recordingRef.isEmpty()) {
+            return BOOKMARK_KEY_PREFIX + recordingRef;
+        }
+
+        if (currentUrl != null && currentUrl.contains("/dvrfile/")) {
+            return BOOKMARK_KEY_PREFIX + currentUrl;
+        }
+
+        return "";
+    }
+
+    private String formatPlaybackClock(long totalMilliseconds) {
+        long totalSeconds = Math.max(0L, totalMilliseconds / 1000L);
+        long hours = totalSeconds / 3600L;
+        long minutes = (totalSeconds % 3600L) / 60L;
+        long seconds = totalSeconds % 60L;
+
+        if (hours > 0L) {
+            return String.format(java.util.Locale.US, "%d:%02d:%02d", hours, minutes, seconds);
+        }
+
+        return String.format(java.util.Locale.US, "%d:%02d", minutes, seconds);
     }
 
     private boolean surfChannel(int direction) {
@@ -591,6 +1094,17 @@ public class NativeVideoActivity extends AppCompatActivity {
         if (durationMs > 0) {
             overlayHandler.postDelayed(hideOverlayRunnable, durationMs);
         }
+    }
+
+    private void suppressGenericPlaybackOverlay(int durationMs) {
+        suppressGenericPlaybackOverlayUntilMs = Math.max(
+            suppressGenericPlaybackOverlayUntilMs,
+            SystemClock.uptimeMillis() + Math.max(0, durationMs)
+        );
+    }
+
+    private boolean shouldSuppressGenericPlaybackOverlay() {
+        return SystemClock.uptimeMillis() < suppressGenericPlaybackOverlayUntilMs;
     }
 
     private void showProgramInfoOverlay() {

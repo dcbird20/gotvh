@@ -7,6 +7,9 @@
       <button class="tv-btn" tvFocusable [class.tv-btn--primary]="favoritesOnly" (click)="toggleFavoritesOnly()">
         <span>Favorites Only</span>
       </button>
+      <button class="tv-btn" tvFocusable (click)="cycleSortMode()">
+        <span>{{ getSortModeLabel() }}</span>
+      </button>
       <button class="tv-btn" tvFocusable (click)="toggleSearch()">
         <span class="tv-btn__icon" aria-hidden="true">🔍</span>
         <span>Search</span>
@@ -16,6 +19,7 @@
 
   <div class="channels-screen__context" *ngIf="!loading && !errorMessage">
     <span class="context-pill">{{ getResultCountSummary() }}</span>
+    <span class="context-pill context-pill--muted">{{ getSortSummary() }}</span>
     <span class="context-pill context-pill--muted" *ngIf="favoritesOnly">Favorites only</span>
   </div>
 

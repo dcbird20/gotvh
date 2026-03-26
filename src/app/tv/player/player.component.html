@@ -40,6 +40,16 @@
     <button class="tv-btn" type="button" tvFocusable (click)="restartRecording()">Start Over</button>
   </section>
 
+  <section class="player-screen__recording-controls" *ngIf="canShowRecordingTrickPlayControls()">
+    <p class="player-screen__health-text">DVR controls: use Left or Right, or your remote rewind and fast-forward keys, to seek through recordings.</p>
+    <div class="player-screen__recording-actions">
+      <button class="tv-btn" type="button" tvFocusable (click)="seekRecordingBackward()">-{{ recordingRewindStepSeconds }}s</button>
+      <button class="tv-btn" type="button" tvFocusable (click)="toggleBrowserPlayback()">{{ getBrowserPlaybackToggleLabel() }}</button>
+      <button class="tv-btn" type="button" tvFocusable (click)="seekRecordingForward()">+{{ recordingFastForwardStepSeconds }}s</button>
+      <button class="tv-btn" type="button" tvFocusable (click)="restartRecording()">Start Over</button>
+    </div>
+  </section>
+
   <ng-container *ngIf="!isCapacitorNative() && diagnosticsEnabled">
   <section class="player-screen__transports">
     <div class="player-screen__transports-copy">

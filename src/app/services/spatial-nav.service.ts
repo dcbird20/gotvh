@@ -44,7 +44,35 @@ export class SpatialNavService {
     item.focus();
   }
 
+  focusByElementId(elementId: string): boolean {
+    const targetId = String(elementId || '').trim();
+    if (!targetId) {
+      return false;
+    }
+
+    const item = this.items.find(candidate => {
+      const element = candidate.getElement();
+      return element.id === targetId && this.isItemVisible(candidate);
+    });
+
+    if (!item) {
+      return false;
+    }
+
+    this.setFocus(item);
+    return true;
+  }
+
   handleKeydown(event: KeyboardEvent): boolean {
+    const key = String(event.key || '');
+    const code = String((event as any).code || '');
+    const keyCode = Number((event as any).keyCode || (event as any).which || 0);
+
+    // Some remote simulators emit Tab for d-pad horizontal navigation.
+    if (key === 'Tab' || code === 'Tab' || keyCode === 9) {
+      return this.move(event.shiftKey ? 'left' : 'right');
+    }
+
     if (this.isDirectionalKey(event, 'up')) {
       return this.move('up');
     }
@@ -103,19 +131,24 @@ export class SpatialNavService {
     const code = String((event as any).code || '');
     const keyCode = Number((event as any).keyCode || (event as any).which || 0);
 
+    const upKeys = new Set(['ArrowUp', 'Up', 'DPAD_UP', 'UIKeyInputUpArrow']);
+    const downKeys = new Set(['ArrowDown', 'Down', 'DPAD_DOWN', 'UIKeyInputDownArrow']);
+    const leftKeys = new Set(['ArrowLeft', 'Left', 'DPAD_LEFT', 'UIKeyInputLeftArrow']);
+    const rightKeys = new Set(['ArrowRight', 'Right', 'DPAD_RIGHT', 'UIKeyInputRightArrow']);
+
     if (direction === 'up') {
-      return key === 'ArrowUp' || code === 'ArrowUp' || keyCode === 19 || keyCode === 38;
+      return upKeys.has(key) || upKeys.has(code) || keyCode === 19 || keyCode === 38;
     }
 
     if (direction === 'down') {
-      return key === 'ArrowDown' || code === 'ArrowDown' || keyCode === 20 || keyCode === 40;
+      return downKeys.has(key) || downKeys.has(code) || keyCode === 20 || keyCode === 40;
     }
 
     if (direction === 'left') {
-      return key === 'ArrowLeft' || code === 'ArrowLeft' || keyCode === 21 || keyCode === 37;
+      return leftKeys.has(key) || leftKeys.has(code) || keyCode === 21 || keyCode === 37;
     }
 
-    return key === 'ArrowRight' || code === 'ArrowRight' || keyCode === 22 || keyCode === 39;
+    return rightKeys.has(key) || rightKeys.has(code) || keyCode === 22 || keyCode === 39;
   }
 
   private move(dir: 'up' | 'down' | 'left' | 'right'): boolean {
@@ -142,6 +175,13 @@ export class SpatialNavService {
     const fromCx = fromRect.left + fromRect.width / 2;
     const fromCy = fromRect.top + fromRect.height / 2;
     const currentElement = currentItem.getElement();
+
+    const explicitTarget = this.resolveExplicitNavigationTarget(currentElement, dir);
+    if (explicitTarget) {
+      this.setFocus(explicitTarget);
+      return true;
+    }
+
     const currentScopeElement = this.getNavigationScopeElement(currentElement);
     const navigationMode = currentScopeElement?.getAttribute('data-tv-nav-mode') || '';
 
@@ -154,8 +194,18 @@ export class SpatialNavService {
       return false;
     }
 
+    if ((dir === 'left' || dir === 'right') && navigationMode === 'linear-horizontal') {
+      const linearTarget = this.findLinearHorizontalCandidate(currentScopeElement, dir);
+      if (linearTarget) {
+        this.setFocus(linearTarget);
+        return true;
+      }
+      return false;
+    }
+
     const currentScope = this.getNavigationScope(currentElement);
-    const scopeLocked = dir === 'up' || dir === 'down';
+    const scopeLocked = (navigationMode === 'linear-vertical' && (dir === 'up' || dir === 'down'))
+      || (navigationMode === 'linear-horizontal' && (dir === 'left' || dir === 'right'));
     const bestInScope = this.findBestCandidate(dir, fromRect, fromCx, fromCy, currentScope, currentItem);
     const best = bestInScope || (scopeLocked ? null : this.findBestCandidate(dir, fromRect, fromCx, fromCy, null, currentItem));
 
@@ -165,6 +215,21 @@ export class SpatialNavService {
     }
 
     return false;
+  }
+
+  private resolveExplicitNavigationTarget(
+    element: HTMLElement,
+    dir: 'up' | 'down' | 'left' | 'right'
+  ): FocusableItem | null {
+    const targetId = String(element.getAttribute(`data-tv-nav-${dir}`) || '').trim();
+    if (!targetId) {
+      return null;
+    }
+
+    return this.items.find(item => {
+      const itemElement = item.getElement();
+      return itemElement.id === targetId && this.isItemVisible(item);
+    }) || null;
   }
 
   private isCandidateInDirection(dir: 'up' | 'down' | 'left' | 'right', dx: number, dy: number): boolean {
@@ -379,6 +444,53 @@ export class SpatialNavService {
         ? candidate.centerY > currentCenterY + this.directionDeadZonePx
         : candidate.centerY < currentCenterY - this.directionDeadZonePx)
       .sort((left, right) => dir === 'down' ? left.centerY - right.centerY : right.centerY - left.centerY);
+
+    return directionalCandidates[0]?.item || null;
+  }
+
+  private findLinearHorizontalCandidate(scopeElement: HTMLElement | null, dir: 'left' | 'right'): FocusableItem | null {
+    const currentItem = this.resolveCurrentItem();
+    if (!scopeElement || !currentItem) {
+      return null;
+    }
+
+    const orderedItems = this.getOrderedScopedItems(scopeElement);
+
+    const currentIndex = orderedItems.indexOf(currentItem);
+    if (currentIndex >= 0) {
+      const nextIndex = dir === 'right' ? currentIndex + 1 : currentIndex - 1;
+      if (nextIndex < 0 || nextIndex >= orderedItems.length) {
+        return null;
+      }
+
+      return orderedItems[nextIndex];
+    }
+
+    let currentRect: DOMRect;
+    try {
+      currentRect = currentItem.getRect();
+    } catch {
+      return null;
+    }
+
+    const currentCenterX = currentRect.left + currentRect.width / 2;
+    const directionalCandidates = orderedItems
+      .map(item => {
+        try {
+          const rect = item.getRect();
+          return {
+            item,
+            centerX: rect.left + rect.width / 2,
+          };
+        } catch {
+          return null;
+        }
+      })
+      .filter((candidate): candidate is { item: FocusableItem; centerX: number } => candidate !== null)
+      .filter(candidate => dir === 'right'
+        ? candidate.centerX > currentCenterX + this.directionDeadZonePx
+        : candidate.centerX < currentCenterX - this.directionDeadZonePx)
+      .sort((left, right) => dir === 'right' ? left.centerX - right.centerX : right.centerX - left.centerX);
 
     return directionalCandidates[0]?.item || null;
   }

@@ -143,6 +143,22 @@
   font-size: 14px;
 }
 
+.player-screen__recording-controls,
+.player-screen__autoplay-gate {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  border-radius: 18px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+}
+
+.player-screen__recording-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
 .player-screen__diagnostics {
   display: grid;
   gap: 12px;
@@ -306,6 +322,10 @@
   }
 
   .player-screen__health-actions .tv-btn {
+    flex: 1 1 180px;
+  }
+
+  .player-screen__recording-actions .tv-btn {
     flex: 1 1 180px;
   }
 
