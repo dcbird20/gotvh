@@ -111,6 +111,7 @@ export class AutorecComponent implements OnInit, OnDestroy {
 
   createRule(): void {
     const title = this.buildRuleTitlePattern(this.form.title, this.form.matchMode, this.form.startsWith, this.form.endsWith);
+    const name = String(this.form.title || '').trim();
     if (!title) {
       this.error = 'A rule title is required.';
       return;
@@ -121,6 +122,7 @@ export class AutorecComponent implements OnInit, OnDestroy {
     const conf: any = {
       enabled: 1,
       title,
+      name,
       fulltext: this.form.matchMode === 'fulltext' ? 1 : 0,
       comment: String(this.form.comment || '').trim(),
     };
@@ -248,6 +250,7 @@ export class AutorecComponent implements OnInit, OnDestroy {
 
     const changes: any = {
       title,
+      name: this.editForm.customRegex ? String(rule?.name || '').trim() : String(this.editForm.title || '').trim(),
       fulltext: this.editForm.matchMode === 'fulltext' ? 1 : 0,
       comment: String(this.editForm.comment || '').trim(),
       channel: String(this.editForm.channel || '').trim(),
@@ -323,7 +326,7 @@ export class AutorecComponent implements OnInit, OnDestroy {
     }
 
     return this.rules.filter(rule => {
-      const title = String(rule?.title || rule?.name || '').trim().toLowerCase();
+      const title = String(rule?.display_title || rule?.name || rule?.title || '').trim().toLowerCase();
       const channel = String(rule?.channelname || rule?.channel || '').trim().toLowerCase();
       const comment = String(rule?.comment || '').trim().toLowerCase();
       const config = String(rule?.config_label || '').trim().toLowerCase();
@@ -510,13 +513,34 @@ export class AutorecComponent implements OnInit, OnDestroy {
       const configValue = String(rule?.config_name || rule?.config || '').trim();
       const channelName = String(rule?.channelname || channelNameByUuid.get(channelUuid) || channelUuid || '').trim();
       const configLabel = String(configNameByUuid.get(configValue) || configValue || '').trim();
+      const displayTitle = this.getRuleDisplayTitle(rule);
 
       return {
         ...rule,
         channelname: channelName,
-        config_label: configLabel
+        config_label: configLabel,
+        display_title: displayTitle
       };
     });
+  }
+
+  private getRuleDisplayTitle(rule: any): string {
+    const explicitName = String(rule?.name || '').trim();
+    if (explicitName) {
+      return explicitName;
+    }
+
+    const rawTitlePattern = String(rule?.title || '').trim();
+    if (!rawTitlePattern) {
+      return 'Untitled Rule';
+    }
+
+    const parsed = this.parseStoredTitlePattern(rawTitlePattern);
+    if (!parsed.customRegex && parsed.title) {
+      return parsed.title;
+    }
+
+    return rawTitlePattern;
   }
 
   describeMatchMode(rule: any): string {

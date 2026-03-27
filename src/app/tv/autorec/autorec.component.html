@@ -160,7 +160,7 @@
       >
         <ng-container *ngIf="!isEditingRule(rule); else editRuleTemplate">
           <div class="stack-card__title-row">
-            <h2 class="stack-card__title">{{ rule.title || rule.name || 'Untitled Rule' }}</h2>
+            <h2 class="stack-card__title">{{ rule.display_title || rule.name || rule.title || 'Untitled Rule' }}</h2>
             <span class="stack-card__badge" [class.stack-card__badge--muted]="!rule.enabled">{{ rule.enabled ? 'Enabled' : 'Disabled' }}</span>
           </div>
 

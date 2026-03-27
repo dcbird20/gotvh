@@ -15,27 +15,29 @@
   </header>
 
   <div class="panel-screen__control-rail">
-    <div class="panel-screen__tabs">
-      <button class="tv-btn" type="button" tvFocusable data-tv-linear-anchor="true" [class.tv-btn--primary]="activeTab === 'upcoming'" (click)="selectTab('upcoming')">Upcoming</button>
-      <button class="tv-btn" type="button" tvFocusable data-tv-linear-anchor="true" [class.tv-btn--primary]="activeTab === 'finished'" (click)="selectTab('finished')">Finished</button>
-      <button class="tv-btn" type="button" tvFocusable data-tv-linear-anchor="true" [class.tv-btn--primary]="activeTab === 'failed'" (click)="selectTab('failed')">Failed</button>
-    </div>
+    <div class="panel-screen__control-line">
+      <div class="panel-screen__tabs">
+        <button class="tv-btn" type="button" tvFocusable data-tv-linear-anchor="true" id="recordings-tab-finished" [class.tv-btn--primary]="activeTab === 'finished'" (click)="selectTab('finished')">Finished</button>
+        <button class="tv-btn" type="button" tvFocusable data-tv-linear-anchor="true" id="recordings-tab-upcoming" [class.tv-btn--primary]="activeTab === 'upcoming'" (click)="selectTab('upcoming')">Upcoming</button>
+        <button class="tv-btn" type="button" tvFocusable data-tv-linear-anchor="true" id="recordings-tab-failed" [class.tv-btn--primary]="activeTab === 'failed'" (click)="selectTab('failed')">Failed</button>
+      </div>
 
-    <div class="panel-screen__context" *ngIf="!loading && !error">
-      <span class="context-pill">{{ getActiveTabLabel() }}</span>
-      <span class="context-pill context-pill--muted">{{ getSortSummary() }}</span>
-      <span class="context-pill context-pill--muted">{{ getFilterSummary() }}</span>
-      <span class="context-pill context-pill--muted" *ngIf="getWatchedSummary()">{{ getWatchedSummary() }}</span>
-    </div>
+      <div class="panel-screen__context" *ngIf="!loading && !error">
+        <span class="context-pill">{{ getActiveTabLabel() }}</span>
+        <span class="context-pill context-pill--muted">{{ getSortSummary() }}</span>
+        <span class="context-pill context-pill--muted">{{ getFilterSummary() }}</span>
+        <span class="context-pill context-pill--muted" *ngIf="getWatchedSummary()">{{ getWatchedSummary() }}</span>
+      </div>
 
-    <div class="panel-screen__toolbar" *ngIf="!loading && !error">
-      <label class="search-field search-field--compact">
-        <span class="search-field__label">Filter</span>
-        <span class="search-field__input-row">
-          <input type="text" tvFocusable data-tv-linear-anchor="true" [(ngModel)]="filterInputValue" (ngModelChange)="onFilterInputChange()" placeholder="Title, channel, status, detail" />
-          <button *ngIf="filterInputValue" type="button" class="tv-btn" tvFocusable data-tv-linear-anchor="true" (click)="clearFilter()">Clear</button>
-        </span>
-      </label>
+      <div class="panel-screen__toolbar" *ngIf="!loading && !error">
+        <label class="search-field search-field--compact">
+          <span class="search-field__label">Filter</span>
+          <span class="search-field__input-row">
+            <input type="text" tvFocusable data-tv-linear-anchor="true" [(ngModel)]="filterInputValue" (ngModelChange)="onFilterInputChange()" placeholder="Title, channel, status, detail" />
+            <button *ngIf="filterInputValue" type="button" class="tv-btn" tvFocusable data-tv-linear-anchor="true" (click)="clearFilter()">Clear</button>
+          </span>
+        </label>
+      </div>
     </div>
   </div>
 

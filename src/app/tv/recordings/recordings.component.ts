@@ -922,6 +922,9 @@ export class RecordingsComponent implements OnInit {
     const adjacentEntry = this.getAdjacentVisibleEntry(entry, direction);
 
     if (!adjacentEntry) {
+      if (direction === 'up') {
+        return this.getTopRailAnchorId() || currentControlId;
+      }
       return currentControlId;
     }
 
@@ -936,6 +939,18 @@ export class RecordingsComponent implements OnInit {
     }
 
     return this.getRowBodyId(adjacentEntry) || currentControlId;
+  }
+
+  private getTopRailAnchorId(): string {
+    if (this.activeTab === 'upcoming') {
+      return 'recordings-tab-upcoming';
+    }
+
+    if (this.activeTab === 'failed') {
+      return 'recordings-tab-failed';
+    }
+
+    return 'recordings-tab-finished';
   }
 
   getSecondaryActionFirstId(entry: any): string {
