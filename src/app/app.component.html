@@ -18,6 +18,7 @@
           type="button"
           tvFocusable
           [routerLink]="item.route"
+          [attr.data-nav-route]="item.route"
           routerLinkActive="sidebar__item--active"
           [routerLinkActiveOptions]="{ exact: false }"
           [attr.aria-current]="isActive(item.route) ? 'page' : null"

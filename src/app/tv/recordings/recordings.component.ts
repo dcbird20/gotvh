@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnInit } from '@angular/core';
+import { Component, HostListener, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { forkJoin, of } from 'rxjs';
@@ -9,6 +9,16 @@ import { RecordingPlaybackProgressService } from '../../services/recording-playb
 import { ReturnNavigationContext, ReturnNavigationService } from '../../services/return-navigation.service';
 import { SpatialNavService } from '../../services/spatial-nav.service';
 import { TvheadendService } from '../../services/tvheadend.service';
+
+interface RecordingProgramStack {
+  key: string;
+  title: string;
+  entries: any[];
+  anchorEntry: any;
+  childEntries: any[];
+  unwatchedCount: number;
+  latestStart: number;
+}
 
 @Component({
   selector: 'app-recordings',
@@ -28,10 +38,14 @@ export class RecordingsComponent implements OnInit {
   channels: any[] = [];
   activeTab: 'upcoming' | 'finished' | 'failed' = 'finished';
   filterQuery = '';
+  filterInputValue = '';
   pendingActionUuid = '';
   confirmingRemoveUuid = '';
+  confirmingRemoveStackKey = '';
   expandedActionsUuid = '';
   editingUuid = '';
+  expandedStackKey = '';
+  expandedStackVisibleChildren = 0;
   editForm = {
     title: '',
     start: '',
@@ -40,6 +54,15 @@ export class RecordingsComponent implements OnInit {
   private pendingReturnContext: ReturnNavigationContext | null = null;
   private shouldApplyInitialRowFocus = true;
   private brokenChannelIcons = new Set<string>();
+  private actionSheetTriggerElement: HTMLElement | null = null;
+  private pendingPostDeleteFocusUuid = '';
+  private readonly stackChildPreviewLimit = 3;
+  private readonly stackChildRevealStep = 4;
+  private stackLastFocusedChildIndex = new Map<string, number>();
+  private filterDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private stacksCacheKey = '';
+  private stacksCacheResult: RecordingProgramStack[] = [];
+  private stacksCacheRevision = 0;
 
   constructor(
     private tvh: TvheadendService,
@@ -72,8 +95,13 @@ export class RecordingsComponent implements OnInit {
         this.finished = this.sortMostRecentFirst(finished);
         this.failed = this.sortMostRecentFirst(failed);
         this.brokenChannelIcons.clear();
+        if (this.expandedStackKey && !this.getProgramStacks().some(stack => stack.key === this.expandedStackKey)) {
+          this.expandedStackKey = '';
+          this.expandedStackVisibleChildren = 0;
+        }
         this.loading = false;
         this.restoreReturnFocusIfNeeded();
+        this.restorePostDeleteFocusIfNeeded();
         this.focusFirstRowOnEntryIfNeeded();
       },
       error: (error: any) => {
@@ -86,7 +114,11 @@ export class RecordingsComponent implements OnInit {
   selectTab(tab: 'upcoming' | 'finished' | 'failed'): void {
     this.activeTab = tab;
     this.confirmingRemoveUuid = '';
+    this.confirmingRemoveStackKey = '';
     this.expandedActionsUuid = '';
+    this.expandedStackKey = '';
+    this.expandedStackVisibleChildren = 0;
+    this.stackLastFocusedChildIndex.clear();
     this.cancelEdit();
   }
 
@@ -101,6 +133,409 @@ export class RecordingsComponent implements OnInit {
   }
 
   getFilteredEntries(): any[] {
+    if (!this.usesProgramStacks()) {
+      return this.getFilteredEntriesByQuery();
+    }
+
+    const visibleEntries: any[] = [];
+    for (const stack of this.getProgramStacks()) {
+      visibleEntries.push(stack.anchorEntry);
+      if (this.isStackExpanded(stack)) {
+        visibleEntries.push(...this.getVisibleChildEntries(stack));
+      }
+    }
+
+    return visibleEntries;
+  }
+
+  getProgramStacks(): RecordingProgramStack[] {
+    const cacheKey = `${this.activeTab}|${this.filterQuery}|${this.finished.length}|${this.upcoming.length}|${this.failed.length}|${this.stacksCacheRevision}`;
+    if (cacheKey === this.stacksCacheKey) {
+      return this.stacksCacheResult;
+    }
+    this.stacksCacheKey = cacheKey;
+    this.stacksCacheResult = this.buildProgramStacks();
+    return this.stacksCacheResult;
+  }
+
+  private buildProgramStacks(): RecordingProgramStack[] {
+    const filteredEntries = this.getFilteredEntriesByQuery();
+    if (!filteredEntries.length) {
+      return [];
+    }
+
+    const groupedEntries = new Map<string, any[]>();
+    const orderedKeys: string[] = [];
+
+    for (const entry of filteredEntries) {
+      const key = this.usesProgramStacks()
+        ? `stack:${this.getProgramGroupingKey(entry)}`
+        : `single:${String(entry?.uuid || this.getProgramGroupingKey(entry)).trim()}`;
+
+      if (!groupedEntries.has(key)) {
+        groupedEntries.set(key, []);
+        orderedKeys.push(key);
+      }
+
+      groupedEntries.get(key)?.push(entry);
+    }
+
+    return orderedKeys.map(key => {
+      const entries = groupedEntries.get(key) || [];
+      const anchorEntry = this.resolveStackAnchorEntry(entries);
+      const anchorUuid = String(anchorEntry?.uuid || '').trim();
+      const childEntries = entries.filter(candidate => String(candidate?.uuid || '').trim() !== anchorUuid);
+      const unwatchedCount = entries.filter(candidate => !this.isMarkedWatched(candidate)).length;
+      const latestStart = entries.reduce((maxStart, candidate) => {
+        const candidateStart = Number(candidate?.start || 0);
+        return candidateStart > maxStart ? candidateStart : maxStart;
+      }, 0);
+
+      return {
+        key,
+        title: String(anchorEntry?.disp_title || anchorEntry?.title || 'Untitled Recording').trim() || 'Untitled Recording',
+        entries,
+        anchorEntry,
+        childEntries,
+        unwatchedCount,
+        latestStart
+      };
+    });
+  }
+
+  getStackVisibleEntries(stack: RecordingProgramStack): any[] {
+    if (!this.isStackExpanded(stack)) {
+      return [stack.anchorEntry];
+    }
+
+    return [stack.anchorEntry, ...this.getVisibleChildEntries(stack)];
+  }
+
+  trackByStackKey(_: number, stack: RecordingProgramStack): string {
+    return stack.key;
+  }
+
+  isStackExpanded(stack: RecordingProgramStack): boolean {
+    return !!stack.childEntries.length && this.expandedStackKey === stack.key;
+  }
+
+  toggleStack(stack: RecordingProgramStack): void {
+    if (!stack.childEntries.length) {
+      return;
+    }
+
+    const isSameStack = this.expandedStackKey === stack.key;
+    this.expandedStackKey = isSameStack ? '' : stack.key;
+    this.expandedStackVisibleChildren = isSameStack
+      ? 0
+      : Math.min(this.stackChildPreviewLimit, stack.childEntries.length);
+  }
+
+  getStackToggleLabel(stack: RecordingProgramStack): string {
+    const count = stack.childEntries.length;
+    if (!count) {
+      return '';
+    }
+
+    return this.isStackExpanded(stack) ? 'Collapse' : `Show ${count} more`;
+  }
+
+  getStackEpisodeCountLabel(stack: RecordingProgramStack): string {
+    const count = stack.entries.length;
+    return `${count} item${count === 1 ? '' : 's'}`;
+  }
+
+  getStackShowAllLabel(stack: RecordingProgramStack): string {
+    const hiddenCount = this.getStackHiddenChildCount(stack);
+    if (hiddenCount <= 0) {
+      return 'Show less';
+    }
+
+    const nextReveal = Math.min(hiddenCount, this.stackChildRevealStep);
+    return `Show ${nextReveal} more`;
+  }
+
+  shouldShowStackShowAllToggle(stack: RecordingProgramStack): boolean {
+    if (!this.isStackExpanded(stack)) {
+      return false;
+    }
+
+    return stack.childEntries.length > this.stackChildPreviewLimit;
+  }
+
+  getStackHiddenChildCount(stack: RecordingProgramStack): number {
+    if (!this.isStackExpanded(stack)) {
+      return 0;
+    }
+
+    return Math.max(0, stack.childEntries.length - this.getVisibleChildCountForStack(stack));
+  }
+
+  toggleShowAllInStack(stack: RecordingProgramStack): void {
+    if (!this.shouldShowStackShowAllToggle(stack)) {
+      return;
+    }
+
+    if (this.getStackHiddenChildCount(stack) > 0) {
+      this.revealMoreChildrenInStack(stack);
+      return;
+    }
+
+    this.expandedStackVisibleChildren = Math.min(this.stackChildPreviewLimit, stack.childEntries.length);
+  }
+
+  rememberFocusedEntryInStack(entry: any, stack: RecordingProgramStack, isParent: boolean): void {
+    if (!this.usesProgramStacks()) {
+      return;
+    }
+
+    if (isParent) {
+      this.stackLastFocusedChildIndex.set(stack.key, -1);
+      return;
+    }
+
+    const uuid = String(entry?.uuid || '').trim();
+    if (!uuid) {
+      return;
+    }
+
+    const index = stack.childEntries.findIndex(candidate => String(candidate?.uuid || '').trim() === uuid);
+    if (index >= 0) {
+      this.stackLastFocusedChildIndex.set(stack.key, index);
+    }
+  }
+
+  handleRowArrowRight(entry: any, stack: RecordingProgramStack, isParent: boolean, event: KeyboardEvent): void {
+    if (!isParent || !stack.childEntries.length || !this.usesProgramStacks() || this.isEditing(entry)) {
+      return;
+    }
+
+    if (this.getPrimaryActionEntryId(entry)) {
+      return;
+    }
+
+    if (this.isStackExpanded(stack) && this.getStackHiddenChildCount(stack) > 0) {
+      event.preventDefault();
+      event.stopPropagation();
+      this.revealMoreChildrenInStack(stack);
+
+      setTimeout(() => {
+        const preferredChild = this.getPreferredChildEntry(stack);
+        if (!preferredChild) {
+          return;
+        }
+
+        this.spatialNav.focusByElementId(this.getRowBodyId(preferredChild));
+      });
+      return;
+    }
+
+    if (!this.isStackExpanded(stack)) {
+      event.preventDefault();
+      event.stopPropagation();
+      this.expandedStackKey = stack.key;
+      this.expandedStackVisibleChildren = Math.min(this.stackChildPreviewLimit, stack.childEntries.length);
+
+      setTimeout(() => {
+        const preferredChild = this.getPreferredChildEntry(stack);
+        if (!preferredChild) {
+          return;
+        }
+
+        this.spatialNav.focusByElementId(this.getRowBodyId(preferredChild));
+      });
+    }
+  }
+
+  getRowBodyRightTarget(entry: any, stack: RecordingProgramStack, isParent: boolean): string {
+    const primaryActionId = this.getPrimaryActionEntryId(entry);
+    if (primaryActionId) {
+      return primaryActionId;
+    }
+
+    if (!isParent || !stack.childEntries.length || !this.usesProgramStacks()) {
+      return this.getRowBodyId(entry);
+    }
+
+    if (!this.isStackExpanded(stack)) {
+      return this.getRowBodyId(entry);
+    }
+
+    const preferredChild = this.getPreferredChildEntry(stack);
+    if (preferredChild) {
+      return this.getRowBodyId(preferredChild);
+    }
+
+    return this.getRowBodyId(entry);
+  }
+
+  handleRowBodyActivate(entry: any, stack: RecordingProgramStack, isParent: boolean): void {
+    if (this.isEditing(entry)) {
+      return;
+    }
+
+    if (isParent && stack.childEntries.length) {
+      if (this.isStackExpanded(stack) && this.getStackHiddenChildCount(stack) > 0) {
+        this.revealMoreChildrenInStack(stack);
+        return;
+      }
+
+      this.toggleStack(stack);
+      return;
+    }
+
+    if (this.canWatch(entry)) {
+      void this.watchRecording(entry);
+      return;
+    }
+  }
+
+  private usesProgramStacks(): boolean {
+    return this.activeTab !== 'upcoming';
+  }
+
+  private shouldIgnoreGlobalRecordingsKeys(target: HTMLElement | null): boolean {
+    if (this.loading || !!this.error || this.getFilteredEntries().length === 0) {
+      return true;
+    }
+
+    if (this.confirmingRemoveUuid || this.confirmingRemoveStackKey || this.expandedActionsUuid) {
+      return true;
+    }
+
+    if (!target) {
+      return false;
+    }
+
+    return !!target.closest('input, textarea, select, [contenteditable="true"], .recording-actions-modal, .recording-confirm-modal');
+  }
+
+  private getRecordingsKeyTarget(event: KeyboardEvent): HTMLElement | null {
+    const activeElement = document.activeElement as HTMLElement | null;
+    if (activeElement && activeElement !== document.body) {
+      return activeElement;
+    }
+
+    return event.target as HTMLElement | null;
+  }
+
+  private getChannelPageDirection(event: KeyboardEvent): -1 | 1 | null {
+    const key = String(event.key || '').trim();
+    const code = String((event as any).code || '').trim();
+    const keyCode = Number((event as any).keyCode || (event as any).which || 0);
+    const isBareChannelUp = keyCode === 33 && !key && !code;
+    const isBareChannelDown = keyCode === 34 && !key && !code;
+
+    if (
+      key === 'ChannelUp'
+      || key === 'MediaChannelUp'
+      || code === 'ChannelUp'
+      || code === 'MediaChannelUp'
+      || isBareChannelUp
+      || keyCode === 92
+      || keyCode === 166
+      || keyCode === 427
+    ) {
+      return -1;
+    }
+
+    if (
+      key === 'ChannelDown'
+      || key === 'MediaChannelDown'
+      || code === 'ChannelDown'
+      || code === 'MediaChannelDown'
+      || isBareChannelDown
+      || keyCode === 93
+      || keyCode === 167
+      || keyCode === 428
+    ) {
+      return 1;
+    }
+
+    return null;
+  }
+
+  private moveRecordingFocusByPage(target: EventTarget | null, direction: -1 | 1): boolean {
+    const visibleEntries = this.getFilteredEntries();
+    if (!visibleEntries.length) {
+      return false;
+    }
+
+    const sourceUuid = this.resolveRecordingUuidFromTarget(target)
+      || this.resolveRecordingUuidFromTarget(document.activeElement as HTMLElement | null)
+      || String(visibleEntries[0]?.uuid || '').trim();
+    const currentIndex = visibleEntries.findIndex(entry => String(entry?.uuid || '').trim() === sourceUuid);
+    const fallbackIndex = direction > 0 ? 0 : Math.max(0, visibleEntries.length - 1);
+    const baseIndex = currentIndex >= 0 ? currentIndex : fallbackIndex;
+    const pageSize = Math.max(1, this.currentRecordingPageSize());
+    const nextIndex = Math.max(0, Math.min(visibleEntries.length - 1, baseIndex + (direction * pageSize)));
+    const nextUuid = String(visibleEntries[nextIndex]?.uuid || '').trim();
+    if (!nextUuid) {
+      return false;
+    }
+
+    this.expandStackForEntry(nextUuid);
+    return this.focusRecordingRowByUuid(nextUuid);
+  }
+
+  private resolveRecordingUuidFromTarget(target: EventTarget | null): string {
+    const element = target as HTMLElement | null;
+    const row = element?.closest('[data-recording-row-uuid]') as HTMLElement | null;
+    return String(row?.getAttribute('data-recording-row-uuid') || '').trim();
+  }
+
+  private focusRecordingRowByUuid(uuid: string): boolean {
+    const rowUuid = String(uuid || '').trim();
+    if (!rowUuid) {
+      return false;
+    }
+
+    setTimeout(() => {
+      this.spatialNav.focusByElementId(`recording-body-${rowUuid}`);
+    });
+    return true;
+  }
+
+  private currentRecordingPageSize(): number {
+    const rows = Array.from(document.querySelectorAll('[data-recording-row-uuid]')) as HTMLElement[];
+    if (!rows.length) {
+      return 6;
+    }
+
+    const sampleCount = Math.min(8, rows.length);
+    const sample = rows.slice(0, sampleCount);
+    const totalHeight = sample.reduce((sum, element) => sum + Math.max(1, element.getBoundingClientRect().height), 0);
+    const averageHeight = Math.max(1, totalHeight / sampleCount);
+    const viewportHeight = window.innerHeight || 1080;
+    const estimatedRows = Math.floor((viewportHeight * 0.75) / averageHeight);
+    return Math.max(3, estimatedRows);
+  }
+
+  private getVisibleChildEntries(stack: RecordingProgramStack): any[] {
+    if (!this.isStackExpanded(stack)) {
+      return [];
+    }
+
+    return stack.childEntries.slice(0, this.getVisibleChildCountForStack(stack));
+  }
+
+  private getVisibleChildCountForStack(stack: RecordingProgramStack): number {
+    if (!this.isStackExpanded(stack)) {
+      return 0;
+    }
+
+    const minVisible = Math.min(this.stackChildPreviewLimit, stack.childEntries.length);
+    const requestedVisible = Math.max(minVisible, Number(this.expandedStackVisibleChildren || 0));
+    return Math.min(stack.childEntries.length, requestedVisible);
+  }
+
+  private revealMoreChildrenInStack(stack: RecordingProgramStack): void {
+    const currentVisible = this.getVisibleChildCountForStack(stack);
+    const nextVisible = currentVisible + this.stackChildRevealStep;
+    this.expandedStackVisibleChildren = Math.min(stack.childEntries.length, nextVisible);
+  }
+
+  private getFilteredEntriesByQuery(): any[] {
     const query = String(this.filterQuery || '').trim().toLowerCase();
     const entries = this.getActiveEntries();
     if (!query) {
@@ -111,7 +546,7 @@ export class RecordingsComponent implements OnInit {
   }
 
   getVisibleCount(): number {
-    return this.getFilteredEntries().length;
+    return this.getFilteredEntriesByQuery().length;
   }
 
   getFilterSummary(): string {
@@ -122,6 +557,25 @@ export class RecordingsComponent implements OnInit {
     }
 
     return `${visible} of ${total} shown`;
+  }
+
+  onFilterInputChange(): void {
+    if (this.filterDebounceTimer !== null) {
+      clearTimeout(this.filterDebounceTimer);
+    }
+    this.filterDebounceTimer = setTimeout(() => {
+      this.filterQuery = this.filterInputValue;
+      this.filterDebounceTimer = null;
+    }, 350);
+  }
+
+  clearFilter(): void {
+    if (this.filterDebounceTimer !== null) {
+      clearTimeout(this.filterDebounceTimer);
+      this.filterDebounceTimer = null;
+    }
+    this.filterInputValue = '';
+    this.filterQuery = '';
   }
 
   getWatchedSummary(): string {
@@ -150,6 +604,20 @@ export class RecordingsComponent implements OnInit {
     }
 
     return 'Newest first';
+  }
+
+  shouldShowExpandedDetails(entry: any): boolean {
+    return this.activeTab === 'failed'
+      || this.isActionPanelOpen(entry)
+      || this.isEditing(entry);
+  }
+
+  getHeaderSummary(): string {
+    const total = this.getActiveEntries().length;
+    const visible = this.getVisibleCount();
+    const watchedSummary = this.getWatchedSummary();
+    const visibility = this.filterQuery.trim() ? `${visible}/${total}` : `${visible}`;
+    return watchedSummary ? `${visibility} items • ${watchedSummary}` : `${visibility} items`;
   }
 
   getEntryStateLabel(entry: any): string {
@@ -203,6 +671,7 @@ export class RecordingsComponent implements OnInit {
     this.actionError = '';
     this.confirmingRemoveUuid = '';
     this.expandedActionsUuid = '';
+    this.expandStackForEntry(uuid);
     this.editingUuid = uuid;
     this.editForm = {
       title: String(entry?.disp_title || entry?.title || '').trim(),
@@ -211,7 +680,7 @@ export class RecordingsComponent implements OnInit {
     };
 
     setTimeout(() => {
-      this.spatialNav.focusByElementId(`recording-edit-start-earlier-hour-${uuid}`);
+      this.spatialNav.focusByElementId(`recording-edit-stop-plus-30-${uuid}`);
     });
   }
 
@@ -235,7 +704,19 @@ export class RecordingsComponent implements OnInit {
       return;
     }
 
-    this.expandedActionsUuid = this.expandedActionsUuid === uuid ? '' : uuid;
+    if (this.expandedActionsUuid === uuid) {
+      this.closeActionPanel();
+      return;
+    }
+
+    this.actionSheetTriggerElement = document.activeElement as HTMLElement | null;
+    this.confirmingRemoveUuid = '';
+    this.expandedActionsUuid = uuid;
+
+    setTimeout(() => {
+      const firstActionId = this.getSecondaryActionFirstId(entry) || this.getActionSheetCloseId();
+      this.spatialNav.focusByElementId(firstActionId);
+    });
   }
 
   handleRowLongPress(entry: any, event?: Event): void {
@@ -252,20 +733,75 @@ export class RecordingsComponent implements OnInit {
       return;
     }
 
+    this.actionSheetTriggerElement = this.actionSheetTriggerElement || (document.activeElement as HTMLElement | null);
     this.confirmingRemoveUuid = '';
     this.expandedActionsUuid = uuid;
 
     setTimeout(() => {
-      const firstActionId = this.getSecondaryActionFirstId(entry);
-      if (firstActionId) {
-        this.spatialNav.focusByElementId(firstActionId);
-      }
+      const firstActionId = this.getSecondaryActionFirstId(entry) || this.getActionSheetCloseId();
+      this.spatialNav.focusByElementId(firstActionId);
     });
   }
 
   handleRowContextMenu(entry: any, event: MouseEvent): void {
     event.preventDefault();
     this.handleRowLongPress(entry, event);
+  }
+
+  @HostListener('document:keydown.escape')
+  handleEscapeKey(): void {
+    if (this.confirmingRemoveStackKey) {
+      this.clearRemoveConfirmation();
+      return;
+    }
+
+    if (this.confirmingRemoveUuid) {
+      this.clearRemoveConfirmation();
+      return;
+    }
+
+    if (this.expandedActionsUuid) {
+      this.closeActionPanel();
+    }
+  }
+
+  @HostListener('document:keydown.pageup', ['$event'])
+  handlePageUp(event: KeyboardEvent): void {
+    const target = this.getRecordingsKeyTarget(event);
+    if (this.shouldIgnoreGlobalRecordingsKeys(target)) {
+      return;
+    }
+
+    event.preventDefault();
+    this.moveRecordingFocusByPage(target, -1);
+  }
+
+  @HostListener('document:keydown.pagedown', ['$event'])
+  handlePageDown(event: KeyboardEvent): void {
+    const target = this.getRecordingsKeyTarget(event);
+    if (this.shouldIgnoreGlobalRecordingsKeys(target)) {
+      return;
+    }
+
+    event.preventDefault();
+    this.moveRecordingFocusByPage(target, 1);
+  }
+
+  @HostListener('document:keydown', ['$event'])
+  handleChannelPageKeys(event: KeyboardEvent): void {
+    const direction = this.getChannelPageDirection(event);
+    if (!direction) {
+      return;
+    }
+
+    const target = this.getRecordingsKeyTarget(event);
+    if (this.shouldIgnoreGlobalRecordingsKeys(target)) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    this.moveRecordingFocusByPage(target, direction);
   }
 
   hasSecondaryActions(entry: any): boolean {
@@ -281,6 +817,38 @@ export class RecordingsComponent implements OnInit {
 
   getActionPanelCompactLabel(entry: any): string {
     return this.isActionPanelOpen(entry) ? 'Less' : 'More';
+  }
+
+  getActionSheetEntry(): any | null {
+    const uuid = String(this.expandedActionsUuid || '').trim();
+    if (!uuid) {
+      return null;
+    }
+
+    const allEntries = [...this.upcoming, ...this.finished, ...this.failed];
+    return allEntries.find(entry => String(entry?.uuid || '').trim() === uuid) || null;
+  }
+
+  getActionSheetTitle(entry: any): string {
+    return String(entry?.disp_title || entry?.title || 'Recording').trim();
+  }
+
+  getActionSheetCloseId(): string {
+    return 'recording-actions-close';
+  }
+
+  closeActionPanel(skipFocusRestore = false): void {
+    this.expandedActionsUuid = '';
+    if (skipFocusRestore) {
+      this.actionSheetTriggerElement = null;
+      return;
+    }
+
+    const restoreTarget = this.actionSheetTriggerElement;
+    this.actionSheetTriggerElement = null;
+    setTimeout(() => {
+      restoreTarget?.focus();
+    });
   }
 
   useBrowserEllipsisActions(): boolean {
@@ -381,7 +949,7 @@ export class RecordingsComponent implements OnInit {
     }
 
     if (this.canExtendStop(entry)) {
-      return `recording-secondary-extend-5-${uuid}`;
+      return `recording-secondary-extend-30-${uuid}`;
     }
 
     if (this.getResumeLabel(entry)) {
@@ -397,9 +965,7 @@ export class RecordingsComponent implements OnInit {
     }
 
     if (this.activeTab !== 'upcoming') {
-      return this.isConfirmingRemove(entry)
-        ? `recording-secondary-remove-now-${uuid}`
-        : `recording-secondary-remove-${uuid}`;
+      return `recording-secondary-remove-${uuid}`;
     }
 
     return '';
@@ -411,6 +977,24 @@ export class RecordingsComponent implements OnInit {
 
   showSecondaryEditAction(entry: any): boolean {
     return this.activeTab !== 'upcoming' && this.activeTab !== 'finished' && this.canEdit(entry);
+  }
+
+  showSecondaryRemoveAllAction(entry: any): boolean {
+    if (this.activeTab === 'upcoming') {
+      return false;
+    }
+
+    const stack = this.getStackForEntry(entry);
+    return !!stack && stack.entries.length > 1;
+  }
+
+  getRemoveAllActionLabel(entry: any): string {
+    const stack = this.getStackForEntry(entry);
+    const count = Number(stack?.entries.length || 0);
+    if (this.activeTab === 'failed') {
+      return count > 1 ? `Clear Group (${count})` : 'Clear Group';
+    }
+    return count > 1 ? `Remove Group (${count})` : 'Remove Group';
   }
 
   getRestartActionLabel(entry: any): string {
@@ -439,6 +1023,7 @@ export class RecordingsComponent implements OnInit {
       next: () => {
         this.pendingActionUuid = '';
         entry.watched = nowWatched ? 1 : 0;
+        this.stacksCacheRevision++;
         this.actionMessage = nowWatched ? 'Marked as watched.' : 'Marked as unwatched.';
       },
       error: (error: any) => {
@@ -458,7 +1043,6 @@ export class RecordingsComponent implements OnInit {
     if (this.getResumeLabel(entry)) { return `recording-secondary-restart-${uuid}`; }
     if (this.showSecondaryAutorecAction()) { return `recording-secondary-autorec-${uuid}`; }
     if (this.showSecondaryEditAction(entry)) { return `recording-secondary-edit-${uuid}`; }
-    if (this.isConfirmingRemove(entry)) { return `recording-secondary-remove-now-${uuid}`; }
     return `recording-secondary-remove-${uuid}`;
   }
 
@@ -473,7 +1057,6 @@ export class RecordingsComponent implements OnInit {
     if (!uuid) { return ''; }
     if (this.showSecondaryAutorecAction()) { return `recording-secondary-autorec-${uuid}`; }
     if (this.showSecondaryEditAction(entry)) { return `recording-secondary-edit-${uuid}`; }
-    if (this.isConfirmingRemove(entry)) { return `recording-secondary-remove-now-${uuid}`; }
     return `recording-secondary-remove-${uuid}`;
   }
 
@@ -492,7 +1075,7 @@ export class RecordingsComponent implements OnInit {
     if (this.showSecondaryAutorecAction()) { return `recording-secondary-autorec-${uuid}`; }
     if (this.getResumeLabel(entry)) { return `recording-secondary-restart-${uuid}`; }
     if (this.showWatchedAction(entry)) { return `recording-secondary-watched-${uuid}`; }
-    return this.isConfirmingRemove(entry) ? `recording-secondary-remove-now-${uuid}` : `recording-secondary-remove-${uuid}`;
+    return `recording-secondary-remove-${uuid}`;
   }
 
   private getControlIdForEntry(entry: any, controlType: string): string {
@@ -524,13 +1107,9 @@ export class RecordingsComponent implements OnInit {
         if (!this.isActionPanelOpen(entry) || this.activeTab === 'upcoming') {
           return '';
         }
-        return this.isConfirmingRemove(entry)
-          ? `recording-secondary-remove-now-${uuid}`
-          : `recording-secondary-remove-${uuid}`;
+        return `recording-secondary-remove-${uuid}`;
       case 'secondary-keep':
-        return this.isActionPanelOpen(entry) && this.activeTab !== 'upcoming' && this.isConfirmingRemove(entry)
-          ? `recording-secondary-keep-${uuid}`
-          : '';
+        return '';
       default:
         return '';
     }
@@ -573,11 +1152,121 @@ export class RecordingsComponent implements OnInit {
       return this.activeTab === 'failed' ? 'Clearing…' : 'Removing…';
     }
 
-    return this.activeTab === 'failed' ? 'Clear Now' : 'Remove Now';
+    return this.activeTab === 'failed' ? 'Yes, Clear' : 'Yes, Remove';
+  }
+
+  getConfirmingRemoveEntry(): any | null {
+    const uuid = String(this.confirmingRemoveUuid || '').trim();
+    if (!uuid) {
+      return null;
+    }
+
+    const allEntries = [...this.upcoming, ...this.finished, ...this.failed];
+    return allEntries.find(entry => String(entry?.uuid || '').trim() === uuid) || null;
+  }
+
+  getConfirmRemovePrompt(): string {
+    return this.activeTab === 'failed'
+      ? 'Are you sure you want to clear this failed recording from the list?'
+      : 'Are you sure you want to remove this recording?';
+  }
+
+  requestRemoveConfirmation(entry: any): void {
+    const uuid = String(entry?.uuid || '').trim();
+    if (!uuid || this.pendingActionUuid) {
+      return;
+    }
+
+    if (this.expandedActionsUuid) {
+      this.closeActionPanel(true);
+    }
+
+    this.confirmingRemoveStackKey = '';
+    this.confirmingRemoveUuid = uuid;
+    this.actionError = '';
+
+    setTimeout(() => {
+      this.spatialNav.focusByElementId('recording-remove-confirm-yes');
+    });
+  }
+
+  requestRemoveStackConfirmation(entry: any): void {
+    if (this.pendingActionUuid) {
+      return;
+    }
+
+    const stack = this.getStackForEntry(entry);
+    if (!stack || stack.entries.length <= 1) {
+      return;
+    }
+
+    if (this.expandedActionsUuid) {
+      this.closeActionPanel(true);
+    }
+
+    this.confirmingRemoveUuid = '';
+    this.confirmingRemoveStackKey = stack.key;
+    this.actionError = '';
+
+    setTimeout(() => {
+      this.spatialNav.focusByElementId('recording-remove-stack-confirm-yes');
+    });
   }
 
   isEditing(entry: any): boolean {
     return this.editingUuid === String(entry?.uuid || '').trim();
+  }
+
+  getConfirmingRemoveStackEntries(): any[] | null {
+    const stackKey = String(this.confirmingRemoveStackKey || '').trim();
+    if (!stackKey) {
+      return null;
+    }
+
+    const stack = this.getProgramStacks().find(candidate => candidate.key === stackKey);
+    if (!stack || !stack.entries.length) {
+      return null;
+    }
+
+    return stack.entries;
+  }
+
+  getConfirmRemoveStackPrompt(): string {
+    const stackEntries = this.getConfirmingRemoveStackEntries();
+    const count = Number(stackEntries?.length || 0);
+    if (!count) {
+      return '';
+    }
+
+    if (this.activeTab === 'failed') {
+      return count > 1
+        ? `Are you sure you want to clear all ${count} failed recordings in this group?`
+        : 'Are you sure you want to clear this failed recording from the list?';
+    }
+
+    return count > 1
+      ? `Are you sure you want to remove all ${count} recordings in this group?`
+      : 'Are you sure you want to remove this recording?';
+  }
+
+  getConfirmRemoveStackTarget(): string {
+    const stackEntries = this.getConfirmingRemoveStackEntries();
+    if (!stackEntries?.length) {
+      return '';
+    }
+
+    const first = stackEntries[0];
+    const title = String(first?.disp_title || first?.title || 'Selected group').trim() || 'Selected group';
+    const count = stackEntries.length;
+    return count > 1 ? `${title} (${count} items)` : title;
+  }
+
+  getConfirmRemoveStackActionLabel(): string {
+    if (this.pendingActionUuid) {
+      return this.activeTab === 'failed' ? 'Clearing…' : 'Removing…';
+    }
+
+    return this.activeTab === 'failed' ? 'Yes, Clear Group' : 'Yes, Remove Group';
   }
 
   saveEdit(entry: any): void {
@@ -597,20 +1286,17 @@ export class RecordingsComponent implements OnInit {
     }
 
     if (this.canEditSchedule()) {
-      const nextStart = this.parseDateTimeInput(this.editForm.start);
+      const currentStart = Number(entry?.start || 0);
       const nextStop = this.parseDateTimeInput(this.editForm.stop);
-      if (!nextStart || !nextStop) {
-        this.actionError = 'Start and stop times are required for upcoming recordings.';
+      if (!currentStart || !nextStop) {
+        this.actionError = 'Stop time is required for upcoming recordings.';
         return;
       }
-      if (nextStop <= nextStart) {
-        this.actionError = 'Stop time must be after start time.';
+      if (nextStop <= currentStart) {
+        this.actionError = 'Stop time must be after the recording start.';
         return;
       }
 
-      if (nextStart !== Number(entry?.start || 0)) {
-        changes.start = nextStart;
-      }
       if (nextStop !== Number(entry?.stop || 0)) {
         changes.stop = nextStop;
       }
@@ -641,6 +1327,10 @@ export class RecordingsComponent implements OnInit {
     if (!recordingRef) {
       return;
     }
+
+    // Selecting a recording should collapse any currently expanded nested stack.
+    this.expandedStackKey = '';
+    this.expandedStackVisibleChildren = 0;
 
     const hasAuth = await this.tvh.ensureBasicAuth('Enter your TVHeadend credentials to play this recording.');
     if (!hasAuth) {
@@ -714,6 +1404,8 @@ export class RecordingsComponent implements OnInit {
       return;
     }
 
+    this.expandStackForEntry(uuid);
+
     setTimeout(() => {
       const escapedUuid = uuid.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
       const target = document.querySelector(`[data-recording-row-uuid="${escapedUuid}"]`) as HTMLElement | null;
@@ -726,8 +1418,8 @@ export class RecordingsComponent implements OnInit {
       return;
     }
 
-    const activeEntries = this.getActiveEntries();
-    const firstUuid = String(activeEntries[0]?.uuid || '').trim();
+    const visibleEntries = this.getFilteredEntries();
+    const firstUuid = String(visibleEntries[0]?.uuid || '').trim();
     if (!firstUuid) {
       return;
     }
@@ -758,6 +1450,53 @@ export class RecordingsComponent implements OnInit {
         this.actionError = this.describeError(error);
       }
     });
+  }
+
+  private restorePostDeleteFocusIfNeeded(): void {
+    const focusUuid = String(this.pendingPostDeleteFocusUuid || '').trim();
+    if (!focusUuid) {
+      return;
+    }
+
+    this.pendingPostDeleteFocusUuid = '';
+    this.shouldApplyInitialRowFocus = false;
+
+    setTimeout(() => {
+      const escapedUuid = focusUuid.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+      const target = document.querySelector(`[data-recording-row-uuid="${escapedUuid}"]`) as HTMLElement | null;
+      if (target) {
+        target.focus();
+        return;
+      }
+
+      const fallback = document.querySelector('[data-recording-row-uuid]') as HTMLElement | null;
+      fallback?.focus();
+    }, 0);
+  }
+
+  private resolvePostDeleteFocusUuid(removedUuid: string): string {
+    const trimmed = String(removedUuid || '').trim();
+    if (!trimmed) {
+      return '';
+    }
+
+    const visibleEntries = this.getFilteredEntries();
+    const index = visibleEntries.findIndex(entry => String(entry?.uuid || '').trim() === trimmed);
+    if (index < 0) {
+      return '';
+    }
+
+    const next = visibleEntries[index + 1];
+    if (next) {
+      return String(next?.uuid || '').trim();
+    }
+
+    const previous = visibleEntries[index - 1];
+    if (previous) {
+      return String(previous?.uuid || '').trim();
+    }
+
+    return '';
   }
 
   extendStopTime(entry: any, minutes: number): void {
@@ -828,16 +1567,14 @@ export class RecordingsComponent implements OnInit {
     });
   }
 
-  removeRecording(entry: any): void {
-    const uuid = String(entry?.uuid || '').trim();
+  confirmRemoveRecording(): void {
+    const uuid = String(this.confirmingRemoveUuid || '').trim();
     if (!uuid) {
       return;
     }
 
-    if (this.confirmingRemoveUuid !== uuid) {
-      this.confirmingRemoveUuid = uuid;
-      return;
-    }
+    this.pendingPostDeleteFocusUuid = this.resolvePostDeleteFocusUuid(uuid);
+    this.shouldApplyInitialRowFocus = false;
 
     this.pendingActionUuid = uuid;
     this.confirmingRemoveUuid = '';
@@ -845,6 +1582,54 @@ export class RecordingsComponent implements OnInit {
     this.tvh.removeRecording(uuid).subscribe({
       next: () => {
         this.pendingActionUuid = '';
+        this.refresh();
+      },
+      error: (error: any) => {
+        this.pendingActionUuid = '';
+        this.actionError = this.describeError(error);
+      }
+    });
+  }
+
+  confirmRemoveStack(): void {
+    const stackEntries = this.getConfirmingRemoveStackEntries();
+    if (!stackEntries?.length) {
+      this.confirmingRemoveStackKey = '';
+      return;
+    }
+
+    const uuids = stackEntries
+      .map(entry => String(entry?.uuid || '').trim())
+      .filter(Boolean);
+
+    if (!uuids.length) {
+      this.confirmingRemoveStackKey = '';
+      return;
+    }
+
+    this.pendingPostDeleteFocusUuid = this.resolvePostDeleteFocusUuid(uuids[0]);
+    this.shouldApplyInitialRowFocus = false;
+
+    this.pendingActionUuid = uuids[0];
+    this.confirmingRemoveUuid = '';
+    this.confirmingRemoveStackKey = '';
+    this.actionError = '';
+
+    const removals = uuids.map(uuid =>
+      this.tvh.removeRecording(uuid).pipe(catchError(error => of({ error, uuid })))
+    );
+
+    forkJoin(removals).subscribe({
+      next: (results: any[]) => {
+        this.pendingActionUuid = '';
+        const failures = results.filter(result => !!result?.error);
+        if (failures.length) {
+          if (failures.length === uuids.length) {
+            this.actionError = this.describeError(failures[0].error);
+          } else {
+            this.actionError = `Removed ${uuids.length - failures.length} items. ${failures.length} failed.`;
+          }
+        }
         this.refresh();
       },
       error: (error: any) => {
@@ -864,6 +1649,7 @@ export class RecordingsComponent implements OnInit {
 
   clearRemoveConfirmation(): void {
     this.confirmingRemoveUuid = '';
+    this.confirmingRemoveStackKey = '';
   }
 
   getEditDateTimeLabel(value: string): string {
@@ -1024,6 +1810,97 @@ export class RecordingsComponent implements OnInit {
 
   trackByUuid(_: number, entry: any): string {
     return String(entry?.uuid || entry?.disp_title || entry?.title || _);
+  }
+
+  private expandStackForEntry(uuid: string): void {
+    const targetUuid = String(uuid || '').trim();
+    if (!targetUuid || !this.usesProgramStacks()) {
+      return;
+    }
+
+    const containingStack = this.getProgramStacks().find(stack =>
+      stack.childEntries.some(candidate => String(candidate?.uuid || '').trim() === targetUuid)
+      || String(stack.anchorEntry?.uuid || '').trim() === targetUuid
+    );
+
+    if (containingStack?.childEntries.length) {
+      this.expandedStackKey = containingStack.key;
+      const childIndex = containingStack.childEntries.findIndex(candidate => String(candidate?.uuid || '').trim() === targetUuid);
+      if (childIndex < 0) {
+        this.expandedStackVisibleChildren = Math.min(this.stackChildPreviewLimit, containingStack.childEntries.length);
+      } else {
+        this.expandedStackVisibleChildren = Math.max(
+          Math.min(this.stackChildPreviewLimit, containingStack.childEntries.length),
+          childIndex + 1
+        );
+      }
+    }
+  }
+
+  private getPreferredChildEntry(stack: RecordingProgramStack): any | null {
+    const visibleChildren = this.getVisibleChildEntries(stack);
+    if (!visibleChildren.length) {
+      return null;
+    }
+
+    const preferredIndex = Number(this.stackLastFocusedChildIndex.get(stack.key));
+    if (Number.isFinite(preferredIndex) && preferredIndex >= 0) {
+      const inVisible = visibleChildren[preferredIndex];
+      if (inVisible) {
+        return inVisible;
+      }
+
+      const byUuid = stack.childEntries[preferredIndex];
+      if (byUuid && visibleChildren.some(candidate => String(candidate?.uuid || '').trim() === String(byUuid?.uuid || '').trim())) {
+        return byUuid;
+      }
+    }
+
+    return visibleChildren[0];
+  }
+
+  private getStackForEntry(entry: any): RecordingProgramStack | null {
+    const uuid = String(entry?.uuid || '').trim();
+    if (!uuid) {
+      return null;
+    }
+
+    return this.getProgramStacks().find(stack =>
+      stack.entries.some(candidate => String(candidate?.uuid || '').trim() === uuid)
+    ) || null;
+  }
+
+  private resolveStackAnchorEntry(entries: any[]): any {
+    if (!entries.length) {
+      return null;
+    }
+
+    const resumedEntry = entries.find(candidate => !!this.getResumeLabel(candidate));
+    if (resumedEntry) {
+      return resumedEntry;
+    }
+
+    const unwatchedEntry = entries.find(candidate => !this.isMarkedWatched(candidate));
+    if (unwatchedEntry) {
+      return unwatchedEntry;
+    }
+
+    return entries[0];
+  }
+
+  private getProgramGroupingKey(entry: any): string {
+    const rawTitle = String(entry?.disp_title || entry?.title || '').trim().toLowerCase();
+    const normalizedTitle = rawTitle
+      .replace(/[\u2018\u2019]/g, "'")
+      .replace(/[^a-z0-9]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (normalizedTitle) {
+      return normalizedTitle;
+    }
+
+    return String(entry?.uuid || entry?.channelname || 'untitled').trim().toLowerCase();
   }
 
   private getRecordingRef(entry: any): string {

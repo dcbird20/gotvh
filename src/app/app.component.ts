@@ -128,6 +128,13 @@ export class AppComponent implements OnInit, OnDestroy {
     this.tvh.preloadGuideData();
     if (typeof window !== 'undefined') {
       window.addEventListener('gotvh-native-return', this.nativeReturnHandler as EventListener);
+
+      // On TV app entry, anchor focus at Home in the sidebar for a predictable start point.
+      setTimeout(() => {
+        if (!this.authDialogState.open) {
+          this.focusSidebarRoute('/home');
+        }
+      }, 0);
     }
   }
 
@@ -185,6 +192,9 @@ export class AppComponent implements OnInit, OnDestroy {
     }
 
     if (isTextEntryTarget && this.spatialNav.isSelectKey(event)) {
+      // On TV, Enter/Select on a text input should blur (dismiss on-screen keyboard)
+      // rather than trying to trigger spatial navigation.
+      (active as HTMLElement).blur();
       return;
     }
 
@@ -633,9 +643,66 @@ export class AppComponent implements OnInit, OnDestroy {
       }
     }
 
-    // Keep app alive: route toward Home instead of allowing platform exit.
-    if (this.router.url !== '/home') {
-      this.router.navigate(['/home']);
+    // TV-first back behavior for app sections:
+    // 1st back: move focus to current section icon in sidebar.
+    // 2nd back: navigate Home.
+    if (this.focusCurrentSectionIconOnBack(currentPath)) {
+      return;
     }
+
+    // Keep app alive: route toward Home instead of allowing platform exit.
+    if (currentPath !== '/home') {
+      this.router.navigate(['/home']);
+      setTimeout(() => {
+        this.focusSidebarRoute('/home');
+      }, 0);
+    }
+  }
+
+  private focusCurrentSectionIconOnBack(currentPath: string): boolean {
+    const matchedRoute = this.resolveSidebarRouteForPath(currentPath);
+    if (!matchedRoute || matchedRoute === '/home') {
+      return false;
+    }
+
+    if (this.isFocusedOnSidebarRoute(matchedRoute)) {
+      return false;
+    }
+
+    return this.focusSidebarRoute(matchedRoute);
+  }
+
+  private resolveSidebarRouteForPath(path: string): string {
+    const normalizedPath = String(path || '').trim();
+    if (!normalizedPath.startsWith('/')) {
+      return '';
+    }
+
+    const sortedRoutes = [...this.navItems]
+      .map(item => String(item.route || '').trim())
+      .filter(route => route.startsWith('/'))
+      .sort((left, right) => right.length - left.length);
+
+    return sortedRoutes.find(route => normalizedPath === route || normalizedPath.startsWith(`${route}/`)) || '';
+  }
+
+  private isFocusedOnSidebarRoute(route: string): boolean {
+    const activeElement = document.activeElement as HTMLElement | null;
+    if (!activeElement) {
+      return false;
+    }
+
+    return !!activeElement.closest(`.sidebar [data-nav-route="${route}"]`);
+  }
+
+  private focusSidebarRoute(route: string): boolean {
+    const navButton = document.querySelector(`.sidebar [data-nav-route="${route}"]`) as HTMLElement | null;
+    if (!navButton) {
+      return false;
+    }
+
+    navButton.focus();
+    this.sidebarExpanded = true;
+    return true;
   }
 }

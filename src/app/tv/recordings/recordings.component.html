@@ -1,47 +1,42 @@
 <section class="panel-screen" data-tv-scroll-page="true" data-tv-scroll-container="true" data-tv-nav-scope="recordings-page" data-tv-nav-mode="linear-vertical">
-  <header class="panel-screen__header">
-    <div>
+  <header class="panel-screen__header panel-screen__header--compact">
+    <div class="panel-screen__title-block">
       <div class="panel-screen__eyebrow">DVR</div>
       <h1 class="panel-screen__title">Recordings</h1>
-      <p class="panel-screen__subtitle">Manage upcoming jobs, inspect failures, and clean up completed recordings.</p>
     </div>
 
-    <button class="tv-btn" type="button" tvFocusable data-tv-linear-anchor="true" (click)="refresh()">Refresh</button>
+    <div class="panel-screen__header-actions" *ngIf="!loading && !error; else refreshOnlyButton">
+      <span class="context-pill context-pill--muted panel-screen__header-summary">{{ getHeaderSummary() }}</span>
+      <button class="tv-btn" type="button" tvFocusable data-tv-linear-anchor="true" (click)="refresh()">Refresh</button>
+    </div>
+    <ng-template #refreshOnlyButton>
+      <button class="tv-btn" type="button" tvFocusable data-tv-linear-anchor="true" (click)="refresh()">Refresh</button>
+    </ng-template>
   </header>
 
-  <div class="panel-screen__stats">
-    <article class="metric-card">
-      <span class="metric-card__label">Upcoming</span>
-      <strong class="metric-card__value">{{ upcoming.length }}</strong>
-    </article>
-    <article class="metric-card">
-      <span class="metric-card__label">Finished</span>
-      <strong class="metric-card__value">{{ finished.length }}</strong>
-    </article>
-    <article class="metric-card metric-card--warn">
-      <span class="metric-card__label">Failed</span>
-      <strong class="metric-card__value">{{ failed.length }}</strong>
-    </article>
-  </div>
+  <div class="panel-screen__control-rail">
+    <div class="panel-screen__tabs">
+      <button class="tv-btn" type="button" tvFocusable data-tv-linear-anchor="true" [class.tv-btn--primary]="activeTab === 'upcoming'" (click)="selectTab('upcoming')">Upcoming</button>
+      <button class="tv-btn" type="button" tvFocusable data-tv-linear-anchor="true" [class.tv-btn--primary]="activeTab === 'finished'" (click)="selectTab('finished')">Finished</button>
+      <button class="tv-btn" type="button" tvFocusable data-tv-linear-anchor="true" [class.tv-btn--primary]="activeTab === 'failed'" (click)="selectTab('failed')">Failed</button>
+    </div>
 
-  <div class="panel-screen__tabs">
-    <button class="tv-btn" type="button" tvFocusable data-tv-linear-anchor="true" [class.tv-btn--primary]="activeTab === 'upcoming'" (click)="selectTab('upcoming')">Upcoming</button>
-    <button class="tv-btn" type="button" tvFocusable data-tv-linear-anchor="true" [class.tv-btn--primary]="activeTab === 'finished'" (click)="selectTab('finished')">Finished</button>
-    <button class="tv-btn" type="button" tvFocusable data-tv-linear-anchor="true" [class.tv-btn--primary]="activeTab === 'failed'" (click)="selectTab('failed')">Failed</button>
-  </div>
+    <div class="panel-screen__context" *ngIf="!loading && !error">
+      <span class="context-pill">{{ getActiveTabLabel() }}</span>
+      <span class="context-pill context-pill--muted">{{ getSortSummary() }}</span>
+      <span class="context-pill context-pill--muted">{{ getFilterSummary() }}</span>
+      <span class="context-pill context-pill--muted" *ngIf="getWatchedSummary()">{{ getWatchedSummary() }}</span>
+    </div>
 
-  <div class="panel-screen__context" *ngIf="!loading && !error">
-    <span class="context-pill">{{ getActiveTabLabel() }}</span>
-    <span class="context-pill context-pill--muted">{{ getSortSummary() }}</span>
-    <span class="context-pill context-pill--muted">{{ getFilterSummary() }}</span>
-    <span class="context-pill context-pill--muted" *ngIf="getWatchedSummary()">{{ getWatchedSummary() }}</span>
-  </div>
-
-  <div class="panel-screen__toolbar" *ngIf="!loading && !error">
-    <label class="search-field">
-      <span class="search-field__label">Filter Recordings</span>
-      <input type="text" [(ngModel)]="filterQuery" placeholder="Type title, channel, status, or detail" />
-    </label>
+    <div class="panel-screen__toolbar" *ngIf="!loading && !error">
+      <label class="search-field search-field--compact">
+        <span class="search-field__label">Filter</span>
+        <span class="search-field__input-row">
+          <input type="text" tvFocusable data-tv-linear-anchor="true" [(ngModel)]="filterInputValue" (ngModelChange)="onFilterInputChange()" placeholder="Title, channel, status, detail" />
+          <button *ngIf="filterInputValue" type="button" class="tv-btn" tvFocusable data-tv-linear-anchor="true" (click)="clearFilter()">Clear</button>
+        </span>
+      </label>
+    </div>
   </div>
 
   <div class="status status--loading" *ngIf="loading">Loading recordings…</div>
@@ -60,18 +55,30 @@
   </div>
 
   <div class="stack-list" *ngIf="!loading && !error && getFilteredEntries().length > 0">
-    <article class="stack-card" [ngClass]="'stack-card--' + activeTab" *ngFor="let entry of getFilteredEntries(); trackBy: trackByUuid">
+    <ng-container *ngFor="let stack of getProgramStacks(); trackBy: trackByStackKey">
+      <article
+        class="stack-card"
+        *ngFor="let entry of getStackVisibleEntries(stack); let isParent = first; trackBy: trackByUuid"
+        [ngClass]="[
+          'stack-card--' + activeTab,
+          isParent ? 'stack-card--parent' : 'stack-card--child',
+          shouldShowExpandedDetails(entry) ? 'stack-card--expanded' : ''
+        ]"
+      >
       <div
         class="stack-card__body stack-card__anchor"
         tvFocusable
         (tv-long-press)="handleRowLongPress(entry, $event)"
         (contextmenu)="handleRowContextMenu(entry, $event)"
+        (click)="handleRowBodyActivate(entry, stack, isParent)"
+        (focus)="rememberFocusedEntryInStack(entry, stack, isParent)"
+        (keydown.arrowright)="handleRowArrowRight(entry, stack, isParent, $event)"
         data-tv-linear-anchor="true"
         [id]="getRowBodyId(entry)"
         [attr.data-recording-row-uuid]="entry.uuid"
         [attr.data-tv-nav-up]="getVerticalTargetId(entry, 'up', 'row-body')"
         [attr.data-tv-nav-down]="getVerticalTargetId(entry, 'down', 'row-body')"
-        [attr.data-tv-nav-right]="getPrimaryActionEntryId(entry)"
+        [attr.data-tv-nav-right]="getRowBodyRightTarget(entry, stack, isParent)"
         *ngIf="!isEditing(entry); else editBodyTemplate"
       >
         <ng-container>
@@ -86,19 +93,33 @@
             </div>
             <h2 class="stack-card__title">{{ entry.disp_title || entry.title || 'Untitled Recording' }}</h2>
             <span class="stack-card__badge" [ngClass]="'stack-card__badge--' + getEntryTone(entry)">{{ getEntryStateLabel(entry) }}</span>
+            <span class="stack-card__badge stack-card__badge--neutral" *ngIf="isParent && stack.entries.length > 1">{{ getStackEpisodeCountLabel(stack) }}</span>
           </div>
 
           <div class="stack-card__meta">
             <span class="stack-card__meta-pill stack-card__meta-pill--channel">{{ entry.channelname || 'Unknown Channel' }}</span>
             <span class="stack-card__meta-pill stack-card__meta-pill--time">{{ formatDateTime(entry.start) }}</span>
-            <span class="stack-card__meta-pill stack-card__meta-pill--duration" *ngIf="formatDuration(entry)">{{ formatDuration(entry) }}</span>
+            <span class="stack-card__meta-pill stack-card__meta-pill--warn" *ngIf="isParent && stack.entries.length > 1 && stack.unwatchedCount > 0">{{ stack.unwatchedCount }} unwatched</span>
             <span class="stack-card__meta-pill stack-card__meta-pill--warn stack-card__meta-pill--progress" *ngIf="getResumeLabel(entry)">{{ getResumeLabel(entry) }}</span>
-            <span class="stack-card__meta-pill stack-card__meta-pill--ok" *ngIf="isMarkedWatched(entry)">Watched</span>
-            <span class="stack-card__meta-pill stack-card__meta-pill--danger stack-card__meta-pill--state" *ngIf="getFileStateLabel(entry)">{{ getFileStateLabel(entry) }}</span>
+            <span class="stack-card__meta-pill stack-card__meta-pill--ok" *ngIf="!getResumeLabel(entry) && isMarkedWatched(entry)">Watched</span>
+            <span class="stack-card__meta-pill stack-card__meta-pill--danger stack-card__meta-pill--state" *ngIf="!getResumeLabel(entry) && !isMarkedWatched(entry) && getFileStateLabel(entry)">{{ getFileStateLabel(entry) }}</span>
+            <span class="stack-card__meta-pill stack-card__meta-pill--duration" *ngIf="shouldShowExpandedDetails(entry) && formatDuration(entry)">{{ formatDuration(entry) }}</span>
+            <button
+              class="stack-card__stack-toggle"
+              type="button"
+              *ngIf="isParent && stack.childEntries.length"
+              (click)="toggleStack(stack); $event.stopPropagation()"
+            >{{ getStackToggleLabel(stack) }}</button>
+            <button
+              class="stack-card__stack-toggle stack-card__stack-toggle--muted"
+              type="button"
+              *ngIf="isParent && shouldShowStackShowAllToggle(stack)"
+              (click)="toggleShowAllInStack(stack); $event.stopPropagation()"
+            >{{ getStackShowAllLabel(stack) }}</button>
           </div>
 
-          <p class="stack-card__detail stack-card__detail--danger" *ngIf="getFailureDetail(entry)">{{ getFailureDetail(entry) }}</p>
-          <p class="stack-card__summary" *ngIf="getVisibleSummary(entry)">{{ getVisibleSummary(entry) }}</p>
+          <p class="stack-card__detail stack-card__detail--danger" *ngIf="shouldShowExpandedDetails(entry) && getFailureDetail(entry)">{{ getFailureDetail(entry) }}</p>
+          <p class="stack-card__summary" *ngIf="shouldShowExpandedDetails(entry) && getVisibleSummary(entry)">{{ getVisibleSummary(entry) }}</p>
         </ng-container>
 
       </div>
@@ -121,56 +142,9 @@
               tvFocusable
               [id]="'recording-edit-title-' + entry.uuid"
               [attr.data-tv-nav-right]="'recording-edit-save-' + entry.uuid"
-              [attr.data-tv-nav-down]="'recording-edit-start-earlier-hour-' + entry.uuid"
+              [attr.data-tv-nav-down]="'recording-edit-stop-plus-30-' + entry.uuid"
               [(ngModel)]="editForm.title"
             />
-          </label>
-
-          <label class="edit-field" *ngIf="canEditSchedule()">
-            <span>Start</span>
-            <div class="edit-field__value">{{ getEditDateTimeLabel(editForm.start) }}</div>
-            <div
-              class="edit-field__stepper"
-              [attr.data-tv-nav-scope]="'recording-edit-start-stepper-' + entry.uuid"
-              data-tv-nav-mode="linear-horizontal"
-            >
-              <button
-                class="tv-btn tv-btn--small"
-                type="button"
-                tvFocusable
-                [id]="'recording-edit-start-earlier-hour-' + entry.uuid"
-                [attr.data-tv-nav-up]="'recording-edit-title-' + entry.uuid"
-                [attr.data-tv-nav-down]="'recording-edit-stop-earlier-hour-' + entry.uuid"
-                (click)="shiftEditDateTime('start', -60)"
-              >-1h</button>
-              <button
-                class="tv-btn tv-btn--small"
-                type="button"
-                tvFocusable
-                [id]="'recording-edit-start-earlier-half-hour-' + entry.uuid"
-                [attr.data-tv-nav-up]="'recording-edit-title-' + entry.uuid"
-                [attr.data-tv-nav-down]="'recording-edit-stop-earlier-half-hour-' + entry.uuid"
-                (click)="shiftEditDateTime('start', -30)"
-              >-30m</button>
-              <button
-                class="tv-btn tv-btn--small"
-                type="button"
-                tvFocusable
-                [id]="'recording-edit-start-later-half-hour-' + entry.uuid"
-                [attr.data-tv-nav-up]="'recording-edit-title-' + entry.uuid"
-                [attr.data-tv-nav-down]="'recording-edit-stop-later-half-hour-' + entry.uuid"
-                (click)="shiftEditDateTime('start', 30)"
-              >+30m</button>
-              <button
-                class="tv-btn tv-btn--small"
-                type="button"
-                tvFocusable
-                [id]="'recording-edit-start-later-hour-' + entry.uuid"
-                [attr.data-tv-nav-up]="'recording-edit-title-' + entry.uuid"
-                [attr.data-tv-nav-down]="'recording-edit-stop-later-hour-' + entry.uuid"
-                (click)="shiftEditDateTime('start', 60)"
-              >+1h</button>
-            </div>
           </label>
 
           <label class="edit-field" *ngIf="canEditSchedule()">
@@ -185,35 +159,11 @@
                 class="tv-btn tv-btn--small"
                 type="button"
                 tvFocusable
-                [id]="'recording-edit-stop-earlier-hour-' + entry.uuid"
-                [attr.data-tv-nav-up]="'recording-edit-start-earlier-hour-' + entry.uuid"
-                (click)="shiftEditDateTime('stop', -60)"
-              >-1h</button>
-              <button
-                class="tv-btn tv-btn--small"
-                type="button"
-                tvFocusable
-                [id]="'recording-edit-stop-earlier-half-hour-' + entry.uuid"
-                [attr.data-tv-nav-up]="'recording-edit-start-earlier-half-hour-' + entry.uuid"
-                (click)="shiftEditDateTime('stop', -30)"
-              >-30m</button>
-              <button
-                class="tv-btn tv-btn--small"
-                type="button"
-                tvFocusable
-                [id]="'recording-edit-stop-later-half-hour-' + entry.uuid"
-                [attr.data-tv-nav-up]="'recording-edit-start-later-half-hour-' + entry.uuid"
+                [id]="'recording-edit-stop-plus-30-' + entry.uuid"
+                [attr.data-tv-nav-right]="'recording-edit-save-' + entry.uuid"
+                [attr.data-tv-nav-up]="'recording-edit-title-' + entry.uuid"
                 (click)="shiftEditDateTime('stop', 30)"
               >+30m</button>
-              <button
-                class="tv-btn tv-btn--small"
-                type="button"
-                tvFocusable
-                [id]="'recording-edit-stop-later-hour-' + entry.uuid"
-                [attr.data-tv-nav-right]="'recording-edit-save-' + entry.uuid"
-                [attr.data-tv-nav-up]="'recording-edit-start-later-hour-' + entry.uuid"
-                (click)="shiftEditDateTime('stop', 60)"
-              >+1h</button>
             </div>
           </label>
         </div>
@@ -228,26 +178,10 @@
             </button>
             <button class="tv-btn" type="button" tvFocusable *ngIf="activeTab === 'upcoming' && canEdit(entry)" [id]="getPrimaryAdjustId(entry)" [attr.data-tv-nav-left]="getRowBodyId(entry)" [attr.data-tv-nav-right]="getPrimaryCancelId(entry)" [attr.data-tv-nav-up]="getVerticalTargetId(entry, 'up', 'primary-adjust')" [attr.data-tv-nav-down]="getVerticalTargetId(entry, 'down', 'primary-adjust')" [disabled]="isBusy(entry)" (click)="startEdit(entry)">{{ getEditActionLabel() }}</button>
             <button class="tv-btn" type="button" tvFocusable *ngIf="activeTab === 'upcoming'" [id]="getPrimaryCancelId(entry)" [attr.data-tv-nav-left]="activeTab === 'upcoming' && canEdit(entry) ? getPrimaryAdjustId(entry) : getRowBodyId(entry)" [attr.data-tv-nav-right]="hasSecondaryActions(entry) ? getActionPanelToggleId(entry) : getPrimaryCancelId(entry)" [attr.data-tv-nav-up]="getVerticalTargetId(entry, 'up', 'primary-cancel')" [attr.data-tv-nav-down]="getVerticalTargetId(entry, 'down', 'primary-cancel')" [disabled]="isBusy(entry)" (click)="cancelRecording(entry)">Cancel</button>
-            <button class="tv-btn stack-card__action-toggle" [class.stack-card__action-toggle--ellipsis]="useBrowserEllipsisActions()" type="button" tvFocusable *ngIf="hasSecondaryActions(entry)" [id]="getActionPanelToggleId(entry)" [attr.data-tv-nav-left]="getActionToggleNavLeft(entry)" [attr.data-tv-nav-up]="getVerticalTargetId(entry, 'up', 'action-toggle')" [attr.data-tv-nav-down]="getSecondaryActionFirstId(entry) || getVerticalTargetId(entry, 'down', 'action-toggle')" [disabled]="isBusy(entry)" (click)="toggleActionPanel(entry)">
+            <button class="tv-btn stack-card__action-toggle" [class.stack-card__action-toggle--ellipsis]="useBrowserEllipsisActions()" type="button" tvFocusable *ngIf="hasSecondaryActions(entry)" [id]="getActionPanelToggleId(entry)" [attr.data-tv-nav-left]="getActionToggleNavLeft(entry)" [attr.data-tv-nav-up]="getVerticalTargetId(entry, 'up', 'action-toggle')" [attr.data-tv-nav-down]="getVerticalTargetId(entry, 'down', 'action-toggle')" [disabled]="isBusy(entry)" (click)="toggleActionPanel(entry)">
               <span class="stack-card__action-label stack-card__action-label--long">{{ useBrowserEllipsisActions() ? '...' : getActionPanelLabel(entry) }}</span>
               <span class="stack-card__action-label stack-card__action-label--short">{{ useBrowserEllipsisActions() ? '...' : getActionPanelCompactLabel(entry) }}</span>
             </button>
-          </div>
-
-          <div class="stack-card__action-row stack-card__action-row--secondary" *ngIf="isActionPanelOpen(entry)">
-            <button class="tv-btn" type="button" tvFocusable *ngIf="showWatchedAction(entry)" [id]="'recording-secondary-watched-' + entry.uuid" [attr.data-tv-nav-up]="getVerticalTargetId(entry, 'up', 'secondary-watched')" [attr.data-tv-nav-down]="getVerticalTargetId(entry, 'down', 'secondary-watched')" [attr.data-tv-nav-right]="getSecondaryWatchedRightId(entry)" [disabled]="isBusy(entry)" (click)="toggleWatched(entry)">{{ getWatchedActionLabel(entry) }}</button>
-            <button class="tv-btn" type="button" tvFocusable *ngIf="canExtendStop(entry)" [id]="'recording-secondary-extend-5-' + entry.uuid" [attr.data-tv-nav-up]="getActionPanelToggleId(entry)" [disabled]="isBusy(entry)" (click)="extendStopTime(entry, 5)">+5m</button>
-            <button class="tv-btn" type="button" tvFocusable *ngIf="canExtendStop(entry)" [id]="'recording-secondary-extend-15-' + entry.uuid" [attr.data-tv-nav-up]="getActionPanelToggleId(entry)" [disabled]="isBusy(entry)" (click)="extendStopTime(entry, 15)">+15m</button>
-            <button class="tv-btn" type="button" tvFocusable *ngIf="getResumeLabel(entry)" [id]="'recording-secondary-restart-' + entry.uuid" [attr.data-tv-nav-up]="getVerticalTargetId(entry, 'up', 'secondary-restart')" [attr.data-tv-nav-down]="getVerticalTargetId(entry, 'down', 'secondary-restart')" [attr.data-tv-nav-left]="getSecondaryRestartLeftId(entry)" [attr.data-tv-nav-right]="getSecondaryRestartRightId(entry)" (click)="restartRecording(entry)">{{ getRestartActionLabel(entry) }}</button>
-            <button class="tv-btn" type="button" tvFocusable *ngIf="showSecondaryAutorecAction()" [id]="'recording-secondary-autorec-' + entry.uuid" [attr.data-tv-nav-up]="getVerticalTargetId(entry, 'up', 'secondary-autorec')" [attr.data-tv-nav-down]="getVerticalTargetId(entry, 'down', 'secondary-autorec')" [attr.data-tv-nav-left]="getSecondaryAutorecLeftId(entry)" [attr.data-tv-nav-right]="showSecondaryEditAction(entry) ? 'recording-secondary-edit-' + entry.uuid : (!isConfirmingRemove(entry) ? 'recording-secondary-remove-' + entry.uuid : 'recording-secondary-remove-now-' + entry.uuid)" [disabled]="isBusy(entry)" (click)="createAutorecFromEntry(entry)">{{ isBusy(entry) ? 'Saving…' : getAutorecActionLabel() }}</button>
-            <button class="tv-btn" type="button" tvFocusable *ngIf="showSecondaryEditAction(entry)" [id]="'recording-secondary-edit-' + entry.uuid" [attr.data-tv-nav-up]="getVerticalTargetId(entry, 'up', 'secondary-edit')" [attr.data-tv-nav-down]="getVerticalTargetId(entry, 'down', 'secondary-edit')" [attr.data-tv-nav-left]="showSecondaryAutorecAction() ? 'recording-secondary-autorec-' + entry.uuid : getActionPanelToggleId(entry)" [attr.data-tv-nav-right]="!isConfirmingRemove(entry) ? 'recording-secondary-remove-' + entry.uuid : 'recording-secondary-remove-now-' + entry.uuid" [disabled]="isBusy(entry)" (click)="startEdit(entry)">{{ getEditActionLabel() }}</button>
-            <ng-container *ngIf="activeTab !== 'upcoming' && !isConfirmingRemove(entry)">
-              <button class="tv-btn" type="button" tvFocusable [id]="'recording-secondary-remove-' + entry.uuid" [attr.data-tv-nav-up]="getVerticalTargetId(entry, 'up', 'secondary-remove')" [attr.data-tv-nav-down]="getVerticalTargetId(entry, 'down', 'secondary-remove')" [attr.data-tv-nav-left]="getSecondaryRemoveLeftId(entry)" [attr.data-tv-nav-right]="'recording-secondary-remove-' + entry.uuid" [disabled]="isBusy(entry)" (click)="removeRecording(entry)">{{ getRemoveActionLabel() }}</button>
-            </ng-container>
-            <ng-container *ngIf="activeTab !== 'upcoming' && isConfirmingRemove(entry)">
-              <button class="tv-btn" type="button" tvFocusable [id]="'recording-secondary-remove-now-' + entry.uuid" [attr.data-tv-nav-up]="getVerticalTargetId(entry, 'up', 'secondary-remove')" [attr.data-tv-nav-down]="getVerticalTargetId(entry, 'down', 'secondary-remove')" [attr.data-tv-nav-left]="getSecondaryRemoveLeftId(entry)" [attr.data-tv-nav-right]="'recording-secondary-keep-' + entry.uuid" [disabled]="isBusy(entry)" (click)="removeRecording(entry)">{{ getConfirmRemoveActionLabel() }}</button>
-              <button class="tv-btn" type="button" tvFocusable [id]="'recording-secondary-keep-' + entry.uuid" [attr.data-tv-nav-up]="getVerticalTargetId(entry, 'up', 'secondary-keep')" [attr.data-tv-nav-down]="getVerticalTargetId(entry, 'down', 'secondary-keep')" [attr.data-tv-nav-left]="'recording-secondary-remove-now-' + entry.uuid" [attr.data-tv-nav-right]="'recording-secondary-keep-' + entry.uuid" [disabled]="isBusy(entry)" (click)="clearRemoveConfirmation()">Keep</button>
-            </ng-container>
           </div>
         </ng-container>
 
@@ -262,50 +196,75 @@
               type="button"
               tvFocusable
               [id]="'recording-edit-save-' + entry.uuid"
-              [attr.data-tv-nav-left]="'recording-edit-stop-later-hour-' + entry.uuid"
+              [attr.data-tv-nav-left]="'recording-edit-stop-plus-30-' + entry.uuid"
               [disabled]="isBusy(entry)"
               (click)="saveEdit(entry)"
             >{{ isBusy(entry) ? 'Saving…' : 'Save' }}</button>
-            <ng-container *ngIf="activeTab !== 'upcoming' && !isConfirmingRemove(entry)">
+            <ng-container *ngIf="activeTab !== 'upcoming'">
               <button
                 class="tv-btn tv-btn--danger"
                 type="button"
                 tvFocusable
-                [attr.data-tv-nav-left]="'recording-edit-stop-later-hour-' + entry.uuid"
+                [attr.data-tv-nav-left]="'recording-edit-stop-plus-30-' + entry.uuid"
                 [disabled]="isBusy(entry)"
-                (click)="removeRecording(entry)"
+                (click)="requestRemoveConfirmation(entry)"
               >Delete</button>
-            </ng-container>
-            <ng-container *ngIf="activeTab !== 'upcoming' && isConfirmingRemove(entry)">
-              <button
-                class="tv-btn tv-btn--danger"
-                type="button"
-                tvFocusable
-                [attr.data-tv-nav-left]="'recording-edit-stop-later-hour-' + entry.uuid"
-                [disabled]="isBusy(entry)"
-                (click)="removeRecording(entry)"
-              >{{ isBusy(entry) ? 'Removing…' : 'Delete Now' }}</button>
-              <button
-                class="tv-btn"
-                type="button"
-                tvFocusable
-                [attr.data-tv-nav-left]="'recording-edit-stop-later-hour-' + entry.uuid"
-                [disabled]="isBusy(entry)"
-                (click)="clearRemoveConfirmation()"
-              >Keep</button>
             </ng-container>
             <button
               class="tv-btn"
               type="button"
               tvFocusable
               [id]="'recording-edit-cancel-' + entry.uuid"
-              [attr.data-tv-nav-left]="'recording-edit-stop-later-hour-' + entry.uuid"
+              [attr.data-tv-nav-left]="'recording-edit-stop-plus-30-' + entry.uuid"
               [disabled]="isBusy(entry)"
               (click)="cancelEdit()"
             >Cancel Edit</button>
           </div>
         </ng-template>
       </div>
-    </article>
+      </article>
+    </ng-container>
+  </div>
+
+  <div class="recording-actions-modal" *ngIf="getActionSheetEntry() as actionEntry" (click)="closeActionPanel()">
+    <div class="recording-actions-modal__card" role="dialog" aria-modal="true" aria-label="Recording Actions" (click)="$event.stopPropagation()">
+      <h2 class="recording-actions-modal__title">Actions</h2>
+      <p class="recording-actions-modal__target">{{ getActionSheetTitle(actionEntry) }}</p>
+
+      <div class="recording-actions-modal__list" data-tv-nav-scope="recording-action-sheet" data-tv-nav-mode="linear-vertical">
+        <button class="tv-btn" type="button" tvFocusable *ngIf="showWatchedAction(actionEntry)" [id]="'recording-secondary-watched-' + actionEntry.uuid" [disabled]="isBusy(actionEntry)" (click)="toggleWatched(actionEntry); closeActionPanel(true)">{{ getWatchedActionLabel(actionEntry) }}</button>
+        <button class="tv-btn" type="button" tvFocusable *ngIf="canExtendStop(actionEntry)" [id]="'recording-secondary-extend-30-' + actionEntry.uuid" [disabled]="isBusy(actionEntry)" (click)="extendStopTime(actionEntry, 30); closeActionPanel(true)">+30m</button>
+        <button class="tv-btn" type="button" tvFocusable *ngIf="getResumeLabel(actionEntry)" [id]="'recording-secondary-restart-' + actionEntry.uuid" (click)="restartRecording(actionEntry); closeActionPanel(true)">{{ getRestartActionLabel(actionEntry) }}</button>
+        <button class="tv-btn" type="button" tvFocusable *ngIf="showSecondaryAutorecAction()" [id]="'recording-secondary-autorec-' + actionEntry.uuid" [disabled]="isBusy(actionEntry)" (click)="createAutorecFromEntry(actionEntry); closeActionPanel(true)">{{ isBusy(actionEntry) ? 'Saving…' : getAutorecActionLabel() }}</button>
+        <button class="tv-btn" type="button" tvFocusable *ngIf="showSecondaryEditAction(actionEntry)" [id]="'recording-secondary-edit-' + actionEntry.uuid" [disabled]="isBusy(actionEntry)" (click)="startEdit(actionEntry); closeActionPanel(true)">{{ getEditActionLabel() }}</button>
+        <button class="tv-btn tv-btn--danger" type="button" tvFocusable *ngIf="showSecondaryRemoveAllAction(actionEntry)" [id]="'recording-secondary-remove-all-' + actionEntry.uuid" [disabled]="isBusy(actionEntry)" (click)="requestRemoveStackConfirmation(actionEntry)">{{ getRemoveAllActionLabel(actionEntry) }}</button>
+        <button class="tv-btn" type="button" tvFocusable *ngIf="activeTab !== 'upcoming'" [id]="'recording-secondary-remove-' + actionEntry.uuid" [disabled]="isBusy(actionEntry)" (click)="requestRemoveConfirmation(actionEntry)">{{ getRemoveActionLabel() }}</button>
+        <button class="tv-btn" type="button" tvFocusable [id]="getActionSheetCloseId()" (click)="closeActionPanel()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="recording-confirm-modal" *ngIf="getConfirmingRemoveStackEntries() as stackEntries" (click)="clearRemoveConfirmation()">
+    <div class="recording-confirm-modal__card" role="dialog" aria-modal="true" aria-label="Confirm Remove Recording Group" (click)="$event.stopPropagation()">
+      <h2 class="recording-confirm-modal__title">Are you sure?</h2>
+      <p class="recording-confirm-modal__message">{{ getConfirmRemoveStackPrompt() }}</p>
+      <p class="recording-confirm-modal__target">{{ getConfirmRemoveStackTarget() }}</p>
+      <div class="recording-confirm-modal__actions">
+        <button id="recording-remove-stack-confirm-yes" class="tv-btn tv-btn--danger" type="button" tvFocusable (click)="confirmRemoveStack()">{{ getConfirmRemoveStackActionLabel() }}</button>
+        <button class="tv-btn" type="button" tvFocusable (click)="clearRemoveConfirmation()">No</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="recording-confirm-modal" *ngIf="getConfirmingRemoveEntry() as confirmEntry" (click)="clearRemoveConfirmation()">
+    <div class="recording-confirm-modal__card" role="dialog" aria-modal="true" aria-label="Confirm Remove Recording" (click)="$event.stopPropagation()">
+      <h2 class="recording-confirm-modal__title">Are you sure?</h2>
+      <p class="recording-confirm-modal__message">{{ getConfirmRemovePrompt() }}</p>
+      <p class="recording-confirm-modal__target">{{ confirmEntry.disp_title || confirmEntry.title || 'Selected recording' }}</p>
+      <div class="recording-confirm-modal__actions">
+        <button id="recording-remove-confirm-yes" class="tv-btn tv-btn--danger" type="button" tvFocusable (click)="confirmRemoveRecording()">{{ getConfirmRemoveActionLabel() }}</button>
+        <button class="tv-btn" type="button" tvFocusable (click)="clearRemoveConfirmation()">No</button>
+      </div>
+    </div>
   </div>
 </section>
