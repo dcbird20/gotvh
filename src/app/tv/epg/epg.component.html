@@ -225,6 +225,7 @@
       <ng-template #noDescription>
         <p class="epg-modal-desc epg-modal-desc--empty">No description available.</p>
       </ng-template>
+      <p class="epg-modal-extra-text" *ngIf="selectedProgram.extraText">Extra Text: {{ selectedProgram.extraText }}</p>
 
       <p class="epg-modal-shortcuts">Use ← → to browse programs when focus is outside action buttons.</p>
 

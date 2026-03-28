@@ -2309,6 +2309,7 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
 
   private rebuildGuideViewModel(): void {
     const query = this.filterQuery.trim().toLowerCase();
+    const queryTokens = this.splitSearchTokens(query);
     const nextFilteredProgramsByChannel: { [channelId: string]: any[] } = {};
     const nextFilteredVerticalProgramsByChannel: { [channelId: string]: any[] } = {};
     const nextFilteredChannels: any[] = [];
@@ -2328,11 +2329,11 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
 
       let visiblePrograms = categoryFiltered;
       if (query) {
-        const channelName = String(channel?.name || '').toLowerCase();
-        const channelMatch = channelName.includes(query) || channelId.toLowerCase().includes(query);
+        const channelSearchText = `${String(channel?.name || '').toLowerCase()} ${channelId.toLowerCase()}`;
+        const channelMatch = this.matchesAllTokens(channelSearchText, queryTokens);
         visiblePrograms = channelMatch
           ? categoryFiltered
-          : categoryFiltered.filter(program => String(program?.title || '').toLowerCase().includes(query));
+          : categoryFiltered.filter(program => this.matchesAllTokens(this.buildProgramFilterSearchText(program), queryTokens));
       }
 
       if ((query || this.showScheduledOnly || this.hasActiveCategoryFilter()) && visiblePrograms.length === 0) {
@@ -2351,6 +2352,32 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     this.filteredProgramsByChannel = nextFilteredProgramsByChannel;
     this.filteredVerticalProgramsByChannel = nextFilteredVerticalProgramsByChannel;
     this.ensureFocusedChannelVisible();
+  }
+
+  private splitSearchTokens(value: string): string[] {
+    return String(value || '')
+      .toLowerCase()
+      .split(/\s+/)
+      .map(token => token.trim())
+      .filter(Boolean);
+  }
+
+  private matchesAllTokens(haystack: string, tokens: string[]): boolean {
+    if (tokens.length === 0) {
+      return true;
+    }
+
+    const text = String(haystack || '').toLowerCase();
+    return tokens.every(token => text.includes(token));
+  }
+
+  private buildProgramFilterSearchText(program: any): string {
+    return [
+      String(program?.title || '').trim(),
+      String(program?.desc || '').trim(),
+      String(program?.extraText || program?.extra_text || '').trim(),
+      String(program?.category || '').trim(),
+    ].join(' ').toLowerCase();
   }
 
   private isProgramWithinTimelineWindow(program: any): boolean {

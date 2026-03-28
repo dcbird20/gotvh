@@ -940,12 +940,14 @@ export class TvheadendService {
           const programmeNodes = getByLocalName(xml, 'programme');
           programmeNodes.forEach(node => {
             const categories = getAllTagText(node, 'category');
+            const extraText = getFirstTagText(node, 'sub-title') || '';
             programmes.push({
               channel: node.getAttribute('channel') || '',
               start: node.getAttribute('start') || '',
               stop: node.getAttribute('stop') || '',
               title: getFirstTagText(node, 'title') || 'Untitled',
               desc: getFirstTagText(node, 'desc') || '',
+              extraText,
               category: categories.length > 0 ? categories : ''
             });
           });
@@ -983,7 +985,8 @@ export class TvheadendService {
       startTime: this.parseGuideXmltvDate(program.start),
       endTime: this.parseGuideXmltvDate(program.stop),
       title: program.title || 'Untitled',
-      desc: program.desc || '',
+      extraText: String(program?.extraText || '').trim(),
+      desc: this.mergeGuideDescriptions(program.desc, program.extraText),
       category: this.mergeGuideCategorySources(program.category, program.desc),
     }));
 
@@ -1078,13 +1081,15 @@ export class TvheadendService {
       }
 
       const title = String(entry?.title || entry?.disp_title || 'Untitled').trim() || 'Untitled';
-      const desc = String(entry?.summary || entry?.description || entry?.desc || '').trim();
+      const extraText = this.getEpgExtraText(entry);
+      const desc = this.mergeGuideDescriptions(this.getEpgPrimaryDescription(entry), extraText);
       return {
         channel: channelId,
         startTime: this.parseGuideTime(entry?.start),
         endTime: this.parseGuideTime(entry?.stop),
         title,
         desc,
+        extraText,
         category: this.mergeGuideCategorySources(entry?.category || entry?.genre || '', desc),
         eventId: entry?.eventId != null ? Number(entry.eventId) : 0,
         dvrUuid: entry?.dvrUuid || '',
@@ -1139,6 +1144,8 @@ export class TvheadendService {
 
       return {
         ...program,
+        desc: this.mergeGuideDescriptions(program?.desc, this.getEpgExtraText(nearMatch)),
+        extraText: this.mergeGuideDescriptions(program?.extraText, this.getEpgExtraText(nearMatch)),
         eventId: nearMatch?.eventId != null ? Number(nearMatch.eventId) : program.eventId,
         dvrUuid: nearMatch?.dvrUuid || program.dvrUuid || '',
         dvrState: nearMatch?.dvrState || program.dvrState || '',
@@ -1243,6 +1250,70 @@ export class TvheadendService {
     }
 
     return new Date(value).getTime();
+  }
+
+  getEpgPrimaryDescription(entry: any): string {
+    return this.firstGuideText(entry?.summary, entry?.description, entry?.desc);
+  }
+
+  getEpgExtraText(entry: any): string {
+    return this.firstGuideText(
+      entry?.extra_text,
+      entry?.extraText,
+      entry?.extratext,
+      entry?.extra,
+      entry?.subtitle,
+      entry?.sub_title,
+      entry?.disp_subtitle,
+      entry?.episode_title,
+      entry?.episodeTitle
+    );
+  }
+
+  mergeGuideDescriptions(primary: any, extra: any): string {
+    const primaryText = this.firstGuideText(primary);
+    const extraText = this.firstGuideText(extra);
+    if (!primaryText) {
+      return extraText;
+    }
+
+    if (!extraText || primaryText.toLowerCase() === extraText.toLowerCase()) {
+      return primaryText;
+    }
+
+    return `${primaryText}\n\n${extraText}`;
+  }
+
+  private firstGuideText(...values: any[]): string {
+    for (const value of values) {
+      const candidates = this.flattenGuideTextValues(value);
+      for (const candidate of candidates) {
+        if (candidate) {
+          return candidate;
+        }
+      }
+    }
+
+    return '';
+  }
+
+  private flattenGuideTextValues(value: any): string[] {
+    if (value === null || value === undefined) {
+      return [];
+    }
+
+    if (Array.isArray(value)) {
+      return value.reduce((acc: string[], entry: any) => acc.concat(this.flattenGuideTextValues(entry)), []);
+    }
+
+    if (typeof value === 'object') {
+      const preferred = [value.eng, value.en, value.default, value.value, value.title, value.name, value.text];
+      const combined = preferred.concat(Object.values(value));
+      return combined.reduce((acc: string[], entry: any) => acc.concat(this.flattenGuideTextValues(entry)), []);
+    }
+
+    const text = String(value).trim();
+    return text ? [text] : [];
   }
 
   private mergeGuideCategorySources(rawCategory: any, description: any): any {

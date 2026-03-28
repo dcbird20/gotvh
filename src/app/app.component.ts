@@ -144,9 +144,11 @@ export class AppComponent implements OnInit, OnDestroy {
     this.remoteKeyDebug.captureEvent(event, 'app-shell', this.router.url.split('?')[0] || '/');
 
     const active = document.activeElement as HTMLElement | null;
+    const isSelectTarget = !!active && active.tagName === 'SELECT';
     const isTypingTarget = !!active && (
       active.tagName === 'INPUT'
       || active.tagName === 'TEXTAREA'
+      || active.tagName === 'SELECT'
       || active.isContentEditable
     );
     const isTextEntryInput = !!active && active.tagName === 'INPUT' && !['button', 'checkbox', 'color', 'file', 'hidden', 'image', 'radio', 'range', 'reset', 'submit'].includes((active as HTMLInputElement).type || 'text');
@@ -160,6 +162,11 @@ export class AppComponent implements OnInit, OnDestroy {
 
     if (this.authDialogState.open && this.handleAuthDialogNavigation(event)) {
       event.preventDefault();
+      return;
+    }
+
+    const hasAutorecConfigModal = !!document.querySelector('.autorec-config-modal');
+    if (hasAutorecConfigModal) {
       return;
     }
 
@@ -192,13 +199,19 @@ export class AppComponent implements OnInit, OnDestroy {
     }
 
     if (isTextEntryTarget && this.spatialNav.isSelectKey(event)) {
-      // On TV, Enter/Select on a text input should blur (dismiss on-screen keyboard)
-      // rather than trying to trigger spatial navigation.
-      (active as HTMLElement).blur();
+      const shouldBlurOnSelect = (active as HTMLElement).getAttribute('data-tv-select-blur') === 'true';
+      if (shouldBlurOnSelect) {
+        // Some inputs (for example recordings filter) use Select to dismiss the keyboard.
+        (active as HTMLElement).blur();
+      }
       return;
     }
 
     if (isTypingTarget && !isNavKey) {
+      return;
+    }
+
+    if (isSelectTarget) {
       return;
     }
 

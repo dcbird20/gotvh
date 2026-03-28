@@ -33,7 +33,7 @@
         <label class="search-field search-field--compact">
           <span class="search-field__label">Filter</span>
           <span class="search-field__input-row">
-            <input type="text" tvFocusable data-tv-linear-anchor="true" [(ngModel)]="filterInputValue" (ngModelChange)="onFilterInputChange()" placeholder="Title, channel, status, detail" />
+            <input type="text" tvFocusable data-tv-linear-anchor="true" data-tv-select-blur="true" [(ngModel)]="filterInputValue" (ngModelChange)="onFilterInputChange()" placeholder="Title, channel, status, detail" />
             <button *ngIf="filterInputValue" type="button" class="tv-btn" tvFocusable data-tv-linear-anchor="true" (click)="clearFilter()">Clear</button>
           </span>
         </label>

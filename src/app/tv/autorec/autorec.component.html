@@ -24,91 +24,190 @@
     </article>
   </div>
 
-  <div class="composer-card">
+  <div class="composer-card composer-card--lean">
     <div class="composer-card__header">
       <div>
-        <h2 class="composer-card__title">Quick Rule</h2>
-        <p class="composer-card__subtitle">Leave channel blank to match across the full lineup.</p>
+        <h2 class="composer-card__title">Create Auto-Recording</h2>
+        <p class="composer-card__subtitle">Pick a preset, set a title, and check matches before you save.</p>
       </div>
+    </div>
+
+    <div class="lean-section-label">
+      <span class="lean-section-label__dot"></span>
+      <span>Preset Picks</span>
+    </div>
+    <div class="composer-presets" data-tv-nav-scope="autorec-create-presets" data-tv-nav-mode="linear-horizontal">
+      <button class="composer-presets__chip" type="button" tvFocusable data-tv-linear-anchor="true" (click)="applyQuickPreset('news')">News</button>
+      <button class="composer-presets__chip" type="button" tvFocusable data-tv-linear-anchor="true" (click)="applyQuickPreset('series')">Series</button>
+      <button class="composer-presets__chip" type="button" tvFocusable data-tv-linear-anchor="true" (click)="applyQuickPreset('sports')">Sports</button>
+      <button class="composer-presets__chip" type="button" tvFocusable data-tv-linear-anchor="true" (click)="applyQuickPreset('movies')">Movies</button>
+    </div>
+
+    <div class="lean-section-label">
+      <span class="lean-section-label__dot"></span>
+      <span>Rule Basics</span>
     </div>
 
     <div class="composer-card__grid">
       <label class="composer-field">
         <span>Title Match</span>
-        <input type="text" [(ngModel)]="form.title" (ngModelChange)="queueGuidePreview()" placeholder="Formula 1" />
+        <input type="text" tvFocusable data-tv-linear-anchor="true" [(ngModel)]="form.title" (ngModelChange)="queueGuidePreview()" placeholder="Formula 1" />
       </label>
 
-      <label class="composer-field">
+      <div class="composer-field">
         <span>Match Mode</span>
-        <select [(ngModel)]="form.matchMode" (ngModelChange)="queueGuidePreview()" tvFocusable>
-          <option value="title">Title</option>
-          <option value="fulltext">Title + details</option>
-        </select>
-      </label>
+        <div class="composer-segmented" data-tv-nav-scope="autorec-create-match-mode" data-tv-nav-mode="linear-horizontal">
+          <button
+            class="composer-segmented__option"
+            type="button"
+            tvFocusable
+            data-tv-linear-anchor="true"
+            [class.composer-segmented__option--active]="form.matchMode === 'title'"
+            (click)="form.matchMode = 'title'; queueGuidePreview()"
+          >Title</button>
+          <button
+            class="composer-segmented__option"
+            type="button"
+            tvFocusable
+            data-tv-linear-anchor="true"
+            [class.composer-segmented__option--active]="form.matchMode === 'fulltext'"
+            (click)="form.matchMode = 'fulltext'; queueGuidePreview()"
+          >Title + details</button>
+        </div>
+      </div>
 
-      <label class="composer-field">
-        <span>Filter Channels</span>
-        <input type="text" [(ngModel)]="channelFilter" placeholder="Type channel number or name" />
-      </label>
-    </div>
+      <label class="composer-field composer-field--full composer-field--channel-picker">
+        <span class="composer-field__label-row">
+          <span>Channel Search</span>
+          <small class="composer-field__hint">{{ getFilteredChannels().length }} shown</small>
+        </span>
+        <span class="composer-field__input-row">
+          <input type="text" tvFocusable data-tv-linear-anchor="true" [(ngModel)]="channelFilter" placeholder="Type channel number or name" />
+          <button *ngIf="channelFilter" class="tv-btn tv-btn--small" type="button" tvFocusable data-tv-linear-anchor="true" (click)="channelFilter = ''">Clear</button>
+        </span>
+        <small class="composer-field__help" *ngIf="channelFilter">
+          <ng-container *ngIf="getFilteredChannels().length; else noCreateChannelMatches">
+            {{ getFilteredChannels().length }} channel{{ getFilteredChannels().length === 1 ? '' : 's' }} match. Open Channel below to choose one.
+          </ng-container>
+        </small>
+        <div class="composer-field__preview-list" *ngIf="channelFilter && getFilteredChannels().length">
+          <button
+            class="composer-field__preview-chip"
+            type="button"
+            tvFocusable
+            data-tv-linear-anchor="true"
+            *ngFor="let channel of getChannelSearchPreviewChannels()"
+            (click)="selectChannelFromSearch(channel)"
+          >{{ formatChannelOption(channel) }}</button>
+          <span class="composer-field__preview-chip composer-field__preview-chip--muted" *ngIf="getChannelSearchHiddenCount() > 0">+{{ getChannelSearchHiddenCount() }} more</span>
+        </div>
+        <ng-template #noCreateChannelMatches>
+          <small class="composer-field__help">No channels match your search yet.</small>
+        </ng-template>
+        <small class="composer-field__help">Filters the Channel list below so you can confirm a match and select it immediately.</small>
 
-    <p class="composer-card__note">Use Starts with or Ends with to narrow title matches.</p>
-
-    <div class="anchor-row" *ngIf="form.matchMode === 'title'">
-      <label class="anchor-chip">
-        <input type="checkbox" [(ngModel)]="form.startsWith" (ngModelChange)="queueGuidePreview()" />
-        <span>Starts with</span>
-      </label>
-
-      <label class="anchor-chip">
-        <input type="checkbox" [(ngModel)]="form.endsWith" (ngModelChange)="queueGuidePreview()" />
-        <span>Ends with</span>
-      </label>
-    </div>
-
-    <label class="composer-field composer-field--full">
-      <span class="composer-field__label-row">
-        <span>Channel</span>
-        <small class="composer-field__hint">{{ getFilteredChannels().length }} shown</small>
-      </span>
-      <select [(ngModel)]="form.channel" (ngModelChange)="queueGuidePreview()" tvFocusable>
+        <span class="composer-field__label-row composer-field__subsection-label">
+          <span>Channel</span>
+          <small class="composer-field__hint">{{ getFilteredChannels().length }} shown</small>
+        </span>
+        <select [(ngModel)]="form.channel" (ngModelChange)="queueGuidePreview()" tvFocusable data-tv-linear-anchor="true">
           <option value="">Any channel</option>
           <option *ngFor="let channel of getFilteredChannels()" [value]="channel.uuid">
             {{ formatChannelOption(channel) }}
           </option>
           <option *ngIf="getFilteredChannels().length === 0" value="" disabled>No matching channels</option>
         </select>
-    </label>
+      </label>
 
-    <label class="composer-field composer-field--full">
-      <span>Recording Profile</span>
-      <select [(ngModel)]="form.config" tvFocusable>
-        <option value="">Default DVR config</option>
-        <option *ngFor="let config of configs" [value]="config.uuid">
-          {{ formatConfigOption(config) }}
-        </option>
-      </select>
-    </label>
+      <label class="composer-field">
+        <span>Start Time</span>
+        <div class="tv-stepper tv-stepper--time">
+          <button class="tv-stepper__button" type="button" tvFocusable data-tv-linear-anchor="true" (click)="stepCreateStartTime(-15)">-15m</button>
+          <div class="tv-stepper__value" aria-live="polite">{{ getCreateStartTimeDisplay() }}</div>
+          <button class="tv-stepper__button" type="button" tvFocusable data-tv-linear-anchor="true" (click)="stepCreateStartTime(15)">+15m</button>
+          <button class="tv-stepper__button tv-stepper__button--clear" type="button" tvFocusable data-tv-linear-anchor="true" (click)="clearCreateStartTime()">Clear</button>
+        </div>
+        <small class="composer-field__help">Use +/- to adjust in 15-minute steps.</small>
+      </label>
 
-    <label class="composer-field composer-field--full">
-      <span>Comment</span>
-      <input type="text" [(ngModel)]="form.comment" placeholder="Optional note for this rule" />
-    </label>
+      <div class="composer-field composer-field--full">
+        <span>More Options</span>
+        <button
+          class="tv-btn tv-btn--small tv-btn--ghost"
+          type="button"
+          tvFocusable
+          data-tv-linear-anchor="true"
+          (click)="toggleRefineOptions()"
+        >{{ showRefineOptions ? 'Less' : 'More' }}</button>
 
-    <section class="composer-preview">
-      <div class="composer-preview__header">
-        <div>
-          <h3 class="composer-preview__title">Guide Preview</h3>
-          <p class="composer-preview__subtitle">{{ describePreviewMatchMode() }}. {{ getGuidePreviewHelpText() }}</p>
+        <div class="composer-advanced" *ngIf="showRefineOptions">
+          <div class="composer-field composer-field--full">
+            <span>Timing options</span>
+            <button
+              class="tv-btn tv-btn--small tv-btn--ghost"
+              type="button"
+              tvFocusable
+              data-tv-linear-anchor="true"
+              (click)="showAdvancedTiming = !showAdvancedTiming"
+            >{{ showAdvancedTiming ? 'Hide' : 'Show timing' }}</button>
+
+            <div class="composer-advanced composer-advanced--nested" *ngIf="showAdvancedTiming">
+              <label class="composer-field">
+                <span>Start Window (min)</span>
+                <input type="number" min="0" step="1" tvFocusable data-tv-linear-anchor="true" [(ngModel)]="form.startWindow" placeholder="15" />
+              </label>
+
+              <label class="composer-field">
+                <span>Pre-roll (min)</span>
+                <input type="number" min="0" step="1" tvFocusable data-tv-linear-anchor="true" [(ngModel)]="form.startExtra" placeholder="2" />
+              </label>
+
+              <label class="composer-field">
+                <span>Post-roll (min)</span>
+                <input type="number" min="0" step="1" tvFocusable data-tv-linear-anchor="true" [(ngModel)]="form.stopExtra" placeholder="5" />
+              </label>
+            </div>
+          </div>
+
+          <label class="composer-field composer-field--full">
+            <span>Recording Profile</span>
+            <div class="tv-stepper tv-stepper--profile">
+              <button class="tv-stepper__button" type="button" tvFocusable data-tv-linear-anchor="true" (click)="selectPreviousCreateConfig()">Prev</button>
+              <button class="tv-stepper__value tv-stepper__value--button" type="button" tvFocusable data-tv-linear-anchor="true" (click)="openConfigPicker('create')">{{ getSelectedConfigLabel(form.config) }}</button>
+              <button class="tv-stepper__button" type="button" tvFocusable data-tv-linear-anchor="true" (click)="selectNextCreateConfig()">Next</button>
+            </div>
+            <small class="composer-field__help">Use Prev/Next to cycle profiles, or press center to open the full profile list.</small>
+          </label>
+
+          <label class="composer-field composer-field--full">
+            <span>Comment</span>
+            <input type="text" tvFocusable data-tv-linear-anchor="true" [(ngModel)]="form.comment" placeholder="Optional note for this rule" />
+          </label>
+
         </div>
       </div>
+    </div>
 
-      <p class="composer-preview__summary" *ngIf="guidePreviewLoading">Checking TVHeadend guide matches…</p>
-      <div class="status status--error" *ngIf="guidePreviewError">{{ guidePreviewError }}</div>
-      <p class="composer-preview__summary" *ngIf="getGuidePreviewSummary()">{{ getGuidePreviewSummary() }}</p>
+    <p class="composer-card__note">Use Starts with or Ends with to narrow title matches.</p>
 
-      <div class="preview-list" *ngIf="guidePreviewResults.length > 0">
-        <article class="preview-card" *ngFor="let match of guidePreviewResults">
+    <section class="composer-preview composer-preview--summary-always">
+      <div class="composer-preview__header">
+        <div>
+          <h3 class="composer-preview__title">Rule Check</h3>
+          <p class="composer-preview__subtitle">Make sure this rule will catch upcoming shows before you save.</p>
+        </div>
+        <button
+          class="tv-btn tv-btn--small tv-btn--ghost"
+          type="button"
+          tvFocusable
+          data-tv-linear-anchor="true"
+          (click)="toggleGuidePreviewDetails()"
+        >{{ showGuidePreviewDetails ? 'Hide matches' : 'View matches' }}</button>
+      </div>
+      <p class="composer-preview__summary" [class.status--error]="!!guidePreviewError">{{ getGuidePreviewStatusLine() }}</p>
+
+      <div class="preview-rail" *ngIf="showGuidePreviewDetails && guidePreviewResults.length > 0" data-tv-nav-scope="autorec-preview-rail" data-tv-nav-mode="linear-horizontal">
+        <article class="preview-card preview-card--rail" tvFocusable data-tv-linear-anchor="true" *ngFor="let match of guidePreviewResults">
           <div class="preview-card__title-row">
             <h4 class="preview-card__title">{{ match.title }}</h4>
             <span class="preview-card__badge" *ngIf="match.isLive">On now</span>
@@ -121,9 +220,26 @@
           </div>
 
           <p class="preview-card__summary" *ngIf="match.desc">{{ match.desc }}</p>
+          <p class="preview-card__summary preview-card__summary--extra" *ngIf="match.extraText">Extra Text: {{ match.extraText }}</p>
         </article>
       </div>
+
+      <p class="composer-preview__summary" *ngIf="showGuidePreviewDetails && !guidePreviewLoading && !guidePreviewError && guidePreviewResults.length === 0">
+        No upcoming matches yet. Try broadening title text or using Any channel.
+      </p>
     </section>
+
+    <div class="anchor-row" *ngIf="form.matchMode === 'title'">
+      <label class="anchor-chip">
+        <input type="checkbox" tvFocusable data-tv-linear-anchor="true" [(ngModel)]="form.startsWith" (ngModelChange)="queueGuidePreview()" />
+        <span>Starts with</span>
+      </label>
+
+      <label class="anchor-chip">
+        <input type="checkbox" tvFocusable data-tv-linear-anchor="true" [(ngModel)]="form.endsWith" (ngModelChange)="queueGuidePreview()" />
+        <span>Ends with</span>
+      </label>
+    </div>
 
     <div class="composer-card__actions">
       <button class="tv-btn tv-btn--primary" type="button" tvFocusable data-tv-linear-anchor="true" data-autorec-create [disabled]="saving" (click)="createRule()">
@@ -147,7 +263,7 @@
           <span>Filter Existing Rules</span>
           <small class="composer-field__hint">{{ getRuleFilterSummary() }}</small>
         </span>
-        <input type="text" [(ngModel)]="ruleFilter" placeholder="Type channel, title, comment, or profile" />
+        <input type="text" tvFocusable [(ngModel)]="ruleFilter" placeholder="Type channel, title, comment, or profile" />
       </label>
     </div>
 
@@ -167,6 +283,7 @@
           <div class="stack-card__meta">
             <span class="stack-card__meta-pill">{{ formatChannel(rule) }}</span>
             <span class="stack-card__meta-pill">{{ describeMatchMode(rule) }}</span>
+            <span class="stack-card__meta-pill" *ngIf="rule.time_label">{{ rule.time_label }}</span>
             <span class="stack-card__meta-pill" *ngIf="rule.config_label">{{ rule.config_label }}</span>
             <span class="stack-card__meta-pill" *ngIf="rule.maxsched">Max {{ rule.maxsched }} scheduled</span>
           </div>
@@ -178,52 +295,75 @@
           <div class="stack-card__edit-grid">
             <label class="composer-field" *ngIf="!editForm.customRegex; else customRegexField">
               <span>Title</span>
-              <input type="text" [(ngModel)]="editForm.title" />
+              <input type="text" tvFocusable data-tv-linear-anchor="true" [(ngModel)]="editForm.title" />
                 <small class="composer-field__help">Plain text is saved literally. Use Starts with or Ends with for tighter title matching.</small>
             </label>
 
             <ng-template #customRegexField>
               <label class="composer-field composer-field--full">
                 <span>Title Regex</span>
-                <input type="text" [(ngModel)]="editForm.rawPattern" />
+                <input type="text" tvFocusable data-tv-linear-anchor="true" [(ngModel)]="editForm.rawPattern" />
                 <small class="composer-field__help">This rule already uses a custom match pattern. Saving will keep it as entered.</small>
               </label>
             </ng-template>
 
-            <label class="composer-field">
+            <div class="composer-field">
               <span>Match Mode</span>
-              <select [(ngModel)]="editForm.matchMode" tvFocusable>
-                <option value="title">Title</option>
-                <option value="fulltext">Title + details</option>
-              </select>
-            </label>
-
-            <label class="composer-field">
-              <span>Filter Channels</span>
-              <input type="text" [(ngModel)]="editChannelFilter" placeholder="Type channel number or name" />
-            </label>
-
-            <div class="composer-field composer-field--full" *ngIf="editForm.matchMode === 'title' && !editForm.customRegex">
-              <span>Title Anchors</span>
-              <div class="anchor-row anchor-row--edit">
-                <label class="anchor-chip">
-                  <input type="checkbox" [(ngModel)]="editForm.startsWith" />
-                  <span>Starts with</span>
-                </label>
-
-                <label class="anchor-chip">
-                  <input type="checkbox" [(ngModel)]="editForm.endsWith" />
-                  <span>Ends with</span>
-                </label>
+              <div class="composer-segmented" data-tv-nav-scope="autorec-edit-match-mode" data-tv-nav-mode="linear-horizontal">
+                <button
+                  class="composer-segmented__option"
+                  type="button"
+                  tvFocusable
+                  data-tv-linear-anchor="true"
+                  [class.composer-segmented__option--active]="editForm.matchMode === 'title'"
+                  (click)="editForm.matchMode = 'title'"
+                >Title</button>
+                <button
+                  class="composer-segmented__option"
+                  type="button"
+                  tvFocusable
+                  data-tv-linear-anchor="true"
+                  [class.composer-segmented__option--active]="editForm.matchMode === 'fulltext'"
+                  (click)="editForm.matchMode = 'fulltext'"
+                >Title + details</button>
               </div>
             </div>
 
-            <label class="composer-field composer-field--full">
+            <label class="composer-field composer-field--full composer-field--channel-picker">
               <span class="composer-field__label-row">
+                <span>Channel Search</span>
+                <small class="composer-field__hint">{{ getFilteredEditChannels().length }} shown</small>
+              </span>
+              <span class="composer-field__input-row">
+                <input type="text" tvFocusable data-tv-linear-anchor="true" [(ngModel)]="editChannelFilter" placeholder="Type channel number or name" />
+                <button *ngIf="editChannelFilter" class="tv-btn tv-btn--small" type="button" tvFocusable data-tv-linear-anchor="true" (click)="editChannelFilter = ''">Clear</button>
+              </span>
+              <small class="composer-field__help" *ngIf="editChannelFilter">
+                <ng-container *ngIf="getFilteredEditChannels().length; else noEditChannelMatches">
+                  {{ getFilteredEditChannels().length }} channel{{ getFilteredEditChannels().length === 1 ? '' : 's' }} match. Open Channel below to choose one.
+                </ng-container>
+              </small>
+              <div class="composer-field__preview-list" *ngIf="editChannelFilter && getFilteredEditChannels().length">
+                <button
+                  class="composer-field__preview-chip"
+                  type="button"
+                  tvFocusable
+                  data-tv-linear-anchor="true"
+                  *ngFor="let channel of getEditChannelSearchPreviewChannels()"
+                  (click)="selectEditChannelFromSearch(channel)"
+                >{{ formatChannelOption(channel) }}</button>
+                <span class="composer-field__preview-chip composer-field__preview-chip--muted" *ngIf="getEditChannelSearchHiddenCount() > 0">+{{ getEditChannelSearchHiddenCount() }} more</span>
+              </div>
+              <ng-template #noEditChannelMatches>
+                <small class="composer-field__help">No channels match your search yet.</small>
+              </ng-template>
+              <small class="composer-field__help">Filters the Channel list below so you can confirm a match and select it immediately.</small>
+
+              <span class="composer-field__label-row composer-field__subsection-label">
                 <span>Channel</span>
                 <small class="composer-field__hint">{{ getFilteredEditChannels().length }} shown</small>
               </span>
-              <select [(ngModel)]="editForm.channel" tvFocusable>
+              <select [(ngModel)]="editForm.channel" tvFocusable data-tv-linear-anchor="true">
                 <option value="">Any channel</option>
                 <option *ngFor="let channel of getFilteredEditChannels()" [value]="channel.uuid">
                   {{ formatChannelOption(channel) }}
@@ -232,19 +372,73 @@
               </select>
             </label>
 
+            <label class="composer-field">
+              <span>Start Time</span>
+              <div class="tv-stepper tv-stepper--time">
+                <button class="tv-stepper__button" type="button" tvFocusable data-tv-linear-anchor="true" (click)="stepEditStartTime(-15)">-15m</button>
+                <div class="tv-stepper__value" aria-live="polite">{{ getEditStartTimeDisplay() }}</div>
+                <button class="tv-stepper__button" type="button" tvFocusable data-tv-linear-anchor="true" (click)="stepEditStartTime(15)">+15m</button>
+                <button class="tv-stepper__button tv-stepper__button--clear" type="button" tvFocusable data-tv-linear-anchor="true" (click)="clearEditStartTime()">Clear</button>
+              </div>
+              <small class="composer-field__help">Use +/- to adjust in 15-minute steps.</small>
+            </label>
+
+            <div class="composer-field composer-field--full">
+              <span>Advanced Timing</span>
+              <button
+                class="tv-btn tv-btn--small tv-btn--ghost"
+                type="button"
+                tvFocusable
+                data-tv-linear-anchor="true"
+                (click)="showEditAdvancedTiming = !showEditAdvancedTiming"
+              >{{ showEditAdvancedTiming ? 'Hide' : 'Timing options' }}</button>
+
+              <div class="composer-advanced" *ngIf="showEditAdvancedTiming">
+                <label class="composer-field">
+                  <span>Start Window (min)</span>
+                  <input type="number" min="0" step="1" tvFocusable data-tv-linear-anchor="true" [(ngModel)]="editForm.startWindow" placeholder="15" />
+                </label>
+
+                <label class="composer-field">
+                  <span>Pre-roll (min)</span>
+                  <input type="number" min="0" step="1" tvFocusable data-tv-linear-anchor="true" [(ngModel)]="editForm.startExtra" placeholder="2" />
+                </label>
+
+                <label class="composer-field">
+                  <span>Post-roll (min)</span>
+                  <input type="number" min="0" step="1" tvFocusable data-tv-linear-anchor="true" [(ngModel)]="editForm.stopExtra" placeholder="5" />
+                </label>
+              </div>
+            </div>
+
+            <div class="composer-field composer-field--full" *ngIf="editForm.matchMode === 'title' && !editForm.customRegex">
+              <span>Title Anchors</span>
+              <div class="anchor-row anchor-row--edit">
+                <label class="anchor-chip">
+                  <input type="checkbox" tvFocusable data-tv-linear-anchor="true" [(ngModel)]="editForm.startsWith" />
+                  <span>Starts with</span>
+                </label>
+
+                <label class="anchor-chip">
+                  <input type="checkbox" tvFocusable data-tv-linear-anchor="true" [(ngModel)]="editForm.endsWith" />
+                  <span>Ends with</span>
+                </label>
+              </div>
+            </div>
+
             <label class="composer-field composer-field--full">
               <span>Recording Profile</span>
-              <select [(ngModel)]="editForm.config" tvFocusable>
-                <option value="">Default DVR config</option>
-                <option *ngFor="let config of configs" [value]="config.uuid">
-                  {{ formatConfigOption(config) }}
-                </option>
-              </select>
+              <div class="tv-stepper tv-stepper--profile">
+                <button class="tv-stepper__button" type="button" tvFocusable data-tv-linear-anchor="true" (click)="selectPreviousEditConfig()">Prev</button>
+                <button class="tv-stepper__value tv-stepper__value--button" type="button" tvFocusable data-tv-linear-anchor="true" (click)="openConfigPicker('edit')">{{ getSelectedConfigLabel(editForm.config) }}</button>
+                <button class="tv-stepper__button" type="button" tvFocusable data-tv-linear-anchor="true" (click)="selectNextEditConfig()">Next</button>
+              </div>
+              <small class="composer-field__help">Use Prev/Next to cycle profiles, or press center to open the full profile list.</small>
             </label>
 
             <label class="composer-field composer-field--full">
               <span>Comment</span>
-              <input type="text" [(ngModel)]="editForm.comment" placeholder="Optional note for this rule" />
+              <input type="text" tvFocusable data-tv-linear-anchor="true" [(ngModel)]="editForm.comment" placeholder="Optional note for this rule" />
             </label>
           </div>
         </ng-template>
@@ -256,7 +450,7 @@
           <button class="tv-btn" type="button" tvFocusable [disabled]="isRuleActionBusy(rule)" (click)="toggleRuleEnabled(rule)">
             {{ isRuleActionBusy(rule) ? 'Saving…' : (rule.enabled ? 'Disable' : 'Enable') }}
           </button>
-          <button class="tv-btn" type="button" tvFocusable [attr.data-autorec-delete-uuid]="rule.uuid" (click)="deleteRule(rule)">Delete</button>
+          <button class="tv-btn" type="button" tvFocusable [attr.data-autorec-delete-uuid]="rule.uuid" (click)="requestDeleteRuleConfirmation(rule)">Delete</button>
         </ng-container>
 
         <ng-template #editActionTemplate>
@@ -271,6 +465,44 @@
     <div class="empty-state empty-state--compact" *ngIf="getFilteredRules().length === 0">
       <h2>No matching rules</h2>
       <p>Try a channel name like Cozi or CNN, or search by title, comment, or profile.</p>
+    </div>
+  </div>
+
+  <div class="autorec-confirm-modal" *ngIf="getConfirmingDeleteRule() as rule">
+    <div class="autorec-confirm-modal__backdrop" (click)="cancelDeleteRuleConfirmation()"></div>
+    <div class="autorec-confirm-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="autorec-delete-confirm-title">
+      <h3 class="autorec-confirm-modal__title" id="autorec-delete-confirm-title">Delete Auto-Rec Rule?</h3>
+      <p class="autorec-confirm-modal__text">Are you sure you want to delete <strong>{{ rule.display_title || rule.name || rule.title || 'this rule' }}</strong>?</p>
+      <div class="autorec-confirm-modal__actions" data-tv-nav-scope="autorec-delete-confirm" data-tv-nav-mode="linear-horizontal">
+        <button class="tv-btn tv-btn--danger" type="button" tvFocusable data-autorec-delete-confirm-yes (click)="confirmDeleteRule()">Yes, Delete</button>
+        <button class="tv-btn" type="button" tvFocusable data-autorec-delete-confirm-cancel (click)="cancelDeleteRuleConfirmation()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="autorec-config-modal" *ngIf="configPickerTarget">
+    <div class="autorec-config-modal__backdrop" (click)="closeConfigPicker()"></div>
+    <div class="autorec-config-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="autorec-config-picker-title">
+      <h3 class="autorec-config-modal__title" id="autorec-config-picker-title">Recording Profile</h3>
+      <p class="autorec-config-modal__text">Choose the DVR profile for this rule.</p>
+
+      <div class="autorec-config-modal__list" data-tv-nav-scope="autorec-config-picker" data-tv-nav-mode="linear-vertical">
+        <button
+          class="autorec-config-modal__option"
+          type="button"
+          tvFocusable
+          data-tv-linear-anchor="true"
+          data-autorec-config-option
+          *ngFor="let option of getConfigPickerOptions()"
+          [class.autorec-config-modal__option--active]="isConfigOptionSelected(option.value)"
+          [attr.data-autorec-config-option-current]="isConfigOptionSelected(option.value) ? 'true' : null"
+          (click)="selectConfigFromPicker(option.value)"
+        >{{ option.label }}</button>
+      </div>
+
+      <div class="autorec-config-modal__actions">
+        <button class="tv-btn" type="button" tvFocusable data-tv-linear-anchor="true" (click)="closeConfigPicker()">Cancel</button>
+      </div>
     </div>
   </div>
 </section>
