@@ -54,6 +54,8 @@
                 <span class="m-val">{{ s.snr.text }}</span>
               </div>
             </div>
+            } @else {
+              <p class="no-signal muted small">{{ isIptv(t) ? 'IPTV streams come over the network, so there’s no signal or SNR to show — watch the error counts instead.' : 'This tuner doesn’t report signal strength or SNR.' }}</p>
             }
             <div class="errs" [class.warn]="s.rising.length">
               <span matTooltip="Continuity errors — missing packets. Rising counts mean breakups.">Continuity {{ s.cc }}</span>

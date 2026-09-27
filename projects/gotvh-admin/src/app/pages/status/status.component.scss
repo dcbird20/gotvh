@@ -57,3 +57,5 @@ td.bad { color: var(--mat-sys-error); }
   &.on { background: var(--mat-sys-primary-container); color: var(--mat-sys-on-primary-container); }
   &.warn { background: var(--mat-sys-error-container); color: var(--mat-sys-on-error-container); margin-left: 6px; }
 }
+
+.no-signal { margin: 8px 0; }

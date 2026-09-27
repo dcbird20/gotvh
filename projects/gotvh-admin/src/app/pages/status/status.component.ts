@@ -333,6 +333,10 @@ export class StatusComponent implements OnInit {
   }
 
   readonly errorLabels: Record<string, string> = { cc: 'continuity', te: 'transport', unc: 'uncorrected' };
+  isIptv(t: Tuner): boolean {
+    return /iptv/i.test(`${t.kind} ${t.name}`);
+  }
+
   risingText(s: TunerStream): string {
     return s.rising.map(k => this.errorLabels[k]).join(', ');
   }
