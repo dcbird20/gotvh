@@ -283,9 +283,10 @@ export class AutorecComponent implements OnInit {
 
   // ---------------------------------------------------------------- selection & bulk
 
-  /** Plain click opens the rule; Ctrl/⌘-click and Shift-click select instead. */
+  /** Plain click selects and opens the rule; Ctrl/⌘-click and Shift-click only change the selection. */
   onRowClick(event: MouseEvent, row: RuleRow): void {
     if (this.selection.handleClick(event, row, this.visibleRows())) return;
+    this.selection.selectOnly(row); // also the start point for a Shift-click range
     this.openEdit(row);
   }
 

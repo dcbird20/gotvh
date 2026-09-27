@@ -1,13 +1,19 @@
 import { computed, signal } from '@angular/core';
 
 /**
- * Multi-row selection for admin tables, with desktop conventions:
- *  - checkbox click or Ctrl/⌘-click toggles one row
- *  - Shift-click selects the range from the last clicked row
- *  - header checkbox selects/clears every row currently shown
+ * Multi-row selection for admin tables, following file-manager conventions
+ * (and the stock Tvheadend grids):
  *
- * Rows are remembered by key (uuid) with a snapshot of the row, so the
- * selection survives paging, sorting and filtering in server-paged tables.
+ *  - click a row             → select just that row (and open it, if the table has an editor)
+ *  - Shift-click another row → select every row from the first click to this one
+ *  - Ctrl/⌘-click            → add or remove one row
+ *  - Ctrl/⌘+Shift-click      → add a range to what's already selected
+ *  - checkbox                → add or remove one row; Shift on a checkbox adds a range
+ *  - header checkbox         → every row on the page; "Select all N matching" goes further
+ *
+ * The range always starts at the last row clicked without Shift (the anchor).
+ * Rows are remembered by key (uuid) with a snapshot, so the selection survives
+ * paging, sorting and filtering in server-paged tables.
  */
 export class RowSelection<T> {
   private readonly map = signal(new Map<string, T>());
@@ -32,53 +38,65 @@ export class RowSelection<T> {
   }
 
   toggle(row: T): void {
-    if (!this.canSelect(row)) return;
     const key = this.keyOf(row);
+    this.anchorKey = key;
+    if (!this.canSelect(row)) return;
     this.map.update(m => {
       const next = new Map(m);
       if (next.has(key)) next.delete(key); else next.set(key, row);
       return next;
     });
-    this.anchorKey = key;
   }
 
-  /** Plain click in a table with nothing to open: select just this row (file-manager style). */
+  /** Plain click: select just this row and make it the start of any Shift-click range. */
   selectOnly(row: T): void {
-    if (!this.canSelect(row)) return;
-    const key = this.keyOf(row);
-    this.map.set(new Map([[key, row]]));
-    this.anchorKey = key;
-  }
-
-  /** Shift-click: select everything between the last clicked row and this one, within `visible`. */
-  selectRange(row: T, visible: T[]): void {
-    const keys = visible.map(r => this.keyOf(r));
-    const to = keys.indexOf(this.keyOf(row));
-    const from = this.anchorKey ? keys.indexOf(this.anchorKey) : -1;
-    if (to < 0) return;
-    if (from < 0) { this.toggle(row); return; }
-    const [a, b] = from < to ? [from, to] : [to, from];
-    this.map.update(m => {
-      const next = new Map(m);
-      for (const r of visible.slice(a, b + 1)) {
-        if (this.canSelect(r)) next.set(this.keyOf(r), r);
-      }
-      return next;
-    });
+    this.anchorKey = this.keyOf(row);
+    this.map.set(this.canSelect(row) ? new Map([[this.keyOf(row), row]]) : new Map());
   }
 
   /**
-   * Handle a row click. Returns true when the click was a selection gesture
-   * (so the caller should NOT open the row in the editor).
+   * Rows from the anchor to `row` (inclusive) within `visible`, or null if the
+   * anchor isn't on screen (e.g. it was on another page).
+   */
+  private rangeTo(row: T, visible: T[]): T[] | null {
+    const keys = visible.map(r => this.keyOf(r));
+    const to = keys.indexOf(this.keyOf(row));
+    const from = this.anchorKey ? keys.indexOf(this.anchorKey) : -1;
+    if (to < 0 || from < 0) return null;
+    const [a, b] = from < to ? [from, to] : [to, from];
+    return visible.slice(a, b + 1).filter(r => this.canSelect(r));
+  }
+
+  /** Shift-click: the selection becomes exactly anchor…row. With `add`, the range is added instead. */
+  selectRange(row: T, visible: T[], add = false): void {
+    const range = this.rangeTo(row, visible);
+    if (!range) {
+      // No usable starting point: treat it as the first click of a new range.
+      if (add) this.toggle(row); else this.selectOnly(row);
+      return;
+    }
+    this.map.update(m => {
+      const next = add ? new Map(m) : new Map<string, T>();
+      for (const r of range) next.set(this.keyOf(r), r);
+      return next;
+    });
+    // The anchor stays put, so Shift-clicking again adjusts the same range.
+  }
+
+  /**
+   * Handle a click on a row. Returns true when it was a selection gesture
+   * (Shift or Ctrl/⌘) — the caller should then NOT open the row. For a plain
+   * click it returns false; call selectOnly() and open the row as usual.
    */
   handleClick(event: MouseEvent, row: T, visible: T[]): boolean {
+    const multi = event.ctrlKey || event.metaKey;
     if (event.shiftKey) {
       event.preventDefault();
-      window.getSelection()?.removeAllRanges(); // shift-click otherwise highlights text
-      this.selectRange(row, visible);
+      window.getSelection()?.removeAllRanges();
+      this.selectRange(row, visible, multi);
       return true;
     }
-    if (event.ctrlKey || event.metaKey) {
+    if (multi) {
       event.preventDefault();
       this.toggle(row);
       return true;
@@ -87,18 +105,23 @@ export class RowSelection<T> {
   }
 
   /**
-   * Click on a row's checkbox cell: toggle, or Shift-click for a range. Call
-   * from the cell's (click) and render the checkbox with pointer-events: none,
-   * so the Shift key is seen (a real checkbox would toggle first).
+   * Click on a row's checkbox cell: add/remove one row, or Shift for a range
+   * (always added). Render the checkbox with pointer-events: none and call this
+   * from the cell's (click), so the Shift key is seen.
    */
   cellClick(event: MouseEvent, row: T, visible: T[]): void {
     event.stopPropagation(); // don't open the row
     if (event.shiftKey) {
       window.getSelection()?.removeAllRanges();
-      this.selectRange(row, visible);
+      this.selectRange(row, visible, true);
     } else {
       this.toggle(row);
     }
+  }
+
+  /** Shift-mousedown starts a text highlight across rows; stop it before it paints. */
+  preventShiftTextSelect(event: MouseEvent): void {
+    if (event.shiftKey) event.preventDefault();
   }
 
   allSelected(visible: T[]): boolean {
@@ -119,6 +142,15 @@ export class RowSelection<T> {
         if (!this.canSelect(r)) continue;
         if (all) next.delete(this.keyOf(r)); else next.set(this.keyOf(r), r);
       }
+      return next;
+    });
+  }
+
+  /** Add many rows at once ("Select all N matching"). */
+  addAll(rows: T[]): void {
+    this.map.update(m => {
+      const next = new Map(m);
+      for (const r of rows) if (this.canSelect(r)) next.set(this.keyOf(r), r);
       return next;
     });
   }

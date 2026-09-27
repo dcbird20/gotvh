@@ -58,7 +58,9 @@ type RecordingView = 'upcoming' | 'finished' | 'failed';
         </button>
       </div>
       @if (selection.count()) {
-        <admin-bulk-bar [count]="selection.count()" [busy]="busy()" [hint]="hiddenHint()" (clear)="selection.clear()">
+        <admin-bulk-bar [count]="selection.count()" [busy]="busy()" [hint]="hiddenHint()" (clear)="selection.clear()"
+                        [matchingTotal]="offerAllMatching() ? data.filteredData.length : null" [filtered]="!!data.filter"
+                        (selectAll)="selection.addAll(data.filteredData)">
           @if (view() === 'upcoming') {
             <button mat-button class="danger-text" (click)="bulkCancel()"><mat-icon>event_busy</mat-icon> Cancel recordings</button>
           } @else {
@@ -80,7 +82,7 @@ type RecordingView = 'upcoming' | 'finished' | 'failed';
                           [disabled]="!visible().length" (change)="selection.toggleAll(visible())"
                           aria-label="Select all recordings on this page" />
           </th>
-          <td mat-cell *matCellDef="let r" class="col-select" (click)="selection.cellClick($event, r, visible())">
+          <td mat-cell *matCellDef="let r" class="col-select" (mousedown)="selection.preventShiftTextSelect($event)" (click)="selection.cellClick($event, r, visible())">
             <mat-checkbox class="display-only" [checked]="selection.isSelected(r)" [tabIndex]="-1" aria-hidden="true" />
           </td>
         </ng-container>
@@ -118,7 +120,7 @@ type RecordingView = 'upcoming' | 'finished' | 'failed';
 
         <tr mat-header-row *matHeaderRowDef="columns; sticky: true"></tr>
         <tr mat-row *matRowDef="let r; columns: columns" class="clickable" [class.checked]="selection.isSelected(r)"
-            tabindex="0" (click)="onRowClick($event, r)"
+            tabindex="0" (mousedown)="selection.preventShiftTextSelect($event)" (click)="onRowClick($event, r)"
             (keydown.space)="$event.preventDefault(); selection.toggle(r)"></tr>
         <tr class="mat-row" *matNoDataRow>
           <td class="mat-cell empty muted" [attr.colspan]="columns.length">
@@ -126,7 +128,7 @@ type RecordingView = 'upcoming' | 'finished' | 'failed';
           </td>
         </tr>
       </table>
-      <mat-paginator [pageSizeOptions]="[25, 50, 100, 250]" [pageSize]="50" showFirstLastButtons />
+      <mat-paginator [pageSizeOptions]="[25, 50, 100, 250, 500]" [pageSize]="50" showFirstLastButtons />
     </div>
   `,
   styles: [`
@@ -191,6 +193,11 @@ export class RecordingsComponent implements OnInit, AfterViewInit {
   /** Nothing to open here, so a plain click selects just that row; Ctrl/⌘ and Shift add to it. */
   onRowClick(event: MouseEvent, row: any): void {
     if (!this.selection.handleClick(event, row, this.visible())) this.selection.selectOnly(row);
+  }
+
+  offerAllMatching(): boolean {
+    return this.selection.allSelected(this.visible()) && this.data.filteredData.length > this.visible().length
+      && this.selection.count() < this.data.filteredData.length;
   }
 
   hiddenHint(): string {

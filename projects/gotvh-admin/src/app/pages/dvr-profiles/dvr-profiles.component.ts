@@ -85,6 +85,7 @@ const BASE = 'dvr/config';
           <tr mat-header-row *matHeaderRowDef="columns()"></tr>
           <tr mat-row *matRowDef="let r; columns: columns()" class="clickable" tabindex="0"
               [class.selected]="selected() === r.uuid" [class.checked]="selection.isSelected(r)"
+              (mousedown)="selection.preventShiftTextSelect($event)"
               (click)="onRowClick($event, r)" (keydown.enter)="select(r)"
               (keydown.space)="$event.preventDefault(); selection.toggle(r)"></tr>
           <tr class="mat-row" *matNoDataRow>
@@ -189,6 +190,7 @@ export class DvrProfilesComponent implements OnInit {
   /** Plain click opens the profile; Ctrl/⌘-click and Shift-click select instead. */
   onRowClick(event: MouseEvent, row: ProfileRow): void {
     if (this.selection.handleClick(event, row, this.rows())) return;
+    this.selection.selectOnly(row); // also the start point for a Shift-click range (default profile stays unselected)
     this.select(row);
   }
 

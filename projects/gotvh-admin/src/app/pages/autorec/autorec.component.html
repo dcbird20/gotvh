@@ -40,7 +40,7 @@
                           [disabled]="!visibleRows().length" (change)="selection.toggleAll(visibleRows())"
                           aria-label="Select all rules shown" />
           </th>
-          <td mat-cell *matCellDef="let r" class="col-select" (click)="selection.cellClick($event, r, visibleRows())">
+          <td mat-cell *matCellDef="let r" class="col-select" (mousedown)="selection.preventShiftTextSelect($event)" (click)="selection.cellClick($event, r, visibleRows())">
             <mat-checkbox class="display-only" [checked]="selection.isSelected(r)" [tabIndex]="-1" aria-hidden="true" />
           </td>
         </ng-container>
@@ -109,6 +109,7 @@
         <tr mat-row *matRowDef="let r; columns: columns()" class="clickable"
             [class.selected]="editing() === r.uuid" [class.disabled-rule]="!r.enabled"
             [class.checked]="selection.isSelected(r)" tabindex="0"
+            (mousedown)="selection.preventShiftTextSelect($event)"
             (click)="onRowClick($event, r)" (keydown.enter)="openEdit(r)"
             (keydown.space)="$event.preventDefault(); selection.toggle(r)"></tr>
         <tr class="mat-row" *matNoDataRow>

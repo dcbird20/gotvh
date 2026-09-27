@@ -53,7 +53,9 @@ export interface GridColumn {
       <ng-content />
     </div>
     @if (selectable() && selection.count()) {
-      <admin-bulk-bar [count]="selection.count()" [busy]="bulkBusy()" [hint]="offPageHint()" (clear)="selection.clear()">
+      <admin-bulk-bar [count]="selection.count()" [busy]="bulkBusy()" [hint]="offPageHint()" (clear)="selection.clear()"
+                      [matchingTotal]="offerAllMatching() ? total() : null" [filtered]="!!filter().trim()"
+                      (selectAll)="selectAllMatching()">
         <ng-content select="[bulkActions]" />
       </admin-bulk-bar>
     }
@@ -71,7 +73,7 @@ export interface GridColumn {
           </th>
           <!-- The cell handles the click (so Shift works); the checkbox is display-only.
                Keyboard users toggle with Space on the focused row. -->
-          <td mat-cell *matCellDef="let r" class="col-select" (click)="onCheckboxCell($event, r)">
+          <td mat-cell *matCellDef="let r" class="col-select" (mousedown)="selection.preventShiftTextSelect($event)" (click)="onCheckboxCell($event, r)">
             <mat-checkbox class="display-only" [checked]="selection.isSelected(r)" [tabIndex]="-1" aria-hidden="true" />
           </td>
         </ng-container>
@@ -88,6 +90,7 @@ export interface GridColumn {
         <tr mat-header-row *matHeaderRowDef="columnIds(); sticky: true"></tr>
         <tr mat-row *matRowDef="let r; columns: columnIds()" class="clickable"
             [class.selected]="r.uuid && r.uuid === selectedUuid()" [class.checked]="selection.isSelected(r)"
+            (mousedown)="selection.preventShiftTextSelect($event)"
             (click)="onRowClick($event, r)" tabindex="0" (keydown.enter)="rowClick.emit(r)"
             (keydown.space)="$event.preventDefault(); selectable() && selection.toggle(r)"></tr>
         <tr class="mat-row" *matNoDataRow>
@@ -99,7 +102,7 @@ export interface GridColumn {
     </div>
     @if (total() > pageSize()) {
       <mat-paginator [length]="total()" [pageIndex]="pageIndex()" [pageSize]="pageSize()"
-                     [pageSizeOptions]="[25, 50, 100, 250]" (page)="onPage($event)" showFirstLastButtons />
+                     [pageSizeOptions]="[25, 50, 100, 250, 500]" (page)="onPage($event)" showFirstLastButtons />
     }
   `,
   styles: [`
@@ -166,12 +169,42 @@ export class IdnodeGridComponent implements OnChanges {
 
   /** Plain click opens the row; Ctrl/⌘/Shift-click changes the selection instead. */
   onRowClick(event: MouseEvent, row: any): void {
-    if (this.selectable() && this.selection.handleClick(event, row, this.rows())) return;
+    if (this.selectable()) {
+      if (this.selection.handleClick(event, row, this.rows())) return;
+      this.selection.selectOnly(row); // also the start point for a Shift-click range
+    }
     this.rowClick.emit(row);
   }
 
   onCheckboxCell(event: MouseEvent, row: any): void {
     this.selection.cellClick(event, row, this.rows());
+  }
+
+  /** Once the whole page is ticked, offer to extend the selection to every matching row. */
+  offerAllMatching(): boolean {
+    return this.selection.allSelected(this.rows()) && this.total() > this.rows().length
+      && this.selection.count() < this.total();
+  }
+
+  /** Fetch every row matching the current filter (just once, all pages) and select them. */
+  selectAllMatching(): void {
+    const sort = this.sort();
+    this.bulkBusy.set(true);
+    this.tvh.getGridPage(this.path(), {
+      start: 0,
+      limit: Math.max(this.total(), 1),
+      sort: sort.direction ? sort.active : undefined,
+      dir: sort.direction === 'desc' ? 'DESC' : 'ASC',
+      filterField: this.filterField() || undefined,
+      filter: this.filter(),
+      params: this.params(),
+    }).subscribe({
+      next: page => {
+        this.selection.addAll(page.entries);
+        this.bulkBusy.set(false);
+      },
+      error: () => this.bulkBusy.set(false),
+    });
   }
 
   offPageHint(): string {

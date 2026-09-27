@@ -102,11 +102,17 @@ Other sections are placeholders naming the API they'll use.
 
 ### Selecting several rows
 
-Every table supports multi-select: checkboxes, Ctrl/⌘-click to add a row, Shift-click
-for a range, Space on a focused row, and the header checkbox for the whole page. A bar
-with bulk actions (enable, disable, delete, scan, cancel, mark watched — whatever fits
-the table) appears while rows are selected. Selections survive paging and filtering;
-the bar says when some selected rows aren't on screen. Shared pieces: `RowSelection`
+Works the same in every table (and like the stock Tvheadend grids):
+
+- **Click** a row — selects just that row (and opens it, where there's an editor).
+- **Shift-click** another row — selects everything from the first click to that row.
+  Shift-click again to grow or shrink the range.
+- **Ctrl/⌘-click** — add or remove one row. **Ctrl/⌘+Shift-click** adds another range.
+- **Checkboxes** add or remove one row; Shift on a checkbox adds a range.
+- **Header checkbox** — the whole page; then **Select all N (matching)** in the bar grabs
+  every row matching the current filter across all pages.
+
+A bar with bulk actions appears while rows are selected. Shared pieces: `RowSelection`
 (`shared/row-selection.ts`), `runBulk` (`shared/bulk.ts`) and `admin-bulk-bar`.
 
 ### Changing a setting on many items
