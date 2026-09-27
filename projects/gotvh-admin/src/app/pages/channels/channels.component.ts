@@ -97,7 +97,7 @@ interface EditorState {
 
       <div class="layout" adminSplit [class.with-editor]="!!editor()">
         <admin-idnode-grid
-          path="channel/grid" [columns]="columns()" filterField="name" filterLabel="Search name or number"
+          path="channel/grid" [params]="allParams" [columns]="columns()" filterField="name" filterLabel="Search name or number"
           [clientSide]="true" [searchFields]="['name', 'number']" [rowFilter]="rowFilter()"
           [defaultSort]="{ active: 'number', direction: 'asc' }" [selectedUuid]="editor()?.uuid ?? null"
           emptyText="No channels yet. Map services from a scanned network, or add one."
@@ -186,6 +186,9 @@ export class ChannelsComponent implements OnInit {
     + Number(!!this.fNetwork()) + Number(this.fServices() !== 'all') + Number(this.fEpg() !== 'all'));
 
   /** Handed to the grid; a new function whenever a filter changes, so the grid re-filters. */
+  /** Tvheadend hides disabled channels from channel/grid unless all=1 (admins only). */
+  readonly allParams = { all: 1 };
+
   readonly rowFilter = computed(() => {
     const enabled = this.fEnabled(), tags = this.fTags(), network = this.fNetwork(), count = this.fServices(), epg = this.fEpg();
     const svcNet = this.serviceNetwork();

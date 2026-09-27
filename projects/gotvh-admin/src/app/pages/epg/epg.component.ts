@@ -268,7 +268,7 @@ export class EpgComponent implements OnInit {
 
   ngOnInit(): void {
     // For showing which of your channels each guide channel feeds.
-    this.tvh.getGrid('channel/grid', { limit: 100000 }).subscribe({
+    this.tvh.getGrid('channel/grid', { limit: 100000, all: 1 }).subscribe({
       next: chans => {
         this.channelNames.set(new Map(chans.map((c: any) =>
           [String(c?.uuid || ''), [c?.number && c.number !== 0 ? String(c.number) : '', String(c?.name || '')].filter(Boolean).join(' ')])));
