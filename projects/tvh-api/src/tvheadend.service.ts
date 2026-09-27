@@ -2176,6 +2176,11 @@ export class TvheadendService {
       this.buildFormBody({ trigger: Math.max(1, Math.floor(delaySeconds)) }), this.getFormRequestOptions());
   }
 
+  /** Who the current credentials belong to, e.g. { username, admin, ... }. */
+  whoami(): Observable<any> {
+    return this.http.get<any>(this.buildUrl('access/whoami'), this.getRequestOptions());
+  }
+
   /** Queue a full rescan of every mux on a network. */
   scanNetwork(uuid: string): Observable<any> {
     return this.http.post<any>(this.buildUrl('mpegts/network/scan'), this.buildFormBody({ uuid }), this.getFormRequestOptions());

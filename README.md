@@ -108,6 +108,14 @@ Built so far:
   the reviewed pairs, keeping existing links. Channels show an EPG source column/filter, and
   the channel editor shows EPG source on the Basic view.
 
+- **Users & access** — one row per user, joining Tvheadend's separate access entries and
+  password entries by username; flags users who can't log in (no password, password
+  disabled, password without access rights). **Add user** picks a role (viewer / recorder /
+  administrator) and creates both records; the side panel edits rights and sets, changes,
+  disables or removes the password; renaming a user renames its password entry too.
+  Changes that could lock out the signed-in account ask first, and it can't be deleted or
+  disabled. **Blocked networks** tab manages `ipblock/entry`.
+
 Other sections are placeholders naming the API they'll use.
 
 ### Selecting several rows

@@ -157,6 +157,11 @@ export class IdnodeGridComponent implements OnChanges {
   readonly clientSide = input(false);
   /** Client-side: fields the search box matches (default: `filterField`). */
   readonly searchFields = input<string[] | null>(null);
+  /**
+   * Client-side: rows supplied by the page instead of fetched from `path`
+   * (e.g. users joined from two endpoints). Refresh by passing a new array.
+   */
+  readonly data = input<any[] | null>(null);
   /** Client-side: extra filter from the page (e.g. tags, network). */
   readonly rowFilter = input<((row: any) => boolean) | null>(null);
 
@@ -247,7 +252,12 @@ export class IdnodeGridComponent implements OnChanges {
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['defaultSort'] && !this.sort().active) this.sort.set(this.defaultSort());
     // Column changes (e.g. narrower while an editor is open) don't need new data or a page reset.
-    if (changes['path'] || changes['params']) {
+    if (changes['data'] && this.data()) {
+      this.allRows = this.data()!;
+      this.loadedTotal.set(this.allRows.length);
+      this.loading.set(false);
+      this.applyClient();
+    } else if (changes['path'] || changes['params']) {
       this.pageIndex.set(0);
       this.refresh();
     } else if (changes['rowFilter'] && this.clientSide()) {
@@ -291,6 +301,12 @@ export class IdnodeGridComponent implements OnChanges {
 
   /** Client-side mode: fetch everything, then filter/sort/page locally. */
   private refreshClient(): void {
+    if (this.data()) { // rows come from the page
+      this.allRows = this.data()!;
+      this.loadedTotal.set(this.allRows.length);
+      this.applyClient();
+      return;
+    }
     this.request?.unsubscribe();
     this.loading.set(true);
     this.error.set('');

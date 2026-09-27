@@ -14,7 +14,6 @@ Working list for the admin app (`projects/gotvh-admin`). Most-basic first.
   - [ ] add a one-off recording by channel + time
   - [ ] time-based timers (`dvr/timerec/*` — calls already in the shared client)
 - [ ] **Stream profiles** screen (`profile/*`) — list + generic editor.
-- [ ] **Users & access** screen (`access/entry/*`, `passwd/entry/*`) — list + generic editor.
 - [ ] **Add a mux by hand** to a network (for regions whose predefined list is missing one).
 - [ ] **"Map to channels" on Services** — the stock one-click mapping with defaults, as a
       stopgap until the full screen below.
@@ -55,4 +54,5 @@ The stock UI needs you to know the chain
 - [x] Tuners & networks (tuner tree, networks, muxes, services)
 - [x] Channels (filters, EPG source column, bulk edit)
 - [x] EPG sources (grabbers, settings incl. cron, EPG channels, map by name)
+- [x] Users & access (users joined with passwords, roles, lockout guards, blocked networks)
 - [x] Multi-select + bulk actions + bulk edit (add/remove/replace for lists) everywhere

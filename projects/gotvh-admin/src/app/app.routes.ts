@@ -68,8 +68,8 @@ export const routes: Routes = [
   },
   {
     path: 'users',
-    ...placeholder('Users & access', 'access/entry/*, passwd/entry/*',
-      'Not in the shared client yet. Access entries and passwords — needs an admin account.'),
+    title: 'Users & access · GoTVH Admin',
+    loadComponent: () => import('./pages/users/users.component').then(m => m.UsersComponent),
   },
   {
     path: 'streaming',

@@ -158,6 +158,11 @@ export class IdnodeFormComponent implements OnChanges {
   /** Values to pre-fill when creating (override class defaults). */
   readonly createDefaults = input<Record<string, unknown>>({});
   readonly title = input('');
+  /**
+   * Optional check before saving an existing object: receives the changes and
+   * resolves true to go ahead (e.g. confirm before locking yourself out).
+   */
+  readonly saveGuard = input<((changes: Record<string, unknown>) => Observable<boolean>) | null>(null);
   /** Show the close (×) and Close/Cancel buttons. Off for a settings page that is always shown. */
   readonly closable = input(true);
 
@@ -511,6 +516,15 @@ export class IdnodeFormComponent implements OnChanges {
     }
     if ((uuid || configPath) && !Object.keys(payload).length) return;
 
+    const guard = this.saveGuard();
+    if (guard && uuid) {
+      guard(payload).subscribe(ok => { if (ok) this.doSave(uuid, configPath, payload); });
+      return;
+    }
+    this.doSave(uuid, configPath, payload);
+  }
+
+  private doSave(uuid: string | null, configPath: string | null, payload: Record<string, unknown>): void {
     this.error.set('');
     this.saving.set(true);
     const createClass = this.createClass();

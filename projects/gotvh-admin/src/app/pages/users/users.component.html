@@ -1,0 +1,165 @@
+<div class="admin-page wide">
+  <h1>Users &amp; access</h1>
+  <p class="subtitle">Who can log in, what they can do, and from where.</p>
+
+  <mat-tab-group [selectedIndex]="tabIndex()" (selectedIndexChange)="tabIndex.set($event)" animationDuration="0ms"
+                 mat-stretch-tabs="false" mat-align-tabs="start" preserveContent>
+
+    <!-- ============================================================ users -->
+    <mat-tab label="Users">
+      <ng-template matTabContent>
+        <div class="tab-body layout" [class.with-editor]="!!selected()">
+          <div class="main">
+            @if (error()) { <div class="banner error" role="alert">{{ error() }}</div> }
+            @if (problemCount() && fShow() !== 'problems') {
+              <div class="banner warn">
+                <mat-icon>warning</mat-icon>
+                <span>{{ problemCount() }} {{ problemCount() === 1 ? 'user needs' : 'users need' }} attention — they can’t log in as set up.</span>
+                <button mat-button (click)="fShow.set('problems')">Show</button>
+              </div>
+            }
+            <div class="filters">
+              <mat-form-field appearance="outline" class="f-small">
+                <mat-label>Show</mat-label>
+                <mat-select [value]="fShow()" (valueChange)="fShow.set($event)">
+                  <mat-option value="all">All users</mat-option>
+                  <mat-option value="problems">Needs attention</mat-option>
+                  <mat-option value="admins">Administrators</mat-option>
+                  <mat-option value="disabled">Disabled</mat-option>
+                </mat-select>
+              </mat-form-field>
+            </div>
+            @if (loading()) { <mat-progress-bar mode="indeterminate" /> }
+            <admin-idnode-grid #userGrid
+              path="access/entry/grid" [clientSide]="true" [data]="rows()" [columns]="userColumns"
+              filterField="label" [searchFields]="['label', 'comment', 'prefix']" filterLabel="Search users"
+              [rowFilter]="rowFilter()" [defaultSort]="{ active: 'label', direction: 'asc' }"
+              [selectedUuid]="selectedUuid()" emptyText="No users yet."
+              (rowClick)="openUser($event)">
+              <button mat-flat-button (click)="addUser()" [disabled]="busy()"><mat-icon>person_add</mat-icon> Add user</button>
+              <ng-container ngProjectAs="[bulkActions]">
+                <button mat-button (click)="bulkSetEnabled(true)">Enable</button>
+                <button mat-button (click)="bulkSetEnabled(false)">Disable</button>
+                <button mat-button class="danger-text" (click)="deleteUsers(selectedUserRows())"><mat-icon>delete</mat-icon> Delete</button>
+              </ng-container>
+            </admin-idnode-grid>
+          </div>
+
+          @if (selected(); as u) {
+            <div class="side">
+              @if (isMe()) {
+                <div class="banner info">
+                  <mat-icon>person</mat-icon>
+                  <span>This is the account you’re signed in with. Changes that could lock you out ask first.</span>
+                </div>
+              }
+              @if (u.problem) {
+                <div class="banner warn"><mat-icon>warning</mat-icon><span>{{ u.problem }}.</span></div>
+              }
+
+              @if (u.kind === 'access') {
+                <admin-idnode-form #accessForm [uuid]="u.uuid" [title]="u.anyone ? 'Anyone' : u.username"
+                                   [saveGuard]="accessSaveGuard" (saved)="onAccessSaved()" (closed)="closeUser()">
+                  <button formExtraActions mat-button type="button" class="danger-text" (click)="deleteUsers([u])"
+                          [disabled]="isMe()" [matTooltip]="isMe() ? 'You can’t delete the account you’re signed in with' : ''">
+                    Delete user
+                  </button>
+                </admin-idnode-form>
+
+                <!-- password lives in a separate Tvheadend record, matched by username -->
+                <section class="card">
+                  <h3>Password</h3>
+                  @if (u.anyone) {
+                    <p class="muted">
+                      This entry applies to <strong>anyone</strong> connecting from its allowed networks
+                      (<code>{{ u.prefix || 'none set' }}</code>) — no username or password is asked for.
+                    </p>
+                  } @else {
+                    @if (u.passwd) {
+                      <mat-slide-toggle [checked]="u.passwordState === 'Set'" (change)="setPasswordEnabled(u, $event.checked)">
+                        Password enabled
+                      </mat-slide-toggle>
+                    } @else {
+                      <p class="muted">No password is set, so <strong>{{ u.username }}</strong> can’t log in yet.</p>
+                    }
+                    <div class="pw-row">
+                      <mat-form-field appearance="outline">
+                        <mat-label>{{ u.passwd ? 'New password' : 'Password' }}</mat-label>
+                        <input matInput type="password" [(ngModel)]="newPassword" autocomplete="new-password">
+                      </mat-form-field>
+                      <mat-form-field appearance="outline">
+                        <mat-label>Confirm</mat-label>
+                        <input matInput type="password" [(ngModel)]="confirmPassword" autocomplete="new-password"
+                               (keydown.enter)="savePassword(u)">
+                      </mat-form-field>
+                    </div>
+                    @if (passwordError()) { <p class="err">{{ passwordError() }}</p> }
+                    <div class="actions">
+                      @if (u.passwd) {
+                        <button mat-button class="danger-text" (click)="removePassword(u)" [disabled]="isMe()">Remove password</button>
+                      }
+                      <span class="spacer"></span>
+                      <button mat-flat-button (click)="savePassword(u)"
+                              [disabled]="busy() || !newPassword || !!passwordError()">
+                        {{ u.passwd ? 'Change password' : 'Set password' }}
+                      </button>
+                    </div>
+                  }
+                </section>
+              } @else {
+                <section class="card">
+                  <div class="card-head">
+                    <h3>{{ u.username }}</h3>
+                    <button mat-icon-button (click)="closeUser()" aria-label="Close"><mat-icon>close</mat-icon></button>
+                  </div>
+                  <p>
+                    There’s a password for <strong>{{ u.username }}</strong> but no access rights, so they can’t log in.
+                    Give them a role, or delete the leftover password.
+                  </p>
+                  <div class="grant">
+                    <button mat-stroked-button (click)="grantAccess(u, 'viewer')">Make viewer</button>
+                    <button mat-stroked-button (click)="grantAccess(u, 'recorder')">Make recorder</button>
+                    <button mat-stroked-button (click)="grantAccess(u, 'admin')">Make administrator</button>
+                  </div>
+                  <div class="actions">
+                    <span class="spacer"></span>
+                    <button mat-button class="danger-text" (click)="deleteUsers([u])">Delete password</button>
+                  </div>
+                </section>
+              }
+            </div>
+          }
+        </div>
+      </ng-template>
+    </mat-tab>
+
+    <!-- ============================================================ blocked networks -->
+    <mat-tab label="Blocked networks">
+      <ng-template matTabContent>
+        <div class="tab-body layout" [class.with-editor]="!!blockEditor()">
+          <div class="main">
+            <p class="muted intro">Connections from these networks are refused before any user check. Use it for ranges that should never reach Tvheadend.</p>
+            <admin-idnode-grid #blockGrid
+              path="ipblock/entry/grid" [clientSide]="true" [columns]="blockColumns"
+              filterField="prefix" [searchFields]="['prefix', 'comment']" filterLabel="Search"
+              [selectedUuid]="blockEditor()?.uuid ?? null" emptyText="Nothing is blocked."
+              (rowClick)="openBlock($event.uuid)">
+              <button mat-flat-button (click)="openBlock(null, true)"><mat-icon>block</mat-icon> Block a network</button>
+              <ng-container ngProjectAs="[bulkActions]">
+                <button mat-button (click)="bulkBlock('enable')">Enable</button>
+                <button mat-button (click)="bulkBlock('disable')">Disable</button>
+                <button mat-button class="danger-text" (click)="bulkBlock('delete')"><mat-icon>delete</mat-icon> Remove</button>
+              </ng-container>
+            </admin-idnode-grid>
+          </div>
+          @if (blockEditor(); as b) {
+            <admin-idnode-form #blockForm [uuid]="b.uuid" [createPath]="b.creating ? 'ipblock/entry' : null"
+                               [title]="b.creating ? 'Block a network' : 'Blocked network'"
+                               [createDefaults]="{ enabled: true }"
+                               (saved)="onBlockSaved($event)" (closed)="blockEditor.set(null)" />
+          }
+        </div>
+      </ng-template>
+    </mat-tab>
+  </mat-tab-group>
+</div>
