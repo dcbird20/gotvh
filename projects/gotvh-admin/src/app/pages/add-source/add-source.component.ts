@@ -276,6 +276,10 @@ export class AddSourceComponent implements OnInit {
       this.regions.set(options);
       // Only one list (e.g. "United States: ATSC 8VSB")? Pick it.
       if (options?.length === 1) this.region = String(options[0].value);
+      // US over-the-air: the ATSC channel-centre list is the right one (the NTSC-centre
+      // list is for old analogue-offset tuning), so pre-pick it.
+      const atsc = options?.find(o => /us-ATSC-center-frequencies-8VSB/i.test(String(o.value)));
+      if (!this.region && atsc) this.region = String(atsc.value);
     });
   }
 
