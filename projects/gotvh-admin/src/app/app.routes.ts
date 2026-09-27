@@ -18,6 +18,7 @@ export const NAV_ITEMS: AdminNavItem[] = [
   { path: 'autorec', label: 'Auto-record rules', icon: 'event_repeat', section: 'DVR' },
   { path: 'timers', label: 'Timers', icon: 'schedule', section: 'DVR' },
   { path: 'dvr-profiles', label: 'DVR profiles', icon: 'tune', section: 'DVR' },
+  { path: 'add-source', label: 'Add a source', icon: 'add_circle', section: 'Configuration' },
   { path: 'inputs', label: 'Tuners & networks', icon: 'settings_input_antenna', section: 'Configuration' },
   { path: 'map-services', label: 'Map services', icon: 'playlist_add', section: 'Configuration' },
   { path: 'channels', label: 'Channels', icon: 'live_tv', section: 'Configuration' },
@@ -84,6 +85,11 @@ export const routes: Routes = [
     path: 'users',
     title: 'Users & access · GoTVH Admin',
     loadComponent: () => import('./pages/users/users.component').then(m => m.UsersComponent),
+  },
+  {
+    path: 'add-source',
+    title: 'Add a source · GoTVH Admin',
+    loadComponent: () => import('./pages/add-source/add-source.component').then(m => m.AddSourceComponent),
   },
   {
     path: 'map-services',

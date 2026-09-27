@@ -118,6 +118,13 @@ Built so far:
 - **Timers** — record a channel at a fixed time on chosen days (`dvr/timerec`), with
   days shown as Weekdays / Weekends / Mon, Wed …; create, edit, bulk edit/enable/delete.
 
+- **Add a source** — a guided flow for new sources. Antenna/cable/satellite: pick tuners
+  (unused ones preselected), a new network of the matching type with your region's
+  frequency list (or an existing network), then it creates the network, switches the tuners
+  on and assigns it, and scans with live counts (frequencies checked, with a signal,
+  services found). IPTV: playlist URL, name and stream limit → automatic IPTV network, each
+  stream checked. Ends with Map services and guide matching.
+
 - **Map services** — every service not on a channel yet, grouped by network, with the
   channel each will become: name and number (from the broadcast's LCN / ATSC major.minor)
   editable in place; TV ticked, radio/data/encrypted not; one channel per name so the same

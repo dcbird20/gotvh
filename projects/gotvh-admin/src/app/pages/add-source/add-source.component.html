@@ -1,0 +1,210 @@
+<div class="admin-page">
+  <h1>Add a source</h1>
+  <p class="subtitle">From tuner or playlist to channels with a guide, in one go. Each step says what it does before doing it.</p>
+
+  <ol class="steps" aria-label="Progress">
+    <li [class.on]="step() === 'kind'" [class.done]="step() !== 'kind'">1 · Source</li>
+    <li [class.on]="step() === 'tuner' || step() === 'iptv'" [class.done]="step() === 'scan' || step() === 'done'">2 · Set up</li>
+    <li [class.on]="step() === 'scan'" [class.done]="step() === 'done'">3 · Scan</li>
+    <li [class.on]="step() === 'done'">4 · Channels &amp; guide</li>
+  </ol>
+
+  @if (error()) { <div class="banner error" role="alert"><mat-icon>error</mat-icon><span>{{ error() }}</span></div> }
+
+  <!-- ============================================================ 1: kind -->
+  @if (step() === 'kind') {
+    @if (!loaded()) { <mat-progress-bar mode="indeterminate" /> }
+    <div class="choices">
+      <button class="choice" (click)="chooseKind('tuner')" [disabled]="!loaded()">
+        <mat-icon>settings_input_antenna</mat-icon>
+        <strong>Antenna, cable or satellite</strong>
+        <span>A tuner in this computer or on the network (e.g. Hauppauge, HDHomeRun). Tvheadend scans the frequencies for channels.</span>
+        @if (loaded()) { <span class="muted small">{{ plural(hardwareTuners().length, 'tuner') }} found</span> }
+      </button>
+      <button class="choice" (click)="chooseKind('iptv')" [disabled]="!loaded()">
+        <mat-icon>cloud</mat-icon>
+        <strong>IPTV playlist</strong>
+        <span>An M3U playlist address from your provider or an IPTV proxy. Each entry becomes a channel.</span>
+      </button>
+    </div>
+  }
+
+  <!-- ============================================================ 2a: tuner -->
+  @if (step() === 'tuner') {
+    <section class="card">
+      <h2>Which tuners?</h2>
+      <p class="muted">They’ll be switched on and set to receive the network below. Tuners already in use keep their other networks.</p>
+      @for (t of hardwareTuners(); track t.uuid) {
+        <div class="tuner">
+          <mat-checkbox [checked]="t.selected" (change)="toggleTuner(t, $event.checked)">
+            <strong>{{ t.name }}</strong> <span class="muted small">{{ t.caption }}</span>
+          </mat-checkbox>
+          <span class="muted small tuner-note">
+            @if (!t.enabled) { disabled · }
+            @if (t.networks.length) { receives {{ networkName$(t.networks[0]) }}{{ t.networks.length > 1 ? ' and ' + (t.networks.length - 1) + ' more' : '' }} }
+            @else { not set up yet }
+          </span>
+        </div>
+      } @empty {
+        <p class="warn">Tvheadend doesn’t see any tuners. Check the tuner is plugged in (or on the network, for HDHomeRun) and that Tvheadend can access it, then reload this page.</p>
+      }
+    </section>
+
+    <section class="card">
+      <h2>Which network?</h2>
+      <p class="muted">A network is the set of frequencies the tuners scan — for an antenna, the broadcasts in your area.</p>
+      <mat-radio-group [(ngModel)]="networkMode" class="modes">
+        <mat-radio-button value="new">A new network</mat-radio-button>
+        <mat-radio-button value="existing" [disabled]="!networks().length">One that already exists</mat-radio-button>
+      </mat-radio-group>
+
+      @if (networkMode === 'new') {
+        <div class="row2">
+          <mat-form-field appearance="outline">
+            <mat-label>Type</mat-label>
+            <mat-select [(ngModel)]="networkClass" (ngModelChange)="onNetworkClassChange()">
+              @for (b of builders(); track b.class) { <mat-option [value]="b.class">{{ b.caption }}</mat-option> }
+            </mat-select>
+            @if (tunerSystem()) { <mat-hint>Your tuners are {{ tunerSystem() }}.</mat-hint> }
+          </mat-form-field>
+          <mat-form-field appearance="outline">
+            <mat-label>Name</mat-label>
+            <input matInput [(ngModel)]="networkName">
+          </mat-form-field>
+        </div>
+        @if (regionsLoading()) { <mat-progress-bar mode="indeterminate" /> }
+        @if (regions(); as rs) {
+          <mat-form-field appearance="outline" class="full">
+            <mat-label>Your region’s frequencies</mat-label>
+            <mat-select [(ngModel)]="region">
+              <mat-option value="">None — I’ll add muxes by hand</mat-option>
+              @for (r of rs; track r.value) { <mat-option [value]="r.value">{{ r.label }}</mat-option> }
+            </mat-select>
+            <mat-hint>Tvheadend scans every frequency on this list. Pick your country’s list for over-the-air.</mat-hint>
+          </mat-form-field>
+        }
+      } @else {
+        <mat-form-field appearance="outline" class="full">
+          <mat-label>Network</mat-label>
+          <mat-select [(ngModel)]="existingNetwork">
+            @for (n of networks(); track n.uuid) { <mat-option [value]="n.uuid">{{ n.name }}</mat-option> }
+          </mat-select>
+        </mat-form-field>
+      }
+    </section>
+
+    <div class="actions">
+      <button mat-button (click)="restart()">Back</button>
+      <span class="spacer"></span>
+      <span class="muted small">Creates the network, assigns {{ plural(selectedTuners().length, 'tuner') }}, starts a scan.</span>
+      <button mat-flat-button (click)="startTuner()" [disabled]="busy() || !canStartTuner()">
+        <mat-icon>radar</mat-icon> Set up and scan
+      </button>
+    </div>
+  }
+
+  <!-- ============================================================ 2b: IPTV -->
+  @if (step() === 'iptv') {
+    <section class="card">
+      <h2>Playlist</h2>
+      <mat-form-field appearance="outline" class="full">
+        <mat-label>Playlist address (M3U)</mat-label>
+        <input matInput [(ngModel)]="iptvUrl" placeholder="http://…/playlist.m3u" autocomplete="off" spellcheck="false">
+        @if (iptvUrlError()) { <mat-hint class="err">{{ iptvUrlError() }}</mat-hint> }
+        @else { <mat-hint>Tvheadend re-reads it every hour, adding and removing channels as the playlist changes.</mat-hint> }
+      </mat-form-field>
+      <div class="row2">
+        <mat-form-field appearance="outline">
+          <mat-label>Name</mat-label>
+          <input matInput [(ngModel)]="iptvName">
+        </mat-form-field>
+        <mat-form-field appearance="outline">
+          <mat-label>Streams at once</mat-label>
+          <input matInput type="number" min="0" [(ngModel)]="iptvMaxStreams">
+          <mat-hint>Your provider’s connection limit. 0 = no limit.</mat-hint>
+        </mat-form-field>
+      </div>
+    </section>
+    <div class="actions">
+      <button mat-button (click)="restart()">Back</button>
+      <span class="spacer"></span>
+      <span class="muted small">Creates an IPTV network from the playlist and checks each stream.</span>
+      <button mat-flat-button (click)="startIptv()" [disabled]="busy() || !iptvUrl.trim() || !!iptvUrlError()">
+        <mat-icon>cloud_download</mat-icon> Add playlist
+      </button>
+    </div>
+  }
+
+  <!-- ============================================================ 3: scan -->
+  @if (step() === 'scan') {
+    <section class="card">
+      <h2>Scanning {{ networkLabel() }}</h2>
+      @if (scan(); as s) {
+        @if (s.muxes) {
+          <mat-progress-bar mode="determinate" [value]="scanProgress() ?? 0" />
+          <div class="stats">
+            <div><span class="n">{{ s.scanned }}</span><span class="l">of {{ s.muxes }} {{ kind() === 'iptv' ? 'streams' : 'frequencies' }} checked</span></div>
+            <div><span class="n">{{ s.ok }}</span><span class="l">{{ kind() === 'iptv' ? 'working' : 'with a signal' }}</span></div>
+            <div><span class="n">{{ s.services }}</span><span class="l">services found</span></div>
+            @if (s.failed) { <div class="bad"><span class="n">{{ s.failed }}</span><span class="l">{{ kind() === 'iptv' ? 'not responding' : 'nothing received' }}</span></div> }
+          </div>
+          @if (scanDone()) {
+            <p><strong>Scan finished.</strong></p>
+          } @else {
+            <p class="muted">{{ kind() === 'iptv'
+              ? 'Each stream is opened briefly to see what it carries — a few at a time, up to your stream limit.'
+              : 'Each frequency is tuned for a few seconds. Frequencies with no station nearby are normal and show as nothing received.' }}</p>
+          }
+        } @else {
+          <mat-progress-bar mode="indeterminate" />
+          <p class="muted">{{ kind() === 'iptv' ? 'Reading the playlist…' : 'Waiting for the first frequencies…' }}</p>
+          @if (kind() === 'tuner' && !region) {
+            <p class="warn">No region list was chosen, so there’s nothing to scan yet. Add muxes by hand on Tuners &amp; networks, or go back and pick your region.</p>
+          }
+        }
+      } @else {
+        <mat-progress-bar mode="indeterminate" />
+      }
+    </section>
+    <div class="actions">
+      @if (!scanDone()) { <span class="muted small">You can carry on — scanning continues in the background.</span> }
+      <span class="spacer"></span>
+      <button mat-flat-button (click)="finish()">{{ scanDone() ? 'Next' : 'Continue anyway' }}</button>
+    </div>
+  }
+
+  <!-- ============================================================ 4: done -->
+  @if (step() === 'done') {
+    <section class="card">
+      @if (scan(); as s) {
+        @if (s.services) {
+          <h2><mat-icon class="ok">check_circle</mat-icon> {{ plural(s.services, 'service') }} found on {{ networkLabel() }}</h2>
+          <p>Services are what the scan finds; <strong>channels</strong> are what you watch. Next, choose which services become channels:</p>
+        } @else {
+          <h2><mat-icon class="bad">warning</mat-icon> No services found (yet)</h2>
+          <p class="muted">
+            @if (kind() === 'iptv') { Check the playlist address opens in a browser. Streams are checked in the background, so services can still appear. }
+            @else { Check the antenna and the region list; a scan can also still be running. Live status shows the signal on each tuner. }
+          </p>
+        }
+      }
+      <ol class="next">
+        <li>
+          <strong>Map services to channels</strong> — names and numbers from the broadcast or playlist, radio and data left out.
+          <div><a mat-flat-button routerLink="/map-services"><mat-icon>playlist_add</mat-icon> Map services</a></div>
+        </li>
+        <li>
+          <strong>Match guide data</strong> — link the new channels to your guide source so the programme guide fills in.
+          <div><a mat-stroked-button routerLink="/epg">EPG sources</a></div>
+        </li>
+      </ol>
+    </section>
+    <div class="actions">
+      @if (networkUuid(); as n) {
+        <a mat-button routerLink="/inputs" [queryParams]="{ tab: 'networks', open: n }">Open the network</a>
+      }
+      <span class="spacer"></span>
+      <button mat-button (click)="restart()">Add another source</button>
+    </div>
+  }
+</div>

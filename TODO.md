@@ -27,9 +27,9 @@ The stock UI needs you to know the chain
         command (pipe:// entries or the IPTV proxy) so Tvheadend gets real names too.
 - [ ] **More Connected to links** — recordings (→ channel → … → tuner), EPG channels
       (→ channels they feed), channel tags (→ their channels).
-- [ ] **Guided "Add a source"** — pick a tuner or paste an IPTV playlist, pick region
-      frequencies, scan with progress, map services, match EPG — in one flow built on the
-      two items above.
+- [x] **Guided "Add a source"** — antenna/cable/satellite (tuners → new or existing network
+      with region frequencies → scan with progress) or IPTV playlist (automatic network,
+      stream limit) → Map services → guide data.
 
 ## Housekeeping
 
