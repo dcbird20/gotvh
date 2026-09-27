@@ -1,0 +1,176 @@
+<div class="admin-page wide">
+  <div class="head">
+    <div>
+      <h1>Live status</h1>
+      <p class="subtitle">Tuners, what’s streaming or recording, and who’s connected.</p>
+    </div>
+    <div class="live">
+      @if (paused()) {
+        <span class="muted">Paused</span>
+      } @else {
+        <span class="dot" aria-hidden="true"></span>
+        <span class="muted">Live{{ lastUpdate() ? ' · updated ' + lastUpdate()!.toLocaleTimeString() : '' }}</span>
+      }
+      <button mat-stroked-button (click)="togglePause()">
+        <mat-icon>{{ paused() ? 'play_arrow' : 'pause' }}</mat-icon> {{ paused() ? 'Resume' : 'Pause' }}
+      </button>
+    </div>
+  </div>
+  @if (firstLoad()) { <mat-progress-bar mode="indeterminate" /> }
+  @if (error()) { <div class="banner error" role="alert"><mat-icon>error</mat-icon><span>{{ error() }}</span></div> }
+
+  <!-- ============================================================ tuners -->
+  <h2>Tuners <span class="count">{{ busyTuners() }} of {{ enabledTuners() }} in use</span></h2>
+  <div class="tuners">
+    @for (t of tuners(); track t.uuid) {
+      <section class="tuner" [class.busy]="t.streams.length" [class.off]="!t.enabled">
+        <div class="t-head">
+          <div class="t-name">
+            <strong>{{ t.name }}</strong>
+            <span class="muted small">{{ t.kind }}</span>
+          </div>
+          @if (!t.enabled) { <span class="chip">Disabled</span> }
+          @else if (!t.streams.length) { <span class="chip idle">Idle</span> }
+          @else { <span class="chip on">In use</span> }
+        </div>
+
+        @for (s of t.streams; track s.mux) {
+          <div class="t-stream">
+            <div class="mux">
+              <mat-icon class="small-icon">settings_input_antenna</mat-icon>
+              <span>{{ s.mux || 'Tuned' }}</span>
+              <span class="muted small">· {{ s.subs }} {{ s.subs === 1 ? 'stream' : 'streams' }} · {{ s.bitrate }}</span>
+            </div>
+            @if (s.signal.quality !== 'unknown' || s.snr.quality !== 'unknown') {
+            <div class="meters">
+              <div class="meter">
+                <span class="m-label">Signal</span>
+                <div class="bar" [attr.data-q]="s.signal.quality"><div class="fill" [style.width.%]="s.signal.pct ?? 0"></div></div>
+                <span class="m-val">{{ s.signal.text }}</span>
+              </div>
+              <div class="meter">
+                <span class="m-label">Quality (SNR)</span>
+                <div class="bar" [attr.data-q]="s.snr.quality"><div class="fill" [style.width.%]="s.snr.pct ?? 0"></div></div>
+                <span class="m-val">{{ s.snr.text }}</span>
+              </div>
+            </div>
+            }
+            <div class="errs" [class.warn]="s.rising.length">
+              <span matTooltip="Continuity errors — missing packets. Rising counts mean breakups.">Continuity {{ s.cc }}</span>
+              <span matTooltip="Transport errors reported by the tuner.">Transport {{ s.te }}</span>
+              <span matTooltip="Uncorrected blocks — data the tuner couldn’t repair.">Uncorrected {{ s.unc }}</span>
+              <span matTooltip="Bit error rate (driver-specific).">BER {{ s.ber }}</span>
+            </div>
+            @if (s.rising.length) {
+              <p class="rising"><mat-icon>warning</mat-icon> {{ risingText(s) }} errors are rising — the picture is probably breaking up.</p>
+            }
+          </div>
+        }
+        @if (t.streams.length) {
+          <div class="t-actions">
+            <button mat-button (click)="clearStats(t)" matTooltip="Reset this tuner’s error counters to zero">Reset counters</button>
+          </div>
+        }
+      </section>
+    } @empty {
+      <p class="muted">{{ firstLoad() ? 'Loading…' : 'No tuners found.' }}</p>
+    }
+  </div>
+
+  <!-- ============================================================ streams -->
+  <h2>Streams &amp; recordings <span class="count">{{ streams().length }}</span></h2>
+  @if (streams().length) {
+    <table mat-table [dataSource]="streams()">
+      <ng-container matColumnDef="what">
+        <th mat-header-cell *matHeaderCellDef>What</th>
+        <td mat-cell *matCellDef="let s">
+          @if (s.recording) { <mat-icon class="small-icon rec">fiber_manual_record</mat-icon> }
+          {{ s.what }}
+          @if (s.errors) { <span class="chip warn" matTooltip="Stream errors since it started">{{ s.errors }} errors</span> }
+        </td>
+      </ng-container>
+      <ng-container matColumnDef="channel">
+        <th mat-header-cell *matHeaderCellDef>Channel</th>
+        <td mat-cell *matCellDef="let s">{{ s.channel }}</td>
+      </ng-container>
+      <ng-container matColumnDef="who">
+        <th mat-header-cell *matHeaderCellDef>Who</th>
+        <td mat-cell *matCellDef="let s">{{ s.who }}</td>
+      </ng-container>
+      <ng-container matColumnDef="source">
+        <th mat-header-cell *matHeaderCellDef>Tuner / service</th>
+        <td mat-cell *matCellDef="let s" class="small">
+          {{ s.source || '—' }}
+          @if (s.profile) { <div class="muted">Profile: {{ s.profile }}</div> }
+        </td>
+      </ng-container>
+      <ng-container matColumnDef="state">
+        <th mat-header-cell *matHeaderCellDef>State</th>
+        <td mat-cell *matCellDef="let s" [class.bad]="s.state === 'Bad'">{{ s.state || '—' }}</td>
+      </ng-container>
+      <ng-container matColumnDef="rate">
+        <th mat-header-cell *matHeaderCellDef class="num">Rate</th>
+        <td mat-cell *matCellDef="let s" class="num">{{ s.rate }}</td>
+      </ng-container>
+      <ng-container matColumnDef="since">
+        <th mat-header-cell *matHeaderCellDef>For</th>
+        <td mat-cell *matCellDef="let s">{{ s.since }}</td>
+      </ng-container>
+      <ng-container matColumnDef="actions">
+        <th mat-header-cell *matHeaderCellDef></th>
+        <td mat-cell *matCellDef="let s" class="actions">
+          @if (s.recording) {
+            @if (s.dvrUuid) {
+              <button mat-button class="danger-text" (click)="stopRecording(s)">Stop recording</button>
+            } @else {
+              <a mat-button routerLink="/recordings" matTooltip="Couldn’t match this to a recording — open Recordings">Recordings</a>
+            }
+          } @else if (s.connectionIds.length) {
+            <button mat-button class="danger-text" (click)="disconnectStream(s)">Disconnect</button>
+          }
+        </td>
+      </ng-container>
+      <tr mat-header-row *matHeaderRowDef="streamColumns"></tr>
+      <tr mat-row *matRowDef="let row; columns: streamColumns"></tr>
+    </table>
+  } @else {
+    <p class="muted">Nothing is streaming or recording.</p>
+  }
+
+  <!-- ============================================================ connections -->
+  <h2>Connected clients <span class="count">{{ connectionRows().length }}</span></h2>
+  @if (connectionRows().length) {
+    <table mat-table [dataSource]="connectionRows()">
+      <ng-container matColumnDef="peer">
+        <th mat-header-cell *matHeaderCellDef>Address</th>
+        <td mat-cell *matCellDef="let c" class="mono">{{ c.peer }}</td>
+      </ng-container>
+      <ng-container matColumnDef="user">
+        <th mat-header-cell *matHeaderCellDef>User</th>
+        <td mat-cell *matCellDef="let c">{{ c.user }}</td>
+      </ng-container>
+      <ng-container matColumnDef="type">
+        <th mat-header-cell *matHeaderCellDef>Type</th>
+        <td mat-cell *matCellDef="let c">{{ c.type }}</td>
+      </ng-container>
+      <ng-container matColumnDef="streams">
+        <th mat-header-cell *matHeaderCellDef class="num">Streams</th>
+        <td mat-cell *matCellDef="let c" class="num">{{ c.streams || '—' }}</td>
+      </ng-container>
+      <ng-container matColumnDef="since">
+        <th mat-header-cell *matHeaderCellDef>Connected for</th>
+        <td mat-cell *matCellDef="let c">{{ c.since }}</td>
+      </ng-container>
+      <ng-container matColumnDef="actions">
+        <th mat-header-cell *matHeaderCellDef></th>
+        <td mat-cell *matCellDef="let c" class="actions">
+          <button mat-button class="danger-text" (click)="disconnectConnection(c)">Disconnect</button>
+        </td>
+      </ng-container>
+      <tr mat-header-row *matHeaderRowDef="connColumns"></tr>
+      <tr mat-row *matRowDef="let row; columns: connColumns"></tr>
+    </table>
+  } @else {
+    <p class="muted">No clients connected.</p>
+  }
+</div>

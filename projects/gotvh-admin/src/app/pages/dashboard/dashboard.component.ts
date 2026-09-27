@@ -1,3 +1,4 @@
+import { RouterLink } from '@angular/router';
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { forkJoin, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
@@ -15,7 +16,7 @@ import { TvheadendService } from '@gotvh/tvh-api';
 @Component({
   selector: 'admin-dashboard',
   standalone: true,
-  imports: [MatCardModule, MatTableModule, MatButtonModule, MatIconModule, MatProgressBarModule],
+  imports: [RouterLink, MatCardModule, MatTableModule, MatButtonModule, MatIconModule, MatProgressBarModule],
   template: `
     <div class="admin-page">
       <div class="head">
@@ -23,9 +24,12 @@ import { TvheadendService } from '@gotvh/tvh-api';
           <h1>Dashboard</h1>
           <p class="subtitle">Server status, active streams and client connections.</p>
         </div>
-        <button mat-stroked-button (click)="load()" [disabled]="loading()">
-          <mat-icon>refresh</mat-icon> Refresh
-        </button>
+        <div class="head-actions">
+          <a mat-flat-button routerLink="/status"><mat-icon>sensors</mat-icon> Live status</a>
+          <button mat-stroked-button (click)="load()" [disabled]="loading()">
+            <mat-icon>refresh</mat-icon> Refresh
+          </button>
+        </div>
       </div>
       @if (loading()) { <mat-progress-bar mode="indeterminate" /> }
 
@@ -115,6 +119,7 @@ import { TvheadendService } from '@gotvh/tvh-api';
     </div>
   `,
   styles: [`
+    .head-actions { display: flex; gap: 8px; }
     .head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
     .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin: 8px 0 28px; }
     .label { font: var(--mat-sys-label-medium); color: var(--mat-sys-on-surface-variant); }

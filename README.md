@@ -95,6 +95,14 @@ Built so far:
 - **Tuners & networks** — tuner hardware tree, networks (add by type, scan), muxes and
   services in server-paged tables; everything opens in the generic editor
 
+- **Live status** — refreshes every 2 s (pause button). Every tuner, busy or idle, with
+  signal and SNR (percent or dB, coloured good/fair/poor), bitrate and error counters; a
+  warning when errors are climbing between refreshes; reset counters. Streams and
+  recordings with channel, client, tuner/service, profile, state and rate: **Stop
+  recording** (keeps what's recorded) or **Disconnect** the client. Connected clients with
+  disconnect. Tuners come from `idnode/load` class `mpegts_input`; streams can only be
+  ended by closing their connection (`connections/cancel`), as in the stock UI.
+
 - **Channels** — all channels loaded once and filtered in the browser: search name or
   number, filter by Enabled, Tags (any of / no tags), Network (via the channel's services)
   and service count; Network column; every column sortable (numbers sort 3.2 < 3.10 < 100).

@@ -2213,6 +2213,45 @@ export class TvheadendService {
     );
   }
 
+  // ---- live status (errors propagate, unlike getSubscriptions/getConnections)
+
+  /**
+   * Tuners currently tuned (status/inputs): uuid, input, stream (mux), subs,
+   * signal/snr with their scales (1 = 0…65535 relative, 2 = dB × 1000), ber,
+   * unc, bps (bits/s), te, cc, ec_bit/tc_bit, ec_block/tc_block.
+   */
+  getInputStatus(): Observable<any[]> {
+    return this.http.get<any>(this.buildUrl('status/inputs'), this.getRequestOptions()).pipe(
+      map(data => Array.isArray(data?.entries) ? data.entries : []));
+  }
+
+  /** Active subscriptions (streams); in/out are bytes per second. */
+  getSubscriptionStatus(): Observable<any[]> {
+    return this.http.get<any>(this.buildUrl('status/subscriptions'), this.getRequestOptions()).pipe(
+      map(data => Array.isArray(data?.entries) ? data.entries : []));
+  }
+
+  /** Client connections (HTSP, HTTP, SAT>IP): id, peer, user, type, started, streaming. */
+  getConnectionStatus(): Observable<any[]> {
+    return this.http.get<any>(this.buildUrl('status/connections'), this.getRequestOptions()).pipe(
+      map(data => Array.isArray(data?.entries) ? data.entries : []));
+  }
+
+  /** Close a client connection, ending every stream it has open. */
+  cancelConnection(id: number): Observable<any> {
+    return this.http.post<any>(this.buildUrl('connections/cancel'), this.buildFormBody({ id }), this.getFormRequestOptions());
+  }
+
+  /** Reset a tuner's error counters. */
+  clearInputStats(uuid: string): Observable<any> {
+    return this.http.post<any>(this.buildUrl('status/inputclrstats'), this.buildFormBody({ uuid }), this.getFormRequestOptions());
+  }
+
+  /** Stop an in-progress recording, keeping what was recorded so far. */
+  stopRecording(uuid: string): Observable<any> {
+    return this.http.post<any>(this.buildUrl('dvr/entry/stop'), this.buildFormBody({ uuid }), this.getFormRequestOptions());
+  }
+
   /** Queue a full rescan of every mux on a network. */
   scanNetwork(uuid: string): Observable<any> {
     return this.http.post<any>(this.buildUrl('mpegts/network/scan'), this.buildFormBody({ uuid }), this.getFormRequestOptions());

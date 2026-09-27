@@ -4,8 +4,6 @@ Working list for the admin app (`projects/gotvh-admin`). Most-basic first.
 
 ## Basics still missing
 
-- [ ] **Stream & tuner status** — which tuner each stream is using, signal / SNR / error
-      counts per tuner (`status/inputs`), stop a stream or client connection.
 - [ ] **Recordings**
   - [ ] open one recording to edit title, start/stop, padding
   - [ ] show why a recording failed (errors, file, size)
@@ -46,6 +44,7 @@ The stock UI needs you to know the chain
 ## Done
 
 - [x] Admin app scaffold, shared API library, desktop layout
+- [x] Live status (tuner signal/SNR/errors with rising-error warning, streams, clients; stop recording, disconnect)
 - [x] Dashboard (read-only), Recordings (bulk cancel / delete / watched)
 - [x] Auto-record rules (full editor, bulk enable/disable/delete)
 - [x] DVR profiles (metadata-driven editor)
