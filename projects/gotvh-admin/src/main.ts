@@ -3,6 +3,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { bootstrapApplication } from '@angular/platform-browser';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { provideRouter, withComponentInputBinding } from '@angular/router';
+import { MAT_FORM_FIELD_DEFAULT_OPTIONS } from '@angular/material/form-field';
 import { MAT_ICON_DEFAULT_OPTIONS } from '@angular/material/icon';
 import { TVH_API_CONFIG } from '@gotvh/tvh-api';
 import { AdminAppComponent } from './app/app.component';
@@ -19,6 +20,8 @@ bootstrapApplication(AdminAppComponent, {
     provideHttpClient(),
     provideAnimationsAsync(),
     { provide: TVH_API_CONFIG, useValue: environment },
+    // Hints grow the field instead of overlapping the next one.
+    { provide: MAT_FORM_FIELD_DEFAULT_OPTIONS, useValue: { subscriptSizing: 'dynamic' } },
     { provide: MAT_ICON_DEFAULT_OPTIONS, useValue: { fontSet: 'material-symbols-outlined' } },
   ],
 }).catch(err => console.error(err));

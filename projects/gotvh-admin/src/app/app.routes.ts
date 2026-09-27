@@ -43,8 +43,8 @@ export const routes: Routes = [
   },
   {
     path: 'autorec',
-    ...placeholder('Auto-record rules', 'dvr/autorec/*',
-      'The API calls already exist in the shared client (getAutorecs, createAutorec, saveAutorec, deleteAutorec). Needs a table plus an edit form.'),
+    title: 'Auto-record rules · GoTVH Admin',
+    loadComponent: () => import('./pages/autorec/autorec.component').then(m => m.AutorecComponent),
   },
   {
     path: 'dvr-profiles',

@@ -1,0 +1,249 @@
+<div class="admin-page wide">
+  <div class="head">
+    <div>
+      <h1>Auto-record rules</h1>
+      <p class="subtitle">
+        {{ rows().length }} rules, {{ enabledCount() }} enabled. Rules schedule recordings automatically when a guide entry matches.
+      </p>
+    </div>
+    <button mat-flat-button (click)="openNew()"><mat-icon>add</mat-icon> New rule</button>
+  </div>
+
+  <div class="toolbar">
+    <mat-form-field appearance="outline" subscriptSizing="dynamic" class="filter">
+      <mat-icon matPrefix>search</mat-icon>
+      <mat-label>Filter</mat-label>
+      <input matInput [value]="filter()" (input)="filter.set($any($event.target).value)" placeholder="Name, channel, profile…">
+    </mat-form-field>
+    <span class="muted num">{{ visibleRows().length }} shown</span>
+    <span class="spacer"></span>
+    <button mat-stroked-button (click)="load()" [disabled]="loading()"><mat-icon>refresh</mat-icon> Refresh</button>
+  </div>
+  @if (loading()) { <mat-progress-bar mode="indeterminate" /> }
+  @if (error() && editing() === null) { <div class="banner error" role="alert">{{ error() }}</div> }
+
+  <div class="layout" [class.with-editor]="editing() !== null">
+    <!-- ============================== rules table -->
+    <div class="table-wrap">
+      <table mat-table [dataSource]="visibleRows()" matSort [matSortActive]="sort().active"
+             [matSortDirection]="sort().direction" (matSortChange)="onSort($event)">
+        <ng-container matColumnDef="enabled">
+          <th mat-header-cell *matHeaderCellDef mat-sort-header class="col-toggle">On</th>
+          <td mat-cell *matCellDef="let r" class="col-toggle" (click)="$event.stopPropagation()">
+            <mat-slide-toggle [checked]="r.enabled" [disabled]="busyUuid() === r.uuid"
+                              (change)="toggleEnabled(r)" [aria-label]="(r.enabled ? 'Disable ' : 'Enable ') + r.label" />
+          </td>
+        </ng-container>
+
+        <ng-container matColumnDef="label">
+          <th mat-header-cell *matHeaderCellDef mat-sort-header>Rule</th>
+          <td mat-cell *matCellDef="let r">
+            <div class="rule-name">{{ r.label }}</div>
+            <div class="rule-meta muted">
+              @if (r.customRegex) {
+                <span class="tag">regex</span>
+                @if (r.label !== r.pattern) { <code>{{ r.pattern }}</code> }
+              } @else {
+                {{ r.fulltext ? 'Title or description' : 'Title' }}{{ r.pattern.startsWith('^') ? ' · starts with' : '' }}{{ r.pattern.endsWith('$') ? ' · ends with' : '' }}
+              }
+              @if (r.episodeMatch) { · episodes “{{ r.episodeMatch }}” }
+            </div>
+          </td>
+        </ng-container>
+
+        <ng-container matColumnDef="channel">
+          <th mat-header-cell *matHeaderCellDef mat-sort-header>Channel</th>
+          <td mat-cell *matCellDef="let r" [class.muted]="!r.channelName">{{ r.channelName || 'Any' }}</td>
+        </ng-container>
+
+        <ng-container matColumnDef="when">
+          <th mat-header-cell *matHeaderCellDef mat-sort-header>When</th>
+          <td mat-cell *matCellDef="let r">
+            <div class="num">{{ r.when }}</div>
+            <div class="muted small">{{ r.days }}</div>
+          </td>
+        </ng-container>
+
+        <ng-container matColumnDef="padding">
+          <th mat-header-cell *matHeaderCellDef>Padding</th>
+          <td mat-cell *matCellDef="let r" class="num muted">{{ r.padding || '—' }}</td>
+        </ng-container>
+
+        <ng-container matColumnDef="profile">
+          <th mat-header-cell *matHeaderCellDef mat-sort-header>DVR profile</th>
+          <td mat-cell *matCellDef="let r" [class.muted]="!r.profile">{{ r.profile || 'Default' }}</td>
+        </ng-container>
+
+        <ng-container matColumnDef="actions">
+          <th mat-header-cell *matHeaderCellDef class="col-actions"></th>
+          <td mat-cell *matCellDef="let r" class="col-actions">
+            <button mat-icon-button matTooltip="Edit" (click)="openEdit(r); $event.stopPropagation()" [attr.aria-label]="'Edit ' + r.label">
+              <mat-icon>edit</mat-icon>
+            </button>
+            <button mat-icon-button matTooltip="Delete" (click)="confirmDelete(r, $event)" [disabled]="busyUuid() === r.uuid"
+                    [attr.aria-label]="'Delete ' + r.label">
+              <mat-icon>delete</mat-icon>
+            </button>
+          </td>
+        </ng-container>
+
+        <tr mat-header-row *matHeaderRowDef="columns(); sticky: true"></tr>
+        <tr mat-row *matRowDef="let r; columns: columns()" class="clickable"
+            [class.selected]="editing() === r.uuid" [class.disabled-rule]="!r.enabled"
+            (click)="openEdit(r)"></tr>
+        <tr class="mat-row" *matNoDataRow>
+          <td class="mat-cell empty muted" [attr.colspan]="columns().length">
+            @if (loading()) { Loading… }
+            @else if (filter()) { No rules match “{{ filter() }}”. }
+            @else { No rules yet. Use <strong>New rule</strong> to create one. }
+          </td>
+        </tr>
+      </table>
+    </div>
+
+    <!-- ============================== editor panel -->
+    @if (editing() !== null) {
+      <aside class="editor" aria-label="Rule editor">
+        <form [formGroup]="form" (ngSubmit)="save()" (keydown.escape)="!$any($event).defaultPrevented && closeEditor()">
+          <div class="editor-head">
+            <h2>{{ editingLabel() }}</h2>
+            <button mat-icon-button type="button" (click)="closeEditor()" aria-label="Close editor"><mat-icon>close</mat-icon></button>
+          </div>
+          @if (error()) { <div class="banner error" role="alert">{{ error() }}</div> }
+
+          <section>
+            <h3>Match</h3>
+            @if (!form.controls.customRegex.value) {
+              <mat-form-field appearance="outline">
+                <mat-label>Title contains</mat-label>
+                <input matInput formControlName="title" autocomplete="off" cdkFocusInitial autofocus>
+              </mat-form-field>
+              <mat-button-toggle-group formControlName="matchMode" class="full" hideSingleSelectionIndicator>
+                <mat-button-toggle value="title">Title only</mat-button-toggle>
+                <mat-button-toggle value="fulltext">Title or description</mat-button-toggle>
+              </mat-button-toggle-group>
+              @if (form.controls.matchMode.value === 'title') {
+                <div class="checks">
+                  <mat-checkbox formControlName="startsWith">Starts with</mat-checkbox>
+                  <mat-checkbox formControlName="endsWith">Ends with</mat-checkbox>
+                </div>
+              }
+            } @else {
+              <mat-form-field appearance="outline">
+                <mat-label>Regular expression</mat-label>
+                <input matInput formControlName="rawPattern" autocomplete="off" spellcheck="false" class="mono">
+                <mat-hint>Sent to Tvheadend as-is.</mat-hint>
+              </mat-form-field>
+            }
+            <mat-checkbox formControlName="customRegex">Use a custom regular expression</mat-checkbox>
+
+            <mat-form-field appearance="outline">
+              <mat-label>Episode filter (optional)</mat-label>
+              <input matInput formControlName="episodeMatch" autocomplete="off" placeholder="e.g. S03 or finale">
+              <mat-hint>Words that must appear in the episode code, subtitle or description.</mat-hint>
+            </mat-form-field>
+
+            <mat-form-field appearance="outline">
+              <mat-label>Channel</mat-label>
+              <input matInput formControlName="channelText" [matAutocomplete]="channelAuto" placeholder="Any channel">
+              @if (form.controls.channelText.value) {
+                <button matSuffix mat-icon-button type="button" (click)="clearChannel()" aria-label="Clear channel">
+                  <mat-icon>close</mat-icon>
+                </button>
+              }
+              <mat-autocomplete #channelAuto="matAutocomplete">
+                @for (c of channelMatches(); track c.value) {
+                  <mat-option [value]="c.label">{{ c.label }}</mat-option>
+                }
+              </mat-autocomplete>
+            </mat-form-field>
+          </section>
+
+          <section>
+            <h3>When</h3>
+            <div class="row2">
+              <mat-form-field appearance="outline">
+                <mat-label>Starts around</mat-label>
+                <input matInput type="time" formControlName="startTime">
+                <mat-hint>Blank = any time</mat-hint>
+              </mat-form-field>
+              <mat-form-field appearance="outline">
+                <mat-label>Window (min)</mat-label>
+                <input matInput inputmode="numeric" formControlName="startWindow" placeholder="0">
+              </mat-form-field>
+            </div>
+            <mat-button-toggle-group formControlName="weekdays" multiple hideMultipleSelectionIndicator class="full days" aria-label="Days of week">
+              @for (d of weekdays; track d.value) {
+                <mat-button-toggle [value]="d.value">{{ d.short }}</mat-button-toggle>
+              }
+            </mat-button-toggle-group>
+          </section>
+
+          <section>
+            <h3>Recording</h3>
+            <div class="row2">
+              <mat-form-field appearance="outline">
+                <mat-label>Start early (min)</mat-label>
+                <input matInput inputmode="numeric" formControlName="startExtra" placeholder="0">
+              </mat-form-field>
+              <mat-form-field appearance="outline">
+                <mat-label>End late (min)</mat-label>
+                <input matInput inputmode="numeric" formControlName="stopExtra" placeholder="0">
+              </mat-form-field>
+            </div>
+            <mat-form-field appearance="outline">
+              <mat-label>DVR profile</mat-label>
+              <mat-select formControlName="config">
+                <mat-option value="">Default</mat-option>
+                @for (p of profiles(); track p.value) { <mat-option [value]="p.value">{{ p.label }}</mat-option> }
+              </mat-select>
+            </mat-form-field>
+            <mat-form-field appearance="outline">
+              <mat-label>Rule name (optional)</mat-label>
+              <input matInput formControlName="name" autocomplete="off">
+              <mat-hint>Defaults to the title.</mat-hint>
+            </mat-form-field>
+            <mat-form-field appearance="outline">
+              <mat-label>Comment</mat-label>
+              <textarea matInput formControlName="comment" rows="2"></textarea>
+            </mat-form-field>
+            <mat-slide-toggle formControlName="enabled">Enabled</mat-slide-toggle>
+          </section>
+
+          <section class="preview">
+            <h3>
+              Upcoming matches
+              @if (!preview().loading && preview().total) { <span class="count num">{{ preview().total }}</span> }
+            </h3>
+            @if (preview().loading) {
+              <mat-progress-bar mode="indeterminate" />
+            } @else if (preview().items.length) {
+              <ul>
+                @for (e of preview().items; track e.eventId || $index) {
+                  <li>
+                    <span class="p-title">{{ e.title }}@if (e.subtitle) {<span class="muted"> — {{ e.subtitle }}</span>}</span>
+                    <span class="muted small">{{ formatEpoch(e.start) }} · {{ e.channelName }}</span>
+                  </li>
+                }
+              </ul>
+              @if (preview().total > preview().items.length) {
+                <p class="muted small">and {{ preview().total - preview().items.length }} more.</p>
+              }
+            } @else {
+              <p class="muted small">Type at least two characters of a title to see what's in the guide.</p>
+            }
+          </section>
+
+          <div class="editor-actions">
+            @if (editing()) {
+              <button mat-button type="button" class="danger-text" (click)="confirmDelete(rowFor(editing()!)!)">Delete</button>
+            }
+            <span class="spacer"></span>
+            <button mat-button type="button" (click)="closeEditor()">Cancel</button>
+            <button mat-flat-button type="submit" [disabled]="saving()">{{ editing() ? 'Save' : 'Create rule' }}</button>
+          </div>
+        </form>
+      </aside>
+    }
+  </div>
+</div>

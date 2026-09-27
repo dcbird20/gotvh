@@ -82,8 +82,15 @@ npm run build:admin   # production build -> dist/gotvh-admin/browser
 Serve `dist/gotvh-admin/browser` from nginx on the same host as the Tvheadend proxy
 (`nginx/gotvh-tvh.conf`) so its relative `/api` calls reach Tvheadend.
 
-Built so far: Dashboard (server info, subscriptions, connections) and Recordings
-(sortable, filterable table). Other sections are placeholders naming the API they'll use.
+Built so far:
+
+- **Dashboard** — server info, subscriptions, connections
+- **Recordings** — sortable, filterable table (read-only)
+- **Auto-record rules** — table with enable toggles, side-panel editor (match, channel,
+  time window, days, padding, DVR profile), live preview of upcoming guide matches, delete
+
+Other sections are placeholders naming the API they'll use. Rule helpers shared with the
+TV app live in `projects/tvh-api/src/autorec-rules.ts`.
 
 ## Workspace layout
 
