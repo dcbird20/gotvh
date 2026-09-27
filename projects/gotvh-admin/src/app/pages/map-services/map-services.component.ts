@@ -1,3 +1,4 @@
+import { Broadcast, OtaGuideResult, enableOtaGuide } from '../../shared/ota-guide';
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
@@ -60,6 +61,8 @@ interface Candidate {
   mux: string;
   kind: Kind;
   encrypted: boolean;
+  /** Antenna/cable/satellite (not IPTV): its guide comes over the air. */
+  broadcast: Broadcast | null;
   /** From the broadcast (logical channel number, ATSC major.minor). */
   broadcastNumber: string;
   selected: boolean;
@@ -106,6 +109,8 @@ export class MapServicesComponent implements OnInit {
   readonly busy = signal(false);
   readonly progress = signal<{ done: number; total: number } | null>(null);
   readonly result = signal<{ created: number; merged: number; failed: number } | null>(null);
+  /** Over-the-air guide switched on / started after mapping broadcast channels. */
+  readonly guide = signal<OtaGuideResult | 'working' | null>(null);
 
   readonly groups = signal<NetworkGroup[]>([]);
   private readonly channels = signal<any[]>([]);
@@ -173,14 +178,16 @@ export class MapServicesComponent implements OnInit {
     this.load();
   }
 
-  load(): void {
+  /** keepResult: after Create, keep the "Created …" banner while the list reloads. */
+  load(keepResult = false): void {
     this.loading.set(true);
     this.error.set('');
-    this.result.set(null);
+    if (!keepResult) { this.result.set(null); this.guide.set(null); }
     forkJoin({
       services: this.tvh.getGrid('mpegts/service/grid'),
       channels: this.tvh.getGrid('channel/grid', { all: 1 }).pipe(catchError(() => of([]))),
       tags: this.tvh.getGrid('channeltag/grid', { all: 1 }).pipe(catchError(() => of([]))),
+      networks: this.tvh.getGrid('mpegts/network/grid').pipe(catchError(() => of([]))),
     }).pipe(
       // IPTV muxes carry the playlist's name and number (iptv_sname, channel_number).
       switchMap(x => {
@@ -194,7 +201,9 @@ export class MapServicesComponent implements OnInit {
         return muxes$.pipe(map(parts => ({ ...x, unmapped, muxes: new Map(parts.flat().map((m: any) => [String(m.uuid), m])) })));
       }),
     ).subscribe({
-      next: ({ services, channels, tags, unmapped, muxes }) => {
+      next: ({ services, channels, tags, networks, unmapped, muxes }) => {
+        // IPTV networks are the ones with a stream limit; everything else is broadcast.
+        const iptvNets = new Set(networks.filter((n: any) => 'max_streams' in n).map((n: any) => String(n.networkname || '')));
         this.channels.set(channels);
         this.tags.set(tags.map((t: any) => ({ uuid: String(t.uuid), name: String(t.name || '') })).sort((a, b) => a.name.localeCompare(b.name)));
         this.mappedCount.set(services.length - unmapped.length);
@@ -211,6 +220,9 @@ export class MapServicesComponent implements OnInit {
             provider: String(s.provider || ''), network: String(s.network || 'Unknown network'),
             mux: String(mux?.name || s.multiplex || ''),
             kind, encrypted, broadcastNumber,
+            // Not an IPTV mux → broadcast. ATSC services carry major.minor numbers (PSIP); others use DVB EIT.
+            broadcast: iptvNets.has(String(s.network || '')) || (mux && ('iptv_sname' in mux || 'iptv_muxname' in mux))
+              ? null : (minor ? 'atsc' : 'dvb'),
             selected: (kind === 'tv' || kind === 'unknown') && !encrypted,
             name: '', number: broadcastNumber,
           };
@@ -348,8 +360,16 @@ export class MapServicesComponent implements OnInit {
         this.busy.set(false);
         this.progress.set(null);
         this.result.set({ created, merged, failed: result.failed });
+        // Broadcast channels bring their own guide: switch on the matching grabber and start a grab.
+        const kinds = new Set(plans.flatMap(p => p.services).map(sv => sv.broadcast).filter((b): b is Broadcast => !!b));
+        if (kinds.size && created + merged > 0) {
+          this.guide.set('working');
+          enableOtaGuide(this.tvh, kinds).subscribe(g => this.guide.set(g));
+        } else {
+          this.guide.set(null);
+        }
         this.snack.open(result.failed ? `${result.failed} couldn’t be created` : 'Channels created', undefined, { duration: 4000 });
-        this.load();
+        this.load(true);
       });
     });
   }

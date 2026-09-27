@@ -37,7 +37,8 @@ The stock UI needs you to know the chain
       tuners' priority higher (Tvheadend input `priority`) so IPTV is only the fallback.
 - [ ] **Local IP / Local port** for HDHomeRun behind Docker or a VPN — expose these hidden settings in
       Add a source (they fixed omv-dell behind NordLynx: UDP base port + one per tuner).
-- [ ] **Over-the-air guide** — offer the ATSC PSIP/EIT grabber on the Channels & guide step for antenna sources.
+- [x] **Over-the-air guide** — Map services switches on the ATSC PSIP / DVB EIT grabber and starts a grab
+      when it maps broadcast channels.
 
 - [x] Retry empty frequencies after a scan; Scan on selected muxes.
 - [ ] **Shared HDHomeRun** — Tvheadend marks a mux FAIL at once when a tuner's lock is held by

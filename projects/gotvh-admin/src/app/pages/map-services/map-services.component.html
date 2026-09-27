@@ -12,11 +12,30 @@
         @if (r.created) { Created {{ plural(r.created, 'channel') }}. }
         @if (r.merged) { Added services to {{ plural(r.merged, 'existing channel') }}. }
         @if (r.failed) { {{ r.failed }} failed. }
-        Next: guide data for the new channels.
+        @if (!guide()) { Next: guide data for the new channels. }
       </span>
-      <a mat-flat-button routerLink="/epg">Match guide data</a>
+      @if (!guide()) { <a mat-flat-button routerLink="/epg">Match guide data</a> }
       <a mat-button routerLink="/channels">Open Channels</a>
     </div>
+    @if (guide(); as g) {
+      <div class="banner ok guide">
+        <mat-icon>{{ g === 'working' ? 'hourglass_top' : 'event_note' }}</mat-icon>
+        <span>
+          @if (g === 'working') {
+            Switching on the over-the-air guide…
+          } @else if (g.enabled.length || g.alreadyOn.length) {
+            <strong>Guide data:</strong>
+            @if (g.enabled.length) { switched on the over-the-air guide ({{ g.enabled.join(', ') }}). }
+            @else { the over-the-air guide ({{ g.alreadyOn.join(', ') }}) was already on. }
+            @if (g.started) { A grab has started — each frequency is tuned for a few minutes, so the guide fills in over the next 5–15 minutes. }
+            It links to these channels by itself; nothing to match. Stations usually send 12 hours to a few days ahead.
+          } @else {
+            Couldn’t find an over-the-air guide grabber in this Tvheadend — match guide data by hand instead.
+          }
+        </span>
+        <a mat-button routerLink="/epg">EPG sources</a>
+      </div>
+    }
   }
 
   @if (!loading() && !error() && !groups().length) {
