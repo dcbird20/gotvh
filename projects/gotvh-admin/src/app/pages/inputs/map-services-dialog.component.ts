@@ -141,9 +141,28 @@ export class MapServicesDialogComponent {
     ].filter(Boolean).join(', ');
   }
 
+  /** Mapper counters before we asked, to tell our run apart from an earlier one. */
+  private baseline: string | null = null;
+  private started = false;
+  private startedAt = 0;
+  private requested: string[] = [];
+  /** Checked against the services themselves once the mapper is done. */
+  readonly verified = signal<{ mapped: number; of: number } | null>(null);
+
   start(): void {
     const services = this.toMap().map(s => String(s.uuid));
+    this.requested = services;
     this.error.set('');
+    const key = (x: { total: number; ok: number; fail: number; ignore: number; active?: string }) =>
+      `${x.total}/${x.ok}/${x.fail}/${x.ignore}/${x.active || ''}`;
+    this.tvh.getMapperStatus().subscribe({
+      next: before => this.send(services, key(before)),
+      error: () => this.send(services, null),
+    });
+  }
+
+  private send(services: string[], baseline: string | null): void {
+    this.baseline = baseline;
     this.tvh.mapServices(services, {
       encrypted: this.encrypted, merge_same_name: this.mergeSameName, tidy_channel_name: this.tidyName,
       check_availability: this.checkAvailability, type_tags: this.typeTags,
@@ -152,19 +171,29 @@ export class MapServicesDialogComponent {
       next: () => {
         this.phase.set('running');
         this.ref.disableClose = true;
-        this.poll();
+        this.started = false;
+        this.startedAt = Date.now();
         this.timer = setInterval(() => this.poll(), 1000);
       },
       error: err => this.error.set(`Tvheadend didn’t accept the request (${err?.status || 'network error'}).`),
     });
   }
 
+  /**
+   * Tvheadend starts mapping when it next saves settings (about 3 seconds
+   * later), so wait until the counters move before reading them as ours.
+   */
   private poll(): void {
     this.tvh.getMapperStatus().subscribe({
       next: s => {
+        const key = `${s.total}/${s.ok}/${s.fail}/${s.ignore}/${s.active || ''}`;
+        if (!this.started && (s.active || (this.baseline !== null && key !== this.baseline))) this.started = true;
+        if (!this.started) {
+          if (Date.now() - this.startedAt > 12000) this.finish(); // never saw it start: check the services directly
+          return;
+        }
         this.status.set(s);
-        const finished = !s.active && s.ok + s.fail + s.ignore >= s.total;
-        if (finished) this.finish();
+        if (!s.active && s.ok + s.fail + s.ignore >= s.total) this.finish();
       },
       error: () => this.finish(),
     });
@@ -176,6 +205,19 @@ export class MapServicesDialogComponent {
 
   private finish(): void {
     this.clearTimer();
+    // The services themselves are the final word on what got mapped.
+    this.tvh.getGrid('mpegts/service/grid').subscribe({
+      next: rows => {
+        const wanted = new Set(this.requested);
+        const mapped = rows.filter((r: any) => wanted.has(String(r.uuid)) && isMapped(r)).length;
+        this.verified.set({ mapped, of: this.requested.length });
+        this.done();
+      },
+      error: () => this.done(),
+    });
+  }
+
+  private done(): void {
     this.phase.set('done');
     this.ref.disableClose = false;
   }
@@ -191,11 +233,18 @@ export class MapServicesDialogComponent {
   }
 
   statusText(): string {
-    const s = this.status();
-    if (!s) return 'Starting…';
-    const parts = [`${plural(s.ok, 'service')} mapped to channels`];
-    if (s.fail) parts.push(`${s.fail} couldn’t be received`);
-    if (s.ignore) parts.push(`${s.ignore} skipped by Tvheadend (not TV or radio, encrypted, or already mapped)`);
-    return (this.phase() === 'running' ? `Working — ${s.ok + s.fail + s.ignore} of ${s.total} so far. ` : '') + parts.join('; ') + '.';
+    const s = this.status(), v = this.verified();
+    if (this.phase() === 'running') {
+      if (!s) return 'Waiting for Tvheadend to start (a few seconds)…';
+      return `Working — ${s.ok + s.fail + s.ignore} of ${s.total} checked, ${plural(s.ok, 'service')} mapped so far.`;
+    }
+    const parts: string[] = [];
+    if (v) parts.push(`${v.mapped} of ${plural(v.of, 'service')} ${v.mapped === 1 ? 'is' : 'are'} now on a channel`);
+    else if (s) parts.push(`${plural(s.ok, 'service')} mapped to channels`);
+    if (s?.fail) parts.push(`${s.fail} couldn’t be received`);
+    if (v && v.mapped < v.of) {
+      parts.push(`the rest were skipped by Tvheadend — usually because it hasn’t seen video or audio on them yet (scan the mux, or tune to it once), or they’re data-only`);
+    }
+    return parts.join('; ') + '.';
   }
 }
