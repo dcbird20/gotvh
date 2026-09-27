@@ -102,7 +102,11 @@ Built so far:
 
 - **EPG sources** — grabber modules (enable/disable, per-grabber settings, run internal
   grabbers or an over-the-air grab now), global grabber settings incl. cron schedules
-  (`epggrab/config`), and the grabbers' channel list with mapped/unmapped and grabber filters
+  (`epggrab/config`), and the grabbers' channel list with mapped/unmapped and grabber filters.
+  **Map unmapped by name…** proposes a channel for each unmapped guide channel (same number,
+  then same name ignoring HD/punctuation, then similar name; ties left for you) and applies
+  the reviewed pairs, keeping existing links. Channels show an EPG source column/filter, and
+  the channel editor shows EPG source on the Basic view.
 
 Other sections are placeholders naming the API they'll use.
 

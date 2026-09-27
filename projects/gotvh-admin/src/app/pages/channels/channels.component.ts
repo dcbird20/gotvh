@@ -68,6 +68,15 @@ interface EditorState {
           </mat-select>
           @if (!servicesLoaded() && !networksError()) { <mat-hint>Loading…</mat-hint> }
         </mat-form-field>
+        <mat-form-field appearance="outline" class="f-small"
+                        matTooltip="Over-the-air channels can get guide data from their service even with no EPG source set">
+          <mat-label>EPG source</mat-label>
+          <mat-select [value]="fEpg()" (valueChange)="fEpg.set($event)">
+            <mat-option value="all">Any</mat-option>
+            <mat-option value="yes">Set</mat-option>
+            <mat-option value="no">Not set</mat-option>
+          </mat-select>
+        </mat-form-field>
         <mat-form-field appearance="outline" class="f-small">
           <mat-label>Services</mat-label>
           <mat-select [value]="fServices()" (valueChange)="fServices.set($event)">
@@ -142,6 +151,10 @@ export class ChannelsComponent implements OnInit {
   readonly fTags = signal<string[]>([]);
   readonly fNetwork = signal('');
   readonly fServices = signal<ServiceCount>('all');
+  readonly fEpg = signal<YesNo>('all');
+
+  /** Guide channel uuid → short name, for the EPG source column. */
+  private readonly epgNames = signal(new Map<string, string>());
 
   /** Service uuid → network name, for the Network column and filter. */
   private readonly serviceNetwork = signal(new Map<string, string>());
@@ -160,13 +173,13 @@ export class ChannelsComponent implements OnInit {
 
   readonly activeFilters = computed(() =>
     Number(this.fEnabled() !== 'all') + Number(this.fTags().length > 0)
-    + Number(!!this.fNetwork()) + Number(this.fServices() !== 'all'));
+    + Number(!!this.fNetwork()) + Number(this.fServices() !== 'all') + Number(this.fEpg() !== 'all'));
 
   /** Handed to the grid; a new function whenever a filter changes, so the grid re-filters. */
   readonly rowFilter = computed(() => {
-    const enabled = this.fEnabled(), tags = this.fTags(), network = this.fNetwork(), count = this.fServices();
+    const enabled = this.fEnabled(), tags = this.fTags(), network = this.fNetwork(), count = this.fServices(), epg = this.fEpg();
     const svcNet = this.serviceNetwork();
-    if (enabled === 'all' && !tags.length && !network && count === 'all') return null;
+    if (enabled === 'all' && !tags.length && !network && count === 'all' && epg === 'all') return null;
     const wantNoTags = tags.includes(NO_TAGS);
     const wantTags = new Set(tags.filter(t => t !== NO_TAGS));
     return (r: any): boolean => {
@@ -179,6 +192,7 @@ export class ChannelsComponent implements OnInit {
       if (count === 'many' && services.length < 2) return false;
       if (network === NO_NETWORK && services.length) return false;
       if (network && network !== NO_NETWORK && !services.some(s => svcNet.get(s) === network)) return false;
+      if (epg !== 'all' && (Array.isArray(r?.epggrab) && r.epggrab.length > 0) !== (epg === 'yes')) return false;
       return true;
     };
   });
@@ -188,6 +202,12 @@ export class ChannelsComponent implements OnInit {
     this.fTags.set([]);
     this.fNetwork.set('');
     this.fServices.set('all');
+    this.fEpg.set('all');
+  }
+
+  private epgLabel(row: any): string {
+    const names = this.epgNames();
+    return (Array.isArray(row?.epggrab) ? row.epggrab : []).map((u: unknown) => names.get(String(u)) || '?').join(', ');
   }
 
   /** Network names of a channel's services (usually one). */
@@ -203,7 +223,7 @@ export class ChannelsComponent implements OnInit {
   }
 
   readonly columns = computed<GridColumn[]>(() => {
-    this.tagNames(); this.serviceNetwork(); this.servicesLoaded(); // re-render when lookups arrive
+    this.tagNames(); this.serviceNetwork(); this.servicesLoaded(); this.epgNames(); // re-render when lookups arrive
     const base: GridColumn[] = [
       // Tvheadend sends channel numbers ready to show: 100, or "3.1" for major.minor.
       { id: 'number', label: '#', kind: 'num', format: (v: unknown) => (v === 0 || v === '0' || v === '' || v == null) ? '—' : formatIntsplit(v),
@@ -224,6 +244,11 @@ export class ChannelsComponent implements OnInit {
         sortValue: r => this.networksOf(r).join(', '),
       },
       {
+        id: 'epggrab', label: 'EPG source',
+        format: (_v: unknown, r: any) => this.epgLabel(r) || '—',
+        sortValue: r => this.epgLabel(r),
+      },
+      {
         id: 'services', label: 'Services', kind: 'num',
         format: (v: unknown) => String(Array.isArray(v) ? v.length : 0),
         sortValue: r => (Array.isArray(r?.services) ? r.services.length : 0),
@@ -241,6 +266,14 @@ export class ChannelsComponent implements OnInit {
         this.servicesLoaded.set(true);
       },
       error: () => this.networksError.set(true),
+    });
+    // Guide channel titles look like "WPSU: I10123.json.schedulesdirect.org (Schedules Direct)".
+    this.tvh.idnodeEnumOptions({ type: 'api', uri: 'epggrab/channel/list', params: { enum: 1 } }).subscribe({
+      next: opts => this.epgNames.set(new Map(opts.map(o => {
+        const m = /^(.*?):\s.*\(([^)]+)\)\s*$/.exec(o.label);
+        return [String(o.value), m ? `${m[1]} (${m[2]})` : o.label] as [string, string];
+      }))),
+      error: () => { /* column shows "?" */ },
     });
     this.tvh.getGrid('mpegts/network/grid').subscribe({
       next: nets => this.networkNames.set(nets.map((n: any) => String(n?.networkname || '')).filter(Boolean)),

@@ -38,6 +38,16 @@ const NAME_LIST_FIELDS: Record<string, { hint: string }> = {
   },
 };
 
+/**
+ * Fields Tvheadend files under Advanced that are needed for basic setup, shown
+ * on the Basic view (optionally with a clearer label). Keyed by field id + class caption
+ * fragment so a common id like "epggrab" is only promoted where it matters.
+ */
+const PROMOTED_FIELDS: Array<{ id: string; label?: string; hint?: string }> = [
+  { id: 'epggrab', label: 'EPG source (guide data)',
+    hint: 'Guide channels that supply this channel’s programme guide. Over-the-air channels also get guide data from their service without this.' },
+];
+
 /** Plain-English help for fields whose Tvheadend caption doesn't explain much. */
 const FIELD_HINTS: Record<string, string> = {
   cron: 'One schedule per line, cron style: minute hour day month weekday. “4 */12 * * *” runs at 4 minutes past every 12th hour.',
@@ -270,7 +280,12 @@ export class IdnodeFormComponent implements OnChanges {
       this.initial[prop.id] = value;
       controls[prop.id] = new FormControl({ value, disabled: !editable });
 
-      const field: Field = { prop, kind, label: prop.caption || prop.id, level: propLevel(prop), editable };
+      const promoted = PROMOTED_FIELDS.find(p => p.id === prop.id);
+      const field: Field = {
+        prop: promoted ? { ...prop, advanced: false, expert: false, description: promoted.hint || prop.description } : prop,
+        kind, label: promoted?.label || prop.caption || prop.id,
+        level: promoted ? 'basic' : propLevel(prop), editable,
+      };
       if (Array.isArray(prop.enum)) {
         field.options = normalizeEnum(prop.enum);
       } else if (isDeferredEnum(prop.enum)) {
@@ -375,7 +390,9 @@ export class IdnodeFormComponent implements OnChanges {
     const changes: Record<string, unknown> = {};
     const values = this.form.getRawValue();
     for (const f of this.fields()) {
-      if (!f.editable || truthy(f.prop.nosave)) continue;
+      // "nosave" only means Tvheadend keeps it out of its config file (links such as a
+      // channel's EPG source); API saves still apply it, so it's sent like any field.
+      if (!f.editable) continue;
       if (JSON.stringify(values[f.prop.id]) !== JSON.stringify(this.initial[f.prop.id])) {
         changes[f.prop.id] = this.fromControlValue(f, values[f.prop.id]);
       }
@@ -473,7 +490,7 @@ export class IdnodeFormComponent implements OnChanges {
     const conf: Record<string, unknown> = {};
     for (const f of this.fields()) {
       // Skip fields the UI never shows; the server fills in its own defaults for those.
-      if (!f.editable || truthy(f.prop.nosave) || truthy(f.prop.noui) || truthy(f.prop.hidden)) continue;
+      if (!f.editable || truthy(f.prop.noui) || truthy(f.prop.hidden)) continue;
       conf[f.prop.id] = this.fromControlValue(f, values[f.prop.id]);
     }
     return conf;

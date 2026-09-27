@@ -15,6 +15,8 @@ import { BulkResult, describeBulk, runBulk } from '../../shared/bulk';
 import { ConfirmDialogComponent, ConfirmDialogData } from '../../shared/confirm-dialog.component';
 import { IdnodeFormComponent } from '../../shared/idnode-form/idnode-form.component';
 import { GridColumn, IdnodeGridComponent } from '../../shared/idnode-grid.component';
+import { MatchChannel, MatchGuide } from '../../shared/epg-match';
+import { EpgMapDialogComponent, EpgMapDialogData, EpgMapPair } from '../../shared/epg-map-dialog.component';
 
 type Tab = 'grabbers' | 'settings' | 'channels';
 const TABS: Tab[] = ['grabbers', 'settings', 'channels'];
@@ -152,7 +154,12 @@ function moduleEnabled(row: any): boolean {
                   emptyText="No guide channels yet. They appear after a grabber has run."
                   (rowsLoaded)="onEpgChannelsLoaded($event)"
                   (rowClick)="open({ tab: 'channels', uuid: $event.uuid, title: $event.name || $event.id || 'EPG channel' })">
+                  <button mat-flat-button (click)="mapUnmapped()" [disabled]="!unmappedCount() || !allChannels().length"
+                          [matTooltip]="unmappedCount() ? 'Propose a channel for each unmapped guide channel, then review' : 'Every guide channel is mapped'">
+                    <mat-icon>link</mat-icon> Map {{ unmappedCount() }} unmapped by name…
+                  </button>
                   <ng-container ngProjectAs="[bulkActions]">
+                    <button mat-button (click)="mapSelected()"><mat-icon>link</mat-icon> Map by name…</button>
                     <button mat-button (click)="bulkEdit('channels')"><mat-icon>edit</mat-icon> Edit…</button>
                     <button mat-button (click)="bulkEnable('channels', true)">Enable</button>
                     <button mat-button (click)="bulkEnable('channels', false)">Disable</button>
@@ -228,6 +235,11 @@ export class EpgComponent implements OnInit {
   readonly chEnabled = signal<'all' | 'yes' | 'no'>('all');
   readonly epgModules = signal<string[]>([]);
   private readonly channelNames = signal(new Map<string, string>());
+  /** Your channels, for proposing matches. */
+  readonly allChannels = signal<MatchChannel[]>([]);
+  /** Every guide channel from the last load of the EPG channels tab. */
+  private readonly epgRows = signal<any[]>([]);
+  readonly unmappedCount = computed(() => this.unmappedGuides().length);
 
   readonly channelColumns = computed<GridColumn[]>(() => {
     const names = this.channelNames();
@@ -256,8 +268,15 @@ export class EpgComponent implements OnInit {
   ngOnInit(): void {
     // For showing which of your channels each guide channel feeds.
     this.tvh.getGrid('channel/grid', { limit: 100000 }).subscribe({
-      next: chans => this.channelNames.set(new Map(chans.map((c: any) =>
-        [String(c?.uuid || ''), [c?.number && c.number !== 0 ? String(c.number) : '', String(c?.name || '')].filter(Boolean).join(' ')]))),
+      next: chans => {
+        this.channelNames.set(new Map(chans.map((c: any) =>
+          [String(c?.uuid || ''), [c?.number && c.number !== 0 ? String(c.number) : '', String(c?.name || '')].filter(Boolean).join(' ')])));
+        this.allChannels.set(chans
+          .map((c: any) => ({ uuid: String(c?.uuid || ''), name: String(c?.name || ''), number: c?.number && c.number !== 0 ? String(c.number) : '' }))
+          .filter((c: MatchChannel) => c.uuid)
+          .sort((a: MatchChannel, b: MatchChannel) => (a.number || '\uffff').localeCompare(b.number || '\uffff', undefined, { numeric: true })
+            || a.name.localeCompare(b.name)));
+      },
       error: () => { /* mapped column shows "?" */ },
     });
   }
@@ -267,6 +286,7 @@ export class EpgComponent implements OnInit {
   }
 
   onEpgChannelsLoaded(rows: any[]): void {
+    this.epgRows.set(rows);
     this.epgModules.set([...new Set(rows.map(r => String(r?.module || '')).filter(Boolean))].sort());
   }
 
@@ -315,6 +335,54 @@ export class EpgComponent implements OnInit {
     const uuids = this.gridFor(tab)?.selection.keys() || [];
     if (!uuids.length) return;
     this.open({ tab, uuid: null, bulkUuids: uuids, title: `Edit ${uuids.length} guide ${uuids.length === 1 ? 'channel' : 'channels'}` });
+  }
+
+  // ---------------------------------------------------------------- EPG mapping
+
+  /** Enabled guide channels feeding nothing — limited to the chosen grabber, if any. */
+  private unmappedGuides(): any[] {
+    const mod = this.chModule();
+    return this.epgRows().filter(r => !(Array.isArray(r?.channels) && r.channels.length)
+      && (r?.enabled === undefined || truthy(r.enabled) || r.enabled === 'true')
+      && (!mod || String(r?.module || '') === mod));
+  }
+
+  mapUnmapped(): void {
+    this.openMapDialog(this.unmappedGuides());
+  }
+
+  mapSelected(): void {
+    this.openMapDialog(this.chGrid?.selection.rows() || []);
+  }
+
+  private openMapDialog(rows: any[]): void {
+    if (!rows.length) return;
+    const guides: MatchGuide[] = rows.map(r => ({
+      uuid: String(r.uuid),
+      name: String(r?.name || ''),
+      names: Array.isArray(r?.names) ? r.names.map(String) : String(r?.names || '').split(/[,\n]/).map(n => n.trim()).filter(Boolean),
+      number: r?.number && r.number !== 0 ? String(r.number) : '',
+      id: String(r?.id || ''),
+    }));
+    const data: EpgMapDialogData = { guides, channels: this.allChannels() };
+    this.dialog.open(EpgMapDialogComponent, { data, maxWidth: '95vw', autoFocus: 'dialog' })
+      .afterClosed().subscribe((pairs?: EpgMapPair[]) => pairs?.length && this.applyMapping(pairs, rows));
+  }
+
+  /** Link each guide channel to its chosen channel, keeping any links it already had. */
+  private applyMapping(pairs: EpgMapPair[], rows: any[]): void {
+    const byUuid = new Map(rows.map(r => [String(r.uuid), r]));
+    const grid = this.chGrid;
+    grid?.bulkBusy.set(true);
+    runBulk(pairs, p => {
+      const existing: string[] = (byUuid.get(p.guideUuid)?.channels || []).map(String);
+      return this.tvh.idnodeSave(p.guideUuid, { channels: [...new Set([...existing, p.channelUuid])] });
+    }).subscribe(result => {
+      grid?.bulkBusy.set(false);
+      this.snack.open(describeBulk('Mapped', result, 'guide channel'), undefined, { duration: 5000 });
+      if (!result.failed) grid?.selection.clear();
+      grid?.refresh();
+    });
   }
 
   rerunInternal(): void {
