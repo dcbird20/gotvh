@@ -2,7 +2,7 @@ import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { Observable, forkJoin, of } from 'rxjs';
-import { catchError, finalize, tap } from 'rxjs/operators';
+import { catchError, finalize, map, switchMap, tap } from 'rxjs/operators';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
@@ -48,6 +48,8 @@ function commonPrefix(names: string[]): string {
   }
   return p.slice(0, cut);
 }
+/** Names that say nothing: "Service01", "Service 1", "Program 3" (FFmpeg and some encoders' defaults). */
+const isPlaceholder = (n: string) => /^(service|program|programme|channel)\s*0*\d+$/i.test(n.trim());
 const tidy = (n: string) => n.replace(/[\s-]*(hd|sd|uhd|4k)$/i, '').trim() || n;
 
 interface Candidate {
@@ -179,43 +181,63 @@ export class MapServicesComponent implements OnInit {
       services: this.tvh.getGrid('mpegts/service/grid'),
       channels: this.tvh.getGrid('channel/grid', { all: 1 }).pipe(catchError(() => of([]))),
       tags: this.tvh.getGrid('channeltag/grid', { all: 1 }).pipe(catchError(() => of([]))),
-    }).subscribe({
-      next: ({ services, channels, tags }) => {
+    }).pipe(
+      // IPTV muxes carry the playlist's name and number (iptv_sname, channel_number).
+      switchMap(x => {
+        const unmapped = x.services.filter((s: any) => !list(s.channel).length && on(s.enabled));
+        const muxIds = [...new Set(unmapped.map((s: any) => String(s.multiplex_uuid || '')).filter(Boolean))];
+        const chunks: string[][] = [];
+        for (let k = 0; k < muxIds.length; k += 200) chunks.push(muxIds.slice(k, k + 200));
+        const muxes$ = chunks.length
+          ? forkJoin(chunks.map(c => this.tvh.idnodeValues(c, ['name', 'iptv_sname', 'iptv_muxname', 'channel_number']).pipe(catchError(() => of([])))))
+          : of([] as any[][]);
+        return muxes$.pipe(map(parts => ({ ...x, unmapped, muxes: new Map(parts.flat().map((m: any) => [String(m.uuid), m])) })));
+      }),
+    ).subscribe({
+      next: ({ services, channels, tags, unmapped, muxes }) => {
         this.channels.set(channels);
         this.tags.set(tags.map((t: any) => ({ uuid: String(t.uuid), name: String(t.name || '') })).sort((a, b) => a.name.localeCompare(b.name)));
-        const unmapped = services.filter((s: any) => !list(s.channel).length && on(s.enabled));
         this.mappedCount.set(services.length - unmapped.length);
-        const byNet = new Map<string, Candidate[]>();
+        const byNet = new Map<string, Array<{ c: Candidate; playlistName: string }>>();
         for (const s of unmapped) {
           const kind = kindOf(s);
           const encrypted = truthy(s.encrypted);
+          const mux: any = muxes.get(String(s.multiplex_uuid || ''));
           const lcn = Number(s.lcn) || 0, minor = Number(s.lcn_minor) || 0;
-          const broadcastNumber = lcn ? (minor ? `${lcn}.${minor}` : String(lcn)) : '';
+          const muxNumber = Number(mux?.channel_number) || 0;
+          const broadcastNumber = lcn ? (minor ? `${lcn}.${minor}` : String(lcn)) : muxNumber ? String(muxNumber) : '';
           const c: Candidate = {
             uuid: String(s.uuid), service: String(s.svcname || '').trim(),
-            provider: String(s.provider || ''), network: String(s.network || 'Unknown network'), mux: String(s.multiplex || ''),
+            provider: String(s.provider || ''), network: String(s.network || 'Unknown network'),
+            mux: String(mux?.name || s.multiplex || ''),
             kind, encrypted, broadcastNumber,
             selected: (kind === 'tv' || kind === 'unknown') && !encrypted,
             name: '', number: broadcastNumber,
           };
-          byNet.set(c.network, [...(byNet.get(c.network) || []), c]);
+          const playlistName = String(mux?.iptv_sname || '').trim();
+          byNet.set(c.network, [...(byNet.get(c.network) || []), { c, playlistName }]);
         }
-        // Services without a name yet (common for IPTV until a stream has been played) are named
-        // after their mux, minus any prefix every mux on that network shares (a playlist id).
-        for (const items of byNet.values()) {
-          const prefix = commonPrefix(items.map(c => c.mux));
-          for (const c of items) {
-            if (!c.service) c.service = c.mux.slice(prefix.length).trim() || c.mux || 'Unnamed service';
-            c.name = c.service;
+        // Name: the playlist's service name, else the broadcast name unless it's a placeholder
+        // ("Service01" from FFmpeg), else the mux name minus the prefix every mux on the network
+        // shares (a playlist id such as "vYSe42W83QyE - ").
+        for (const entries of byNet.values()) {
+          const prefix = commonPrefix(entries.map(e => e.c.mux));
+          for (const { c, playlistName } of entries) {
+            const fromMux = c.mux.slice(prefix.length).trim() || c.mux;
+            c.name = [playlistName, c.service, fromMux].find(n => n && !isPlaceholder(n)) || fromMux || c.service || 'Unnamed service';
+            if (!c.service) c.service = '(no name yet)';
           }
         }
         this.groups.set([...byNet.entries()]
-          .map(([network, items]) => ({
-            network,
-            items: items.sort((a, b) => (parseFloat(a.number) || 1e9) - (parseFloat(b.number) || 1e9)
-              || a.number.localeCompare(b.number, undefined, { numeric: true }) || a.service.localeCompare(b.service)),
-            open: items.length <= 150,
-          }))
+          .map(([network, entries]) => {
+            const items = entries.map(e => e.c);
+            return {
+              network,
+              items: items.sort((a, b) => (parseFloat(a.number) || 1e9) - (parseFloat(b.number) || 1e9)
+                || a.number.localeCompare(b.number, undefined, { numeric: true }) || a.name.localeCompare(b.name)),
+              open: items.length <= 150,
+            };
+          })
           .sort((a, b) => a.network.localeCompare(b.network)));
         this.version.update(v => v + 1);
         this.loading.set(false);
