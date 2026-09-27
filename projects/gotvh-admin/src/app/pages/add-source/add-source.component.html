@@ -228,7 +228,7 @@
             <div><span class="n">{{ s.scanned }}</span><span class="l">of {{ s.muxes }} {{ kind() === 'iptv' ? 'streams' : 'frequencies' }} checked</span></div>
             <div><span class="n">{{ s.ok }}</span><span class="l">{{ kind() === 'iptv' ? 'working' : 'with a station' }}</span></div>
             <div><span class="n">{{ s.services }}</span><span class="l">services found</span></div>
-            @if (s.failed) { <div class="bad"><span class="n">{{ s.failed }}</span><span class="l">{{ kind() === 'iptv' ? 'not responding' : 'nothing received' }}</span></div> }
+            @if (s.failed) { <div [class.bad]="kind() === 'iptv' || !s.ok"><span class="n">{{ s.failed }}</span><span class="l">{{ kind() === 'iptv' ? 'not responding' : 'nothing received' }}</span></div> }
           </div>
           @if (kind() === 'tuner' && !s.ok && s.scanned >= 20) {
             <div class="banner error">
