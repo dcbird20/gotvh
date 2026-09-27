@@ -60,6 +60,11 @@ const FIELD_HINTS: Record<string, string> = {
   epgdb_periodicsave: 'Hours between saving the guide to disk. 0 turns it off.',
 };
 
+export interface CreateVia {
+  meta: () => Observable<IdnodeEntry>;
+  create: (conf: Record<string, unknown>) => Observable<any>;
+}
+
 /** Epoch seconds → value for <input type="datetime-local"> (local time, minutes). */
 export function toLocalInput(raw: unknown): string {
   const n = Number(raw);
@@ -181,6 +186,11 @@ export class IdnodeFormComponent implements OnChanges {
    */
   readonly createMetaClass = input<string | null>(null);
   /**
+   * Custom create endpoints, for objects created under a parent (e.g. a mux on
+   * a network): where the field metadata comes from and how the new object is created.
+   */
+  readonly createVia = input<CreateVia | null>(null);
+  /**
    * A settings object with its own load/save endpoints and no uuid, e.g.
    * "epggrab/config" (loads from …/load, saves changes to …/save).
    */
@@ -272,7 +282,8 @@ export class IdnodeFormComponent implements OnChanges {
     const uuid = this.bulkUuids()?.[0] || this.uuid();
     const createPath = this.createPath();
     const configPath = this.configPath();
-    if (!uuid && !createPath && !configPath) return;
+    const via = this.createVia();
+    if (!uuid && !createPath && !configPath && !via) return;
 
     this.loading.set(true);
     this.error.set('');
@@ -283,6 +294,7 @@ export class IdnodeFormComponent implements OnChanges {
       ? this.tvh.idnodeLoadSimple(configPath)
       : uuid
       ? this.tvh.idnodeLoad(uuid)
+      : via ? via.meta()
       : createClass ? this.tvh.idnodeClassByName(this.createMetaClass() || createClass) : this.tvh.idnodeClass(createPath!);
 
     request.subscribe({
@@ -567,6 +579,8 @@ export class IdnodeFormComponent implements OnChanges {
       ? this.tvh.idnodeSaveSimple(configPath, payload)
       : uuid
       ? this.tvh.idnodeSave(uuid, payload)
+      : this.createVia()
+        ? this.createVia()!.create(payload)
       : createClass
         ? this.tvh.idnodeCreateWithClass(this.createPath()!, createClass, payload)
         : this.tvh.idnodeCreate(this.createPath()!, payload);

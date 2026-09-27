@@ -2272,6 +2272,48 @@ export class TvheadendService {
     return this.http.post<any>(this.buildUrl('dvr/entry/move/finished'), this.buildFormBody({ uuid }), this.getFormRequestOptions());
   }
 
+  /** Field metadata for a new mux on this network (the mux type depends on the network type). */
+  getMuxClass(networkUuid: string): Observable<IdnodeEntry> {
+    const query = new HttpParams().set('uuid', networkUuid);
+    return this.http.get<any>(this.buildUrl(`mpegts/network/mux_class?${query.toString()}`), this.getRequestOptions()).pipe(
+      map(data => {
+        const params = data?.props || data?.params;
+        if (!Array.isArray(params)) throw new Error('Tvheadend returned no mux fields for this network.');
+        return { caption: data?.caption, class: data?.class, params, meta: data?.meta } as IdnodeEntry;
+      })
+    );
+  }
+
+  /** Add a mux to a network by hand. */
+  createMux(networkUuid: string, conf: Record<string, unknown>): Observable<any> {
+    return this.http.post<any>(this.buildUrl('mpegts/network/mux_create'),
+      this.buildFormBody({ uuid: networkUuid, conf: JSON.stringify(conf) }), this.getFormRequestOptions());
+  }
+
+  /**
+   * Turn services into channels (service/mapper/save). Tvheadend skips services
+   * that are already mapped, disabled, not TV/radio, or encrypted (unless `encrypted`).
+   */
+  mapServices(services: string[], options: {
+    encrypted?: boolean; merge_same_name?: boolean; merge_same_name_fuzzy?: boolean; tidy_channel_name?: boolean;
+    check_availability?: boolean; type_tags?: boolean; provider_tags?: boolean; network_tags?: boolean;
+  }): Observable<any> {
+    const node = { services, ...options };
+    return this.http.post<any>(this.buildUrl('service/mapper/save'),
+      this.buildFormBody({ node: JSON.stringify(node) }), this.getFormRequestOptions());
+  }
+
+  /** Progress of the service mapper: total, ok, fail, ignore, and the service being checked (active). */
+  getMapperStatus(): Observable<{ total: number; ok: number; fail: number; ignore: number; active?: string }> {
+    return this.http.get<any>(this.buildUrl('service/mapper/status'), this.getRequestOptions()).pipe(
+      map(d => ({ total: Number(d?.total) || 0, ok: Number(d?.ok) || 0, fail: Number(d?.fail) || 0,
+        ignore: Number(d?.ignore) || 0, active: d?.active ? String(d.active) : undefined })));
+  }
+
+  stopMapper(): Observable<any> {
+    return this.http.post<any>(this.buildUrl('service/mapper/stop'), this.buildFormBody({}), this.getFormRequestOptions());
+  }
+
   /** Queue a full rescan of every mux on a network. */
   scanNetwork(uuid: string): Observable<any> {
     return this.http.post<any>(this.buildUrl('mpegts/network/scan'), this.buildFormBody({ uuid }), this.getFormRequestOptions());

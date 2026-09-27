@@ -93,7 +93,12 @@ Built so far:
   (see below); create, edit, delete
 
 - **Tuners & networks** — tuner hardware tree, networks (add by type, scan), muxes and
-  services in server-paged tables; everything opens in the generic editor
+  services in server-paged tables; everything opens in the generic editor.
+  **Add mux** (Muxes tab, or from an open network) adds a frequency or IPTV stream by hand
+  with the fields for that network's type. **Map unmapped services…** (Services tab) or
+  **Map to channels…** on selected services runs Tvheadend's service mapper: it says what
+  will be left out (already mapped, disabled, radio, encrypted), explains each option
+  (merge same name, tidy names, tags, check availability) and shows progress
 
 - **Live status** — refreshes every 2 s (pause button). Every tuner, busy or idle, with
   signal and SNR (percent or dB, coloured good/fair/poor), bitrate and error counters; a

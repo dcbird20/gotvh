@@ -64,11 +64,26 @@
                       <mat-icon>add</mat-icon> Add network
                     </button>
                   }
+                  @if (tab.id === 'muxes') {
+                    <button mat-flat-button [matMenuTriggerFor]="muxMenu" [disabled]="!networks().length"
+                            [matTooltip]="networks().length ? 'Add a frequency or stream that scanning didn’t find' : 'Add a network first'">
+                      <mat-icon>add</mat-icon> Add mux
+                    </button>
+                  }
+                  @if (tab.id === 'services') {
+                    <button mat-flat-button (click)="mapServices(false)"
+                            matTooltip="Make channels from every service that isn’t on one yet">
+                      <mat-icon>playlist_add</mat-icon> Map unmapped services…
+                    </button>
+                  }
                   <!-- shown in the bar above the table while rows are selected -->
                   <ng-container ngProjectAs="[bulkActions]">
                     <button mat-button (click)="bulkEdit(tab)"><mat-icon>edit</mat-icon> Edit…</button>
                     @if (tab.id === 'networks') {
                       <button mat-button (click)="bulkScan(tab)"><mat-icon>radar</mat-icon> Scan</button>
+                    }
+                    @if (tab.id === 'services') {
+                      <button mat-button (click)="mapServices(true)"><mat-icon>playlist_add</mat-icon> Map to channels…</button>
                     }
                     @if (tab.canEnable) {
                       <button mat-button (click)="bulkSetEnabled(tab, true)">Enable</button>
@@ -93,11 +108,18 @@
         [bulkUuids]="sel.bulkUuids || null"
         [createPath]="sel.createClass ? 'mpegts/network' : null"
         [createClass]="sel.createClass || null"
+        [createVia]="sel.createVia || null"
         [title]="editorTitle()"
         (saved)="onSaved($event)"
         (closed)="close()">
         @if (sel.uuid && !sel.bulkUuids && sel.tab !== 'tuners') {
           <button formExtraActions mat-button type="button" class="danger-text" (click)="confirmDelete()">Delete</button>
+        }
+        @if (sel.uuid && !sel.bulkUuids && sel.tab === 'networks') {
+          <button formExtraActions mat-button type="button" (click)="newMuxOnSelected()"
+                  matTooltip="Add a frequency or stream to this network by hand">
+            <mat-icon>add</mat-icon> Add mux
+          </button>
         }
         @if (sel.uuid && !sel.bulkUuids && sel.tab === 'networks') {
           <button formExtraActions mat-button type="button" (click)="scan()"
@@ -113,5 +135,11 @@
 <mat-menu #addMenu="matMenu">
   @for (b of builders(); track b.class) {
     <button mat-menu-item (click)="newNetwork(b)">{{ b.caption }}</button>
+  }
+</mat-menu>
+
+<mat-menu #muxMenu="matMenu">
+  @for (n of networks(); track n.uuid) {
+    <button mat-menu-item (click)="newMux(n)">On {{ n.name }}</button>
   }
 </mat-menu>

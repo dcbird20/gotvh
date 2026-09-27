@@ -10,7 +10,8 @@ import { MatTabsModule } from '@angular/material/tabs';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { TvheadendService } from '@gotvh/tvh-api';
 import { ConfirmDialogComponent, ConfirmDialogData } from '../../shared/confirm-dialog.component';
-import { IdnodeFormComponent } from '../../shared/idnode-form/idnode-form.component';
+import { CreateVia, IdnodeFormComponent } from '../../shared/idnode-form/idnode-form.component';
+import { MapServicesData, MapServicesDialogComponent } from './map-services-dialog.component';
 import { GridColumn, IdnodeGridComponent } from '../../shared/idnode-grid.component';
 import { BulkResult, describeBulk, runBulk } from '../../shared/bulk';
 import { SplitHandleDirective } from '../../shared/split-handle.directive';
@@ -34,6 +35,9 @@ interface Selection {
   createClass?: string;
   /** Set when bulk-editing several rows. */
   bulkUuids?: string[];
+  /** Set when adding a mux to a network by hand. */
+  createVia?: CreateVia;
+  networkName?: string;
 }
 
 interface GridTab {
@@ -135,11 +139,14 @@ export class InputsComponent implements OnInit {
 
   // Network types that can be created (DVB-T, DVB-C, IPTV, …).
   readonly builders = signal<Array<{ class: string; caption: string }>>([]);
+  /** Networks, for "Add mux". */
+  readonly networks = signal<Array<{ uuid: string; name: string }>>([]);
 
   readonly editorTitle = computed(() => {
     const s = this.selection();
     if (!s) return '';
     if (s.bulkUuids) return s.label;
+    if (s.createVia) return `New mux on ${s.networkName || 'network'}`;
     if (!s.createClass) return s.label; // '' → the editor shows the object's own name
     return /network$/i.test(s.label) ? `New ${s.label}` : `New ${s.label} network`;
   });
@@ -149,6 +156,59 @@ export class InputsComponent implements OnInit {
     this.tvh.getBuilders('mpegts/network').subscribe({
       next: b => this.builders.set([...b].sort((x, y) => x.caption.localeCompare(y.caption))),
       error: () => this.builders.set([]),
+    });
+    this.loadNetworks();
+  }
+
+  private loadNetworks(): void {
+    this.tvh.getGrid('mpegts/network/grid').subscribe({
+      next: rows => this.networks.set(rows
+        .map((n: any) => ({ uuid: String(n.uuid), name: String(n.networkname || n.uuid) }))
+        .sort((a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name))),
+      error: () => this.networks.set([]),
+    });
+  }
+
+  /** Open the editor to add a mux to a network; the fields depend on the network type (DVB-T, IPTV …). */
+  newMux(network: { uuid: string; name: string }): void {
+    const createVia: CreateVia = {
+      meta: () => this.tvh.getMuxClass(network.uuid),
+      create: conf => this.tvh.createMux(network.uuid, conf),
+    };
+    this.open({ tab: 'muxes', uuid: null, label: '', createVia, networkName: network.name });
+  }
+
+  /** "Add mux" from an open network. */
+  newMuxOnSelected(): void {
+    const sel = this.selection();
+    if (!sel?.uuid) return;
+    this.newMux({ uuid: sel.uuid, name: sel.label || this.networks().find(n => n.uuid === sel.uuid)?.name || 'network' });
+  }
+
+  // ---------------------------------------------------------------- map services
+
+  /** Map the selected services, or (with no selection) every service not yet on a channel. */
+  mapServices(selected: boolean): void {
+    const grid = this.grid;
+    const open = (services: any[]) => {
+      const data: MapServicesData = { services };
+      this.dialog.open(MapServicesDialogComponent, { data, maxWidth: '640px' }).afterClosed().subscribe(done => {
+        if (!done) return;
+        grid?.selection.clear();
+        grid?.refresh();
+        this.loadNetworks();
+      });
+    };
+    if (selected && grid) { open(grid.selection.rows()); return; }
+    grid?.bulkBusy.set(true);
+    this.tvh.getGrid('mpegts/service/grid').subscribe({
+      next: rows => {
+        grid?.bulkBusy.set(false);
+        const unmapped = rows.filter((s: any) => !(Array.isArray(s?.channel) ? s.channel.length : s?.channel));
+        if (!unmapped.length) { this.snack.open('Every service is already on a channel', undefined, { duration: 4000 }); return; }
+        open(unmapped);
+      },
+      error: err => { grid?.bulkBusy.set(false); this.snack.open(`Couldn’t load services (${err?.status || 'network error'})`, 'Dismiss', { duration: 6000 }); },
     });
   }
 
@@ -239,7 +299,8 @@ export class InputsComponent implements OnInit {
 
   private open(sel: Selection): void {
     const current = this.selection();
-    if (current && !sel.bulkUuids && !current.bulkUuids && current.uuid === sel.uuid && current.createClass === sel.createClass) return;
+    if (current && !sel.bulkUuids && !current.bulkUuids && !sel.createVia && !current.createVia
+        && current.uuid === sel.uuid && current.createClass === sel.createClass) return;
     this.confirmDiscard().subscribe(ok => { if (ok) this.selection.set(sel); });
   }
 
@@ -255,6 +316,12 @@ export class InputsComponent implements OnInit {
         undefined, { duration: 4000 });
       this.selection.set(null); // rows stay selected for another round
       this.grid?.refresh();
+      return;
+    }
+    if (event.created && sel?.createVia) {
+      this.snack.open(`Mux added to ${sel.networkName} — Tvheadend will scan it for services`, undefined, { duration: 5000 });
+      this.selection.set(event.uuid ? { tab: 'muxes', uuid: event.uuid, label: '' } : null);
+      this.refreshActive();
       return;
     }
     this.snack.open(event.created ? 'Network created' : 'Saved', undefined, { duration: 3000 });
