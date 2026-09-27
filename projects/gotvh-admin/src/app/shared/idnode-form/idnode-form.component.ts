@@ -72,21 +72,21 @@ interface Section {
 const LEVEL_KEY = 'gotvh_admin_idnode_level';
 
 /**
- * "Split" integers, e.g. channel numbers: Tvheadend stores 5.1 as
- * 5 * intsplit + 1 (intsplit is 1000000 for channels) and shows "major.minor".
+ * "Split" integers such as channel numbers (major.minor, e.g. 3.1).
+ * Tvheadend sends them ready to display — `100`, or the string `"3.1"` — and
+ * only accepts them back as a string on save, so they're kept as text here.
  */
-export function formatIntsplit(raw: unknown, split: number): string {
-  const n = Number(raw);
-  if (!Number.isFinite(n) || !split) return String(raw ?? '');
-  if (typeof raw === 'string' && raw.includes('.')) return raw; // already formatted
-  const major = Math.floor(n / split), minor = n % split;
-  return minor ? `${major}.${minor}` : String(major);
+export function formatIntsplit(raw: unknown): string {
+  return raw === undefined || raw === null ? '' : String(raw).trim();
 }
 
-export function parseIntsplit(text: string, split: number): number {
-  const m = /^(\d+)(?:\.(\d+))?$/.exec(text.trim());
-  if (!m) return Number.NaN;
-  return Number(m[1]) * split + Number(m[2] || 0);
+/** Validate a split integer typed by the user; returns the string to send, or null if invalid. */
+export function normalizeIntsplit(text: string): string | null {
+  const t = String(text ?? '').trim();
+  if (t === '') return '0';
+  const m = /^(\d+)(?:\.(\d+))?$/.exec(t);
+  if (!m) return null;
+  return m[2] && Number(m[2]) > 0 ? `${Number(m[1])}.${Number(m[2])}` : String(Number(m[1]));
 }
 
 /** True while a select panel, autocomplete, menu or dialog is showing. */
@@ -328,7 +328,7 @@ export class IdnodeFormComponent implements OnChanges {
       case 'namelist': return splitNames(raw);
       case 'number':
         if (raw === undefined || raw === null) return '';
-        return prop.intsplit ? formatIntsplit(raw, Number(prop.intsplit)) : String(raw);
+        return prop.intsplit ? formatIntsplit(raw) : String(raw);
       case 'select': return raw ?? '';
       case 'readonly': return raw;
       default: return raw === undefined || raw === null ? '' : String(raw);
@@ -339,7 +339,8 @@ export class IdnodeFormComponent implements OnChanges {
     if (field.kind === 'number') {
       const text = String(value ?? '').trim();
       if (text === '') return 0;
-      if (field.prop.intsplit) return parseIntsplit(text, Number(field.prop.intsplit));
+      // Split integers go back as text ("3.1"); Tvheadend ignores them as numbers.
+      if (field.prop.intsplit) return normalizeIntsplit(text) ?? Number.NaN;
       const n = Number(text);
       return Number.isFinite(n) ? n : Number.NaN;
     }
@@ -463,8 +464,7 @@ export class IdnodeFormComponent implements OnChanges {
     const payload = uuid ? this.collectChanges() : this.collectAll();
     const bad = Object.entries(payload).find(([, v]) => typeof v === 'number' && Number.isNaN(v));
     if (bad) {
-      const label = this.fields().find(f => f.prop.id === bad[0])?.label || bad[0];
-      this.error.set(`“${label}” must be a number.`);
+      this.error.set(this.numberError(bad[0]));
       return;
     }
     if (uuid && !Object.keys(payload).length) return;
@@ -498,8 +498,7 @@ export class IdnodeFormComponent implements OnChanges {
     const payload = this.collectApplied();
     const bad = Object.entries(payload).find(([, v]) => typeof v === 'number' && Number.isNaN(v));
     if (bad) {
-      const label = this.fields().find(f => f.prop.id === bad[0])?.label || bad[0];
-      this.error.set(`“${label}” must be a number.`);
+      this.error.set(this.numberError(bad[0]));
       return;
     }
     if (!Object.keys(payload).length || !uuids.length) return;
@@ -548,6 +547,12 @@ export class IdnodeFormComponent implements OnChanges {
       this.changeCount.set(0);
       this.saved.emit({ uuid: null, created: false, bulk: result });
     });
+  }
+
+  private numberError(id: string): string {
+    const field = this.fields().find(f => f.prop.id === id);
+    const label = field?.label || id;
+    return field?.prop.intsplit ? `“${label}” must be a number like 5 or 5.1.` : `“${label}” must be a number.`;
   }
 
   reset(): void {

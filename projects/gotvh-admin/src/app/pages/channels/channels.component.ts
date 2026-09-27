@@ -10,8 +10,6 @@ import { ConfirmDialogComponent, ConfirmDialogData } from '../../shared/confirm-
 import { IdnodeFormComponent, formatIntsplit } from '../../shared/idnode-form/idnode-form.component';
 import { GridColumn, IdnodeGridComponent } from '../../shared/idnode-grid.component';
 
-const CHANNEL_SPLIT = 1_000_000;
-
 interface EditorState {
   uuid: string | null;
   creating?: boolean;
@@ -84,8 +82,8 @@ export class ChannelsComponent implements OnInit {
   readonly columns = computed<GridColumn[]>(() => {
     const tags = this.tagNames();
     const base: GridColumn[] = [
-      // Channel numbers are "split" integers (5.1 is stored as 5000001).
-      { id: 'number', label: '#', kind: 'num', format: (v: unknown) => v ? formatIntsplit(v, CHANNEL_SPLIT) : '—' },
+      // Tvheadend sends channel numbers ready to show: 100, or "3.1" for major.minor.
+      { id: 'number', label: '#', kind: 'num', format: (v: unknown) => (v === 0 || v === '0' || v === '' || v == null) ? '—' : formatIntsplit(v) },
       { id: 'name', label: 'Channel' },
       { id: 'enabled', label: 'Enabled', kind: 'bool' },
     ];
