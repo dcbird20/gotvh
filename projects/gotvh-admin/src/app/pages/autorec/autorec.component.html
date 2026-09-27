@@ -104,7 +104,7 @@
     <!-- ============================== editor panel -->
     @if (editing() !== null) {
       <aside class="editor" aria-label="Rule editor">
-        <form [formGroup]="form" (ngSubmit)="save()" (keydown.escape)="!$any($event).defaultPrevented && closeEditor()">
+        <form [formGroup]="form" (ngSubmit)="save()" (keydown.escape)="onEscape($event)">
           <div class="editor-head">
             <h2>{{ editingLabel() }}</h2>
             <button mat-icon-button type="button" (click)="closeEditor()" aria-label="Close editor"><mat-icon>close</mat-icon></button>

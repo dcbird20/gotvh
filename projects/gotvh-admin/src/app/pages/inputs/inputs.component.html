@@ -1,0 +1,102 @@
+<div class="admin-page wide">
+  <h1>Tuners &amp; networks</h1>
+  <p class="subtitle">Tuner hardware, the networks assigned to it, and the muxes and services found by scanning.</p>
+
+  <div class="layout" [class.with-editor]="!!selection()">
+    <div class="main">
+      <mat-tab-group [selectedIndex]="tabIndex()" (selectedIndexChange)="onTabChange($event)"
+                     animationDuration="0ms" mat-stretch-tabs="false" mat-align-tabs="start">
+
+        <!-- ============================== tuners -->
+        <mat-tab label="Tuners">
+          <div class="tab-body">
+            <div class="toolbar">
+              <span class="muted">Select a tuner to enable it or assign networks to it.</span>
+              <span class="spacer"></span>
+              <button mat-stroked-button (click)="loadTreeRoot()" [disabled]="treeLoading()">
+                <mat-icon>refresh</mat-icon> Refresh
+              </button>
+            </div>
+            @if (treeLoading()) { <mat-progress-bar mode="indeterminate" /> }
+            @if (treeError()) { <div class="banner error" role="alert">{{ treeError() }}</div> }
+
+            <ul class="tree" role="tree" aria-label="Tuner hardware">
+              @for (row of tree(); track row.uuid) {
+                <li role="treeitem" [attr.aria-level]="row.depth + 1" [attr.aria-expanded]="row.leaf ? null : row.expanded"
+                    [class.selected]="selectedUuid() === row.uuid" [style.padding-left.px]="8 + row.depth * 28"
+                    tabindex="0" (click)="selectTreeRow(row)" (keydown.enter)="selectTreeRow(row)"
+                    (keydown.arrowRight)="!row.expanded && toggle(row, $event)" (keydown.arrowLeft)="row.expanded && toggle(row, $event)">
+                  @if (row.leaf) {
+                    <span class="twisty"></span>
+                    <mat-icon class="node-icon">settings_input_antenna</mat-icon>
+                  } @else {
+                    <button mat-icon-button class="twisty" (click)="toggle(row, $event)" tabindex="-1"
+                            [attr.aria-label]="row.expanded ? 'Collapse' : 'Expand'">
+                      <mat-icon>{{ row.expanded ? 'expand_more' : 'chevron_right' }}</mat-icon>
+                    </button>
+                    <mat-icon class="node-icon">memory</mat-icon>
+                  }
+                  <span class="node-text">{{ row.text }}</span>
+                  @if (row.loading) { <span class="muted small">loading…</span> }
+                </li>
+              }
+              @if (!treeLoading() && !tree().length && !treeError()) {
+                <li class="empty muted">No tuner hardware reported by Tvheadend.</li>
+              }
+            </ul>
+          </div>
+        </mat-tab>
+
+        <!-- ============================== networks / muxes / services -->
+        @for (tab of gridTabs; track tab.id) {
+          <mat-tab [label]="tab.label">
+            <ng-template matTabContent>
+              <div class="tab-body">
+                <admin-idnode-grid
+                  [path]="tab.path" [columns]="tab.columns"
+                  [filterField]="tab.filterField" [filterLabel]="tab.filterLabel"
+                  [defaultSort]="{ active: tab.nameField, direction: 'asc' }"
+                  [selectedUuid]="selectedUuid()" [emptyText]="tab.emptyText"
+                  (rowClick)="selectGridRow(tab, $event)">
+                  @if (tab.id === 'networks') {
+                    <button mat-flat-button [matMenuTriggerFor]="addMenu" [disabled]="!builders().length"
+                            [matTooltip]="builders().length ? '' : 'Network types couldn’t be loaded'">
+                      <mat-icon>add</mat-icon> Add network
+                    </button>
+                  }
+                </admin-idnode-grid>
+              </div>
+            </ng-template>
+          </mat-tab>
+        }
+      </mat-tab-group>
+    </div>
+
+    <!-- ============================== editor -->
+    @if (selection(); as sel) {
+      <admin-idnode-form
+        [uuid]="sel.uuid"
+        [createPath]="sel.createClass ? 'mpegts/network' : null"
+        [createClass]="sel.createClass || null"
+        [title]="editorTitle()"
+        (saved)="onSaved($event)"
+        (closed)="close()">
+        @if (sel.uuid && sel.tab !== 'tuners') {
+          <button formExtraActions mat-button type="button" class="danger-text" (click)="confirmDelete()">Delete</button>
+        }
+        @if (sel.uuid && sel.tab === 'networks') {
+          <button formExtraActions mat-button type="button" (click)="scan()"
+                  matTooltip="Queue every mux on this network for scanning">
+            <mat-icon>radar</mat-icon> Scan
+          </button>
+        }
+      </admin-idnode-form>
+    }
+  </div>
+</div>
+
+<mat-menu #addMenu="matMenu">
+  @for (b of builders(); track b.class) {
+    <button mat-menu-item (click)="newNetwork(b)">{{ b.caption }}</button>
+  }
+</mat-menu>

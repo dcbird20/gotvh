@@ -2069,6 +2069,82 @@ export class TvheadendService {
     return this.http.post<any>(this.buildUrl('idnode/delete'), this.buildFormBody({ uuid }), this.getFormRequestOptions());
   }
 
+  /**
+   * One page of an idnode grid with server-side sorting and filtering, e.g.
+   * `mpegts/service/grid`. `filter` is a plain-text match on `filterField`.
+   */
+  getGridPage(path: string, opts: {
+    start?: number; limit?: number; sort?: string; dir?: 'ASC' | 'DESC';
+    filterField?: string; filter?: string; params?: Record<string, string | number>;
+  } = {}): Observable<{ entries: any[]; total: number }> {
+    let query = new HttpParams()
+      .set('start', String(opts.start ?? 0))
+      .set('limit', String(opts.limit ?? 50));
+    if (opts.sort) {
+      query = query.set('sort', opts.sort).set('dir', opts.dir || 'ASC');
+    }
+    const text = String(opts.filter || '').trim();
+    if (text && opts.filterField) {
+      query = query.set('filter', JSON.stringify([{ type: 'string', value: text, field: opts.filterField }]));
+    }
+    Object.entries(opts.params || {}).forEach(([k, v]) => { query = query.set(k, String(v)); });
+    return this.http.get<any>(this.buildUrl(`${path}?${query.toString()}`), this.getRequestOptions()).pipe(
+      map(data => {
+        const entries = Array.isArray(data) ? data : (data?.entries || []);
+        const total = Number(data?.total ?? data?.totalCount ?? entries.length);
+        return { entries, total: Number.isFinite(total) ? total : entries.length };
+      })
+    );
+  }
+
+  /** Children of a node in an idnode tree (e.g. `hardware/tree`); omit uuid for the root. */
+  getTree(path: string, uuid = 'root'): Observable<Array<{ uuid: string; text: string; leaf: boolean; [k: string]: any }>> {
+    const query = new HttpParams().set('uuid', uuid);
+    return this.http.get<any>(this.buildUrl(`${path}?${query.toString()}`), this.getRequestOptions()).pipe(
+      map(data => (Array.isArray(data) ? data : (data?.entries || [])).map((n: any) => ({
+        ...n,
+        uuid: String(n?.uuid || n?.id || ''),
+        text: String(n?.text || n?.caption || n?.uuid || ''),
+        leaf: n?.leaf === true || n?.leaf === 1,
+      })))
+    );
+  }
+
+  /** Object types that can be created under a base, e.g. `mpegts/network/builders`. */
+  getBuilders(basePath: string): Observable<Array<{ class: string; caption: string }>> {
+    return this.http.get<any>(this.buildUrl(`${basePath.replace(/\/+$/, '')}/builders`), this.getRequestOptions()).pipe(
+      map(data => (Array.isArray(data) ? data : (data?.entries || []))
+        .map((b: any) => ({ class: String(b?.class || ''), caption: String(b?.caption || b?.class || '') }))
+        .filter((b: { class: string }) => b.class))
+    );
+  }
+
+  /** Field metadata for a named idnode class (used when a base has several creatable types). */
+  idnodeClassByName(className: string): Observable<IdnodeEntry> {
+    const query = new HttpParams().set('name', className);
+    return this.http.get<any>(this.buildUrl(`idnode/class?${query.toString()}`), this.getRequestOptions()).pipe(
+      map(data => {
+        const params = data?.props || data?.params;
+        if (!Array.isArray(params)) {
+          throw new Error(`Tvheadend returned no metadata for “${className}”.`);
+        }
+        return { caption: data?.caption, class: data?.class || className, params, meta: data?.meta } as IdnodeEntry;
+      })
+    );
+  }
+
+  /** Create an object of a specific class, e.g. a DVB-T network: POST mpegts/network/create {class, conf}. */
+  idnodeCreateWithClass(basePath: string, className: string, conf: Record<string, unknown>): Observable<any> {
+    const path = `${basePath.replace(/\/+$/, '')}/create`;
+    return this.http.post<any>(this.buildUrl(path),
+      this.buildFormBody({ class: className, conf: JSON.stringify(conf) }), this.getFormRequestOptions());
+  }
+
+  /** Queue a full rescan of every mux on a network. */
+  scanNetwork(uuid: string): Observable<any> {
+    return this.http.post<any>(this.buildUrl('mpegts/network/scan'), this.buildFormBody({ uuid }), this.getFormRequestOptions());
+  }
+
   /** Resolve a choice list that the metadata points at another endpoint for. */
   idnodeEnumOptions(deferred: IdnodeDeferredEnum): Observable<IdnodeOption[]> {
     const params: Record<string, string> = {};

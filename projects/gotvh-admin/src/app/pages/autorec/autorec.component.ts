@@ -24,6 +24,7 @@ import {
   parseOptionalNonNegativeInteger, parseStoredTitlePattern, parseTimeToMinutes,
 } from '@gotvh/tvh-api';
 import { ConfirmDialogComponent, ConfirmDialogData } from '../../shared/confirm-dialog.component';
+import { overlayIsOpen } from '../../shared/idnode-form/idnode-form.component';
 
 interface RuleRow {
   raw: any;
@@ -308,6 +309,12 @@ export class AutorecComponent implements OnInit {
       comment: row.comment,
       enabled: row.enabled,
     });
+  }
+
+  /** Esc closes the editor — unless it was meant for an open dropdown or dialog. */
+  onEscape(event: Event): void {
+    if (event.defaultPrevented || overlayIsOpen()) return;
+    this.closeEditor();
   }
 
   closeEditor(): void {

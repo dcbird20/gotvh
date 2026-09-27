@@ -53,8 +53,8 @@ export const routes: Routes = [
   },
   {
     path: 'inputs',
-    ...placeholder('Tuners & networks', 'hardware/tree, mpegts/network/*, mpegts/mux/*, mpegts/service/*',
-      'Not in the shared client yet. Covers adapters, networks, muxes and services — the stock UI\'s "DVB Inputs" tabs.'),
+    title: 'Tuners & networks · GoTVH Admin',
+    loadComponent: () => import('./pages/inputs/inputs.component').then(m => m.InputsComponent),
   },
   {
     path: 'channels',

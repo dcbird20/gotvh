@@ -37,6 +37,11 @@ interface Section {
 
 const LEVEL_KEY = 'gotvh_admin_idnode_level';
 
+/** True while a select panel, autocomplete, menu or dialog is showing. */
+export function overlayIsOpen(): boolean {
+  return !!document.querySelector('.cdk-overlay-container .cdk-overlay-pane:not(:empty)');
+}
+
 /**
  * Renders any Tvheadend idnode as an edit form, driven entirely by the field
  * metadata the server returns. Pass `uuid` to edit an existing object, or
@@ -60,6 +65,11 @@ export class IdnodeFormComponent implements OnChanges {
   readonly uuid = input<string | null>(null);
   /** API base for creating a new object, e.g. "dvr/config". Used when `uuid` is empty. */
   readonly createPath = input<string | null>(null);
+  /**
+   * For bases with several creatable types (e.g. networks: DVB-T, IPTV …), the
+   * class to create. Metadata comes from idnode/class and creation posts the class.
+   */
+  readonly createClass = input<string | null>(null);
   /** Values to pre-fill when creating (override class defaults). */
   readonly createDefaults = input<Record<string, unknown>>({});
   readonly title = input('');
@@ -127,7 +137,10 @@ export class IdnodeFormComponent implements OnChanges {
     this.error.set('');
     this.entry.set(null);
     this.fields.set([]);
-    const request: Observable<IdnodeEntry> = uuid ? this.tvh.idnodeLoad(uuid) : this.tvh.idnodeClass(createPath!);
+    const createClass = this.createClass();
+    const request: Observable<IdnodeEntry> = uuid
+      ? this.tvh.idnodeLoad(uuid)
+      : createClass ? this.tvh.idnodeClassByName(createClass) : this.tvh.idnodeClass(createPath!);
 
     request.subscribe({
       next: entry => {
@@ -271,7 +284,12 @@ export class IdnodeFormComponent implements OnChanges {
 
     this.error.set('');
     this.saving.set(true);
-    const request = uuid ? this.tvh.idnodeSave(uuid, payload) : this.tvh.idnodeCreate(this.createPath()!, payload);
+    const createClass = this.createClass();
+    const request = uuid
+      ? this.tvh.idnodeSave(uuid, payload)
+      : createClass
+        ? this.tvh.idnodeCreateWithClass(this.createPath()!, createClass, payload)
+        : this.tvh.idnodeCreate(this.createPath()!, payload);
     request.subscribe({
       next: res => {
         this.saving.set(false);
@@ -336,6 +354,12 @@ export class IdnodeFormComponent implements OnChanges {
     if (Array.isArray(v)) return v.join(', ');
     if (typeof v === 'object') return Object.values(v as object).join(' / ');
     return String(v);
+  }
+
+  /** Esc closes the editor — unless it was meant for an open dropdown or dialog. */
+  onEscape(event: Event): void {
+    if (event.defaultPrevented || overlayIsOpen()) return;
+    this.closed.emit();
   }
 
   levelLabel(level: IdnodeLevel): string {

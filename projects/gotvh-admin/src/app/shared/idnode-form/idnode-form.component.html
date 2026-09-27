@@ -1,4 +1,4 @@
-<form [formGroup]="form" (ngSubmit)="save()" class="idnode-form" (keydown.escape)="!$any($event).defaultPrevented && closed.emit()">
+<form [formGroup]="form" (ngSubmit)="save()" class="idnode-form" (keydown.escape)="onEscape($event)">
   <div class="head">
     <div class="titles">
       <h2>{{ title() || entry()?.text || entry()?.caption || (creating() ? 'New' : 'Edit') }}</h2>

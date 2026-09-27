@@ -92,6 +92,9 @@ Built so far:
 - **DVR profiles** — list plus a generic editor built from Tvheadend's field metadata
   (see below); create, edit, delete
 
+- **Tuners & networks** — tuner hardware tree, networks (add by type, scan), muxes and
+  services in server-paged tables; everything opens in the generic editor
+
 Other sections are placeholders naming the API they'll use.
 
 ### Generic config editor
@@ -100,7 +103,10 @@ Most Tvheadend config objects are "idnodes", and the API describes their fields 
 label, choices, read-only, basic/advanced/expert level). `IdnodeFormComponent`
 (`projects/gotvh-admin/src/app/shared/idnode-form/`) renders any of them from that
 description — pass `uuid` to edit or `createPath` (e.g. `dvr/config`) to create. It only
-saves fields you changed. New config sections should reuse it rather than hand-build forms. Rule helpers shared with the
+saves fields you changed. New config sections should reuse it rather than hand-build forms.
+
+`IdnodeGridComponent` (`shared/idnode-grid.component.ts`) is its list counterpart: a
+server-paged, sortable, filterable table for any `…/grid` endpoint. Rule helpers shared with the
 TV app live in `projects/tvh-api/src/autorec-rules.ts`.
 
 ## Workspace layout
