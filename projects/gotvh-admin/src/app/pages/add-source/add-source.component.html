@@ -19,7 +19,13 @@
         <mat-icon>settings_input_antenna</mat-icon>
         <strong>Antenna, cable or satellite</strong>
         <span>A tuner in this computer or on the network (e.g. Hauppauge, HDHomeRun). Tvheadend scans the frequencies for channels.</span>
-        @if (loaded()) { <span class="muted small">{{ plural(hardwareTuners().length, 'tuner') }} found</span> }
+        @if (loaded()) {
+          <span class="muted small">
+            @if (hardwareTuners().length) { {{ plural(hardwareTuners().length, 'tuner') }} found }
+            @else if (tuners().length) { This server has no antenna tuners — only IPTV }
+            @else { No tuners found }
+          </span>
+        }
       </button>
       <button class="choice" (click)="chooseKind('iptv')" [disabled]="!loaded()">
         <mat-icon>cloud</mat-icon>
@@ -46,7 +52,13 @@
           </span>
         </div>
       } @empty {
-        <p class="warn">Tvheadend doesn’t see any tuners. Check the tuner is plugged in (or on the network, for HDHomeRun) and that Tvheadend can access it, then reload this page.</p>
+        @if (tuners().length) {
+          <p>This Tvheadend has no antenna, cable or satellite tuners — its only inputs are the IPTV threads, so IPTV is the way to add a source here.</p>
+          <p><button mat-flat-button (click)="chooseKind('iptv')"><mat-icon>cloud</mat-icon> Add an IPTV playlist instead</button></p>
+          <p class="muted small">If a tuner is connected to this machine, Tvheadend can’t see it: check it’s plugged in (or on the network, for HDHomeRun), that its driver is loaded, and that Tvheadend has access to it — then restart Tvheadend and reload this page.</p>
+        } @else {
+          <p class="warn">Couldn’t list the tuners — this needs an administrator account. Sign in as an admin and reload this page.</p>
+        }
       }
     </section>
 
