@@ -75,7 +75,7 @@ The workspace holds a second Angular app for mouse/keyboard admin work. It's a p
 desktop web app (Angular Material, compact tables), not part of the Android build.
 
 ```bash
-npm run start:admin   # dev server on http://localhost:4300, uses proxy.conf.json
+npm run start:admin   # dev server on http://localhost:4400, uses proxy.conf.json
 npm run build:admin   # production build -> dist/gotvh-admin/browser
 ```
 
@@ -156,9 +156,9 @@ Other sections are placeholders naming the API they'll use.
 
 ### Testing against the spare server (omv-dell)
 
-`npm run start:admin:omv` serves the admin app on port 4301 with `/api` proxied to the
+`npm run start:admin:omv` serves the admin app on port 4401 with `/api` proxied to the
 Tvheadend on omv-dell (`192.168.1.222:9983`, see `proxy.omv-dell.conf.json`). It listens on
-all interfaces, so another machine on the LAN can open `http://raven1:4301`. Use it for
+all interfaces, so another machine on the LAN can open `http://raven1:4401`. Use it for
 anything risky (stream profiles, users, deleting built-ins) before trying it on the main
 server.
 
