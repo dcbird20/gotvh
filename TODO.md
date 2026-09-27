@@ -26,7 +26,6 @@ The stock UI needs you to know the chain
 
 - [ ] Test every screen against the real server (built and tested against mocks so far).
       Try risky changes (stream/codec profiles, users) on a second Tvheadend instance first.
-- [ ] Merge `admin-workspace` into `main`.
 - [ ] Serve the production admin build from nginx on raven1 (`npm run build:admin` →
       `dist/gotvh-admin/browser`) instead of the dev server.
 - [ ] Switch the TV app's auto-record screen to the shared helpers in
@@ -36,6 +35,7 @@ The stock UI needs you to know the chain
 
 ## Done
 
+- [x] Merged `admin-workspace` into `main` (old main kept as branch `main-before-admin`)
 - [x] Admin app scaffold, shared API library, desktop layout
 - [x] Live status (tuner signal/SNR/errors with rising-error warning, streams, clients; stop recording, disconnect)
 - [x] Dashboard (read-only), Recordings (bulk cancel / delete / watched)
