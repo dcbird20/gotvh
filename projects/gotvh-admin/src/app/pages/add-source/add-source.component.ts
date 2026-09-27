@@ -13,7 +13,7 @@ import { MatRadioModule } from '@angular/material/radio';
 import { MatSelectModule } from '@angular/material/select';
 import { IdnodeOption, TvheadendService, isDeferredEnum, normalizeEnum, truthy } from '@gotvh/tvh-api';
 
-type Step = 'kind' | 'tuner' | 'iptv' | 'scan' | 'done';
+type Step = 'kind' | 'tuner' | 'iptv' | 'hdhr' | 'scan' | 'done';
 type Kind = 'tuner' | 'iptv';
 
 interface TunerChoice {
@@ -85,6 +85,13 @@ export class AddSourceComponent implements OnInit {
   readonly regionsLoading = signal(false);
   region = '';
 
+  // ---- HDHomeRun
+  hdhrIp = '';
+  hdhrTunerCount = 2;
+  /** null = unknown; false = this Tvheadend has no HDHomeRun support built in. */
+  readonly hdhrSupported = signal<boolean | null>(null);
+  readonly hdhrSearch = signal<'searching' | 'found' | 'notfound' | null>(null);
+
   // ---- IPTV path
   iptvName = 'IPTV';
   iptvUrl = '';
@@ -121,15 +128,7 @@ export class AddSourceComponent implements OnInit {
       builders: this.tvh.getBuilders('mpegts/network').pipe(catchError(() => of([]))),
       networks: this.tvh.getGrid('mpegts/network/grid').pipe(catchError(() => of([]))),
     }).subscribe(({ inputs, builders, networks }) => {
-      this.tuners.set(inputs.map(e => {
-        const v: Record<string, any> = {};
-        for (const p of e.params || []) v[p.id] = p.value;
-        const caption = String(e.caption || '');
-        const name = String(v['displayname'] || e.text || 'Tuner');
-        const nets = list(v['networks']);
-        return { uuid: String(e.uuid || e.id), name, caption, enabled: on(v['enabled']), networks: nets,
-          system: systemOf(`${caption} ${name}`), selected: false };
-      }).sort((a, b) => a.name.localeCompare(b.name)));
+      this.applyInputs(inputs);
       this.builders.set(builders.map(b => ({ ...b, system: systemOf(b.caption) })));
       this.networks.set(networks.map((n: any) => ({ uuid: String(n.uuid), name: String(n.networkname || n.uuid) }))
         .sort((a: any, b: any) => a.name.localeCompare(b.name)));
@@ -137,11 +136,88 @@ export class AddSourceComponent implements OnInit {
     });
   }
 
+  private applyInputs(inputs: any[]): void {
+    this.tuners.set(inputs.map(e => {
+      const v: Record<string, any> = {};
+      for (const p of e.params || []) v[p.id] = p.value;
+      const caption = String(e.caption || '');
+      const name = String(v['displayname'] || e.text || 'Tuner');
+      const nets = list(v['networks']);
+      return { uuid: String(e.uuid || e.id), name, caption, enabled: on(v['enabled']), networks: nets,
+        system: systemOf(`${caption} ${name}`), selected: false };
+    }).sort((a, b) => a.name.localeCompare(b.name)));
+    this.version.update(v => v + 1);
+  }
+
   networkName$(uuid: string): string {
     return this.networks().find(n => n.uuid === uuid)?.name || 'a network';
   }
 
   // ---------------------------------------------------------------- step 1
+
+  /** HDHomeRun tuners Tvheadend already knows. */
+  readonly hdhrTuners = computed(() => { this.version(); return this.tuners().filter(t => /hdhomerun/i.test(`${t.caption} ${t.name}`)); });
+
+  chooseHdhr(): void {
+    this.kind.set('tuner');
+    this.error.set('');
+    this.step.set('hdhr');
+    // Is this Tvheadend built with HDHomeRun support? Its settings then have "hdhomerun_ip".
+    this.tvh.idnodeLoadSimple('config').pipe(catchError(() => of(null))).subscribe(cfg => {
+      const ip = cfg?.params.find(p => p.id === 'hdhomerun_ip');
+      this.hdhrSupported.set(cfg ? !!ip : null);
+      if (ip?.value) this.hdhrIp = String(ip.value);
+    });
+  }
+
+  /** Use the HDHomeRun tuners already found: continue with the tuner flow, only them ticked. */
+  useHdhrTuners(): void {
+    for (const t of this.tuners()) t.selected = this.hdhrTuners().includes(t);
+    this.version.update(v => v + 1);
+    this.onTunersChanged();
+    this.step.set('tuner');
+  }
+
+  hdhrIpError(): string {
+    const ip = this.hdhrIp.trim();
+    if (!ip) return '';
+    return /^(\d{1,3}\.){3}\d{1,3}$/.test(ip) ? '' : 'Enter an IP address like 192.168.1.40.';
+  }
+
+  /**
+   * Tell Tvheadend where the HDHomeRun is (needed when it runs in Docker without
+   * host networking, or the device is on another subnet), then watch for its tuners.
+   */
+  searchHdhr(): void {
+    if (!this.hdhrIp.trim() || this.hdhrIpError()) return;
+    this.busy.set(true);
+    this.error.set('');
+    this.hdhrSearch.set('searching');
+    this.tvh.idnodeSaveSimple('config', { hdhomerun_ip: this.hdhrIp.trim() }).subscribe({
+      next: () => {
+        const started = Date.now();
+        const tick = () => this.tvh.idnodeLoadByClass('mpegts_input').pipe(catchError(() => of([]))).subscribe(inputs => {
+          this.applyInputs(inputs);
+          if (this.hdhrTuners().length) { this.busy.set(false); this.hdhrSearch.set('found'); return; }
+          if (Date.now() - started > 45000) { this.busy.set(false); this.hdhrSearch.set('notfound'); return; }
+          setTimeout(tick, 3000);
+        });
+        tick();
+      },
+      error: err => { this.busy.set(false); this.hdhrSearch.set(null); this.error.set(`Couldn’t save the address (${err?.status || 'network error'}).`); },
+    });
+  }
+
+  /** Works with any HDHomeRun, even without Tvheadend's HDHomeRun support: its channel list as a playlist. */
+  addHdhrAsIptv(): void {
+    const ip = this.hdhrIp.trim();
+    if (!ip || this.hdhrIpError()) return;
+    this.kind.set('iptv');
+    this.iptvName = 'HDHomeRun';
+    this.iptvUrl = `http://${ip}/lineup.m3u`;
+    this.iptvMaxStreams = Math.max(1, Number(this.hdhrTunerCount) || 2);
+    this.startIptv();
+  }
 
   chooseKind(kind: Kind): void {
     this.kind.set(kind);
@@ -323,6 +399,7 @@ export class AddSourceComponent implements OnInit {
 
   restart(): void {
     this.stopPolling();
+    this.hdhrSearch.set(null);
     this.step.set('kind');
     this.kind.set(null);
     this.networkUuid.set(null);

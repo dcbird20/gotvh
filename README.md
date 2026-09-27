@@ -124,6 +124,10 @@ Built so far:
   on and assigns it, and scans with live counts (frequencies checked, with a signal,
   services found). IPTV: playlist URL, name and stream limit → automatic IPTV network, each
   stream checked. Ends with Map services and guide matching.
+  HDHomeRun: shows the HDHomeRun tuners Tvheadend already found; if none, takes the device's
+  IP and either (A) saves it as Tvheadend's `hdhomerun_ip` setting — needed in Docker without
+  host networking or across subnets — and waits for the tuners, or (B) adds the device's own
+  `http://IP/lineup.m3u` as an IPTV playlist, which works on any build.
 
 - **Map services** — every service not on a channel yet, grouped by network, with the
   channel each will become: name and number (from the broadcast's LCN / ATSC major.minor)

@@ -61,3 +61,10 @@ mat-icon.bad { color: var(--mat-sys-error); }
 .spacer { flex: 1; }
 
 @media (max-width: 700px) { .row2 { grid-template-columns: 1fr; } }
+
+.options2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.card h3 { font: var(--mat-sys-title-small); margin: 0 0 6px; }
+.gap { margin-top: 12px !important; }
+.narrow { width: 220px; margin-bottom: 8px; }
+code { font-size: 12px; }
+@media (max-width: 900px) { .options2 { grid-template-columns: 1fr; } }

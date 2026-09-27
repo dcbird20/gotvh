@@ -4,7 +4,7 @@
 
   <ol class="steps" aria-label="Progress">
     <li [class.on]="step() === 'kind'" [class.done]="step() !== 'kind'">1 · Source</li>
-    <li [class.on]="step() === 'tuner' || step() === 'iptv'" [class.done]="step() === 'scan' || step() === 'done'">2 · Set up</li>
+    <li [class.on]="step() === 'tuner' || step() === 'iptv' || step() === 'hdhr'" [class.done]="step() === 'scan' || step() === 'done'">2 · Set up</li>
     <li [class.on]="step() === 'scan'" [class.done]="step() === 'done'">3 · Scan</li>
     <li [class.on]="step() === 'done'">4 · Channels &amp; guide</li>
   </ol>
@@ -25,6 +25,14 @@
             @else if (tuners().length) { This server has no antenna tuners — only IPTV }
             @else { No tuners found }
           </span>
+        }
+      </button>
+      <button class="choice" (click)="chooseHdhr()" [disabled]="!loaded()">
+        <mat-icon>router</mat-icon>
+        <strong>HDHomeRun (network tuner)</strong>
+        <span>A SiliconDust tuner on your network. Tvheadend finds it by itself, or you give it the address.</span>
+        @if (loaded()) {
+          <span class="muted small">{{ hdhrTuners().length ? plural(hdhrTuners().length, 'HDHomeRun tuner') + ' found' : 'None found yet' }}</span>
         }
       </button>
       <button class="choice" (click)="chooseKind('iptv')" [disabled]="!loaded()">
@@ -112,6 +120,68 @@
       <button mat-flat-button (click)="startTuner()" [disabled]="busy() || !canStartTuner()">
         <mat-icon>radar</mat-icon> Set up and scan
       </button>
+    </div>
+  }
+
+  <!-- ============================================================ 2c: HDHomeRun -->
+  @if (step() === 'hdhr') {
+    @if (hdhrTuners().length) {
+      <section class="card">
+        <h2><mat-icon class="ok">check_circle</mat-icon> Tvheadend can see {{ plural(hdhrTuners().length, 'HDHomeRun tuner') }}</h2>
+        @for (t of hdhrTuners(); track t.uuid) {
+          <div class="tuner"><span><strong>{{ t.name }}</strong> <span class="muted small">{{ t.caption }}</span></span>
+            <span class="muted small">{{ t.networks.length ? 'receives ' + networkName$(t.networks[0]) : 'not set up yet' }}</span></div>
+        }
+        <p class="gap">Next: give them a network and scan.</p>
+        <button mat-flat-button (click)="useHdhrTuners()">Continue with these tuners</button>
+      </section>
+    } @else {
+      <section class="card">
+        <h2>Tvheadend hasn’t found an HDHomeRun</h2>
+        <p class="muted">It looks for them on the local network by itself. That doesn’t work when Tvheadend runs in Docker
+          without host networking, or when the HDHomeRun is on another subnet — then it needs the address.
+          Find it in the HDHomeRun app, at <strong>my.hdhomerun.com</strong>, or in your router’s device list.</p>
+        <mat-form-field appearance="outline">
+          <mat-label>HDHomeRun IP address</mat-label>
+          <input matInput [(ngModel)]="hdhrIp" placeholder="192.168.1.40" autocomplete="off">
+          @if (hdhrIpError()) { <mat-hint class="err">{{ hdhrIpError() }}</mat-hint> }
+        </mat-form-field>
+      </section>
+
+      <div class="options2">
+        <section class="card">
+          <h3>A · As tuners <span class="muted small">(recommended)</span></h3>
+          @if (hdhrSupported() === false) {
+            <p class="warn">This Tvheadend was built without HDHomeRun support, so it can’t use the device as tuners. Use option B.</p>
+          } @else {
+            <p class="muted small">Saves the address in Tvheadend’s settings and waits for the tuners to appear (up to 45 seconds).
+              Full control: scanning, signal readings, over-the-air guide data.</p>
+            @switch (hdhrSearch()) {
+              @case ('searching') { <mat-progress-bar mode="indeterminate" /><p class="muted small">Looking for it…</p> }
+              @case ('notfound') {
+                <p class="warn small">Still not found. Check the address opens in a browser (http://{{ hdhrIp }}), and — for Docker —
+                  that UDP traffic from the HDHomeRun can reach Tvheadend (host networking, or set “Local IP Address” in Tvheadend’s
+                  general settings). Option B works regardless.</p>
+              }
+            }
+            <button mat-flat-button (click)="searchHdhr()" [disabled]="busy() || !hdhrIp.trim() || !!hdhrIpError()">Find it</button>
+          }
+        </section>
+        <section class="card">
+          <h3>B · As an IPTV playlist</h3>
+          <p class="muted small">Uses the HDHomeRun’s own channel list (<code>http://{{ hdhrIp || '…' }}/lineup.m3u</code>), which already has
+            names and numbers. Works with any setup; no signal readings, and guide data comes from your grabber.</p>
+          <mat-form-field appearance="outline" class="narrow">
+            <mat-label>Tuners on the device</mat-label>
+            <input matInput type="number" min="1" [(ngModel)]="hdhrTunerCount">
+            <mat-hint>Streams at once — usually 2, 3 or 4.</mat-hint>
+          </mat-form-field>
+          <div><button mat-stroked-button (click)="addHdhrAsIptv()" [disabled]="busy() || !hdhrIp.trim() || !!hdhrIpError()">Add as playlist</button></div>
+        </section>
+      </div>
+    }
+    <div class="actions">
+      <button mat-button (click)="restart()">Back</button>
     </div>
   }
 
