@@ -1,5 +1,7 @@
-import { AfterViewInit, Component, OnInit, ViewChild, inject, signal } from '@angular/core';
-import { Observable } from 'rxjs';
+import { AfterViewInit, Component, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
+import { RouterLink } from '@angular/router';
+import { Observable, forkJoin, of } from 'rxjs';
+import { catchError } from 'rxjs/operators';
 import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
@@ -12,11 +14,15 @@ import { MatPaginator, MatPaginatorModule } from '@angular/material/paginator';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatSort, MatSortModule } from '@angular/material/sort';
 import { MatTableDataSource, MatTableModule } from '@angular/material/table';
+import { MatTooltipModule } from '@angular/material/tooltip';
 import { TvheadendService } from '@gotvh/tvh-api';
 import { BulkBarComponent } from '../../shared/bulk-bar.component';
 import { describeBulk, runBulk } from '../../shared/bulk';
 import { ConfirmDialogComponent, ConfirmDialogData } from '../../shared/confirm-dialog.component';
 import { RowSelection } from '../../shared/row-selection';
+import { IdnodeFormComponent } from '../../shared/idnode-form/idnode-form.component';
+import { AddRecordingData, AddRecordingDialogComponent, AddRecordingResult } from './add-recording-dialog.component';
+import { FailureExplanation, explainRecording } from './recording-status';
 
 type RecordingView = 'upcoming' | 'finished' | 'failed';
 
@@ -31,10 +37,10 @@ type RecordingView = 'upcoming' | 'finished' | 'failed';
   imports: [
     MatTableModule, MatSortModule, MatPaginatorModule, MatFormFieldModule, MatInputModule,
     MatButtonModule, MatButtonToggleModule, MatIconModule, MatProgressBarModule, MatCheckboxModule,
-    MatDialogModule, MatSnackBarModule, BulkBarComponent,
+    MatDialogModule, MatSnackBarModule, MatTooltipModule, RouterLink, BulkBarComponent, IdnodeFormComponent,
   ],
   template: `
-    <div class="admin-page">
+    <div class="admin-page wide">
       <h1>Recordings</h1>
       <p class="subtitle">Upcoming, finished and failed DVR entries.</p>
 
@@ -56,6 +62,7 @@ type RecordingView = 'upcoming' | 'finished' | 'failed';
         <button mat-stroked-button (click)="load()" [disabled]="loading()">
           <mat-icon>refresh</mat-icon> Refresh
         </button>
+        <button mat-flat-button (click)="addRecording()"><mat-icon>add</mat-icon> New recording</button>
       </div>
       @if (selection.count()) {
         <admin-bulk-bar [count]="selection.count()" [busy]="busy()" [hint]="hiddenHint()" (clear)="selection.clear()"
@@ -74,6 +81,8 @@ type RecordingView = 'upcoming' | 'finished' | 'failed';
       }
       @if (loading()) { <mat-progress-bar mode="indeterminate" /> }
 
+      <div class="layout" [class.with-editor]="!!openUuid()">
+      <div class="main">
       <table mat-table [dataSource]="data" matSort matSortActive="start"
              [matSortDirection]="view() === 'upcoming' ? 'asc' : 'desc'">
         <ng-container matColumnDef="select">
@@ -129,9 +138,96 @@ type RecordingView = 'upcoming' | 'finished' | 'failed';
         </tr>
       </table>
       <mat-paginator [pageSizeOptions]="[25, 50, 100, 250, 500]" [pageSize]="50" showFirstLastButtons />
+      </div>
+
+      @if (openRow(); as r) {
+        <div class="side">
+          <section class="card details">
+            <div class="d-head">
+              <div>
+                <h3>{{ r.disp_title || r.title || '(untitled)' }}</h3>
+                @if (r.disp_subtitle) { <div class="muted">{{ r.disp_subtitle }}</div> }
+              </div>
+              <button mat-icon-button (click)="closeRecording()" aria-label="Close"><mat-icon>close</mat-icon></button>
+            </div>
+            <dl>
+              <dt>Channel</dt><dd>{{ r.channelname || '—' }}</dd>
+              <dt>When</dt><dd>{{ formatEpoch(r.start) }} – {{ formatTime(r.stop) }}
+                @if (paddingText(r)) { <span class="muted small">({{ paddingText(r) }})</span> }</dd>
+              <dt>Status</dt><dd [class.bad]="!!explanation()">{{ r.status || r.sched_status || '—' }}</dd>
+              @if (view() !== 'upcoming' || isRecordingNow(r)) {
+                <dt>File</dt><dd class="file">{{ r.filename || '—' }}</dd>
+                <dt>Size</dt><dd>{{ formatBytes(r.filesize) }}</dd>
+                <dt>Errors</dt><dd [class.bad]="(r.errors || 0) + (r.data_errors || 0) > 0">
+                  {{ r.errors || 0 }} stream, {{ r.data_errors || 0 }} data</dd>
+              }
+              @if (r.autorec_caption || r.autorec) {
+                <dt>Made by</dt><dd><a routerLink="/autorec">Auto-record rule</a>{{ r.autorec_caption ? ': ' + r.autorec_caption : '' }}</dd>
+              } @else if (r.timerec_caption || r.timerec) {
+                <dt>Made by</dt><dd><a routerLink="/timers">Timer</a>{{ r.timerec_caption ? ': ' + r.timerec_caption : '' }}</dd>
+              }
+            </dl>
+
+            @if (explanation(); as why) {
+              <div class="why">
+                <strong>{{ why.headline }}</strong>
+                <p>{{ why.detail }}</p>
+                @if (why.link) { <a mat-stroked-button [routerLink]="why.link.route">{{ why.link.label }}</a> }
+              </div>
+            }
+
+            <div class="d-actions">
+              @if (isRecordingNow(r)) {
+                <button mat-stroked-button class="danger-text" (click)="stopRecording(r)">Stop recording</button>
+              } @else if (view() === 'upcoming') {
+                <button mat-stroked-button class="danger-text" (click)="cancelOne(r)">Cancel recording</button>
+              }
+              @if (view() !== 'upcoming' && r.filesize > 0) {
+                <a mat-stroked-button [href]="downloadUrl(r)" target="_blank" rel="noopener"><mat-icon>download</mat-icon> Download</a>
+              }
+              @if (view() === 'failed') {
+                <button mat-stroked-button (click)="rerecord(r)"
+                        matTooltip="Record it again the next time the guide shows it">Record next airing</button>
+                @if (explanation()?.maybeWatchable && r.filesize > 0) {
+                  <button mat-stroked-button (click)="moveToFinished(r)"
+                          matTooltip="Keep it with finished recordings despite the errors">Keep it anyway</button>
+                }
+              }
+              @if (view() !== 'upcoming') {
+                <button mat-button class="danger-text" (click)="deleteOne(r)">Delete</button>
+              }
+            </div>
+          </section>
+
+          <admin-idnode-form #recForm [uuid]="r.uuid" title="Edit recording" (saved)="onSaved()" (closed)="closeRecording()" />
+        </div>
+      }
+      </div>
     </div>
   `,
   styles: [`
+    .wide { max-width: none; }
+    .layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-items: start; }
+    .layout.with-editor { grid-template-columns: minmax(0, 1fr) 460px; }
+    .main { min-width: 0; }
+    .side { display: flex; flex-direction: column; gap: 12px; position: sticky; top: 16px;
+            max-height: calc(100vh - 96px); overflow-y: auto; }
+    .side admin-idnode-form { position: static; max-height: none; }
+    .card { border: 1px solid var(--mat-sys-outline-variant); border-radius: 12px; padding: 14px 20px;
+            background: var(--mat-sys-surface-container-lowest); }
+    .d-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;
+              h3 { font: var(--mat-sys-title-medium); margin: 0; } }
+    dl { display: grid; grid-template-columns: 76px 1fr; gap: 6px 12px; margin: 12px 0; }
+    dt { color: var(--mat-sys-on-surface-variant); font: var(--mat-sys-body-small); padding-top: 2px; }
+    dd { margin: 0; }
+    dd.file { font-family: ui-monospace, monospace; font-size: 12px; word-break: break-all; }
+    dd.bad { color: var(--mat-sys-error); }
+    dd a { color: var(--mat-sys-primary); }
+    .why { border-radius: 8px; padding: 10px 12px; margin: 4px 0 12px;
+           background: var(--mat-sys-error-container); color: var(--mat-sys-on-error-container);
+           p { margin: 4px 0 8px; } }
+    .d-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    @media (max-width: 1100px) { .layout.with-editor { grid-template-columns: minmax(0, 1fr); } .side { position: static; max-height: none; } }
     .toolbar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
     .filter { width: 320px; }
     .spacer { flex: 1; }
@@ -160,7 +256,19 @@ export class RecordingsComponent implements OnInit, AfterViewInit {
   readonly view = signal<RecordingView>('upcoming');
   readonly loading = signal(false);
   readonly data = new MatTableDataSource<any>([]);
-  readonly columns = ['select', 'title', 'channel', 'start', 'duration', 'size', 'status', 'errors'];
+  private readonly allColumns = ['select', 'title', 'channel', 'start', 'duration', 'size', 'status', 'errors'];
+  get columns(): string[] {
+    return this.openUuid() ? ['select', 'title', 'channel', 'start', 'status'] : this.allColumns;
+  }
+  @ViewChild('recForm') recForm?: IdnodeFormComponent;
+  /** Recording shown in the side panel. */
+  readonly openUuid = signal<string | null>(null);
+  private readonly rows = signal<any[]>([]);
+  readonly openRow = computed(() => this.rows().find(r => String(r.uuid) === this.openUuid()) || null);
+  readonly explanation = computed<FailureExplanation | null>(() => {
+    const r = this.openRow();
+    return r && this.view() !== 'upcoming' ? explainRecording(r) : null;
+  });
   readonly selection = new RowSelection<any>(r => String(r?.uuid || ''));
   readonly busy = signal(false);
   /** Rows on the current page after filter + sort — what range/select-all act on. */
@@ -190,9 +298,123 @@ export class RecordingsComponent implements OnInit, AfterViewInit {
     this.data.connect().subscribe(rows => this.visible.set(rows));
   }
 
-  /** Nothing to open here, so a plain click selects just that row; Ctrl/⌘ and Shift add to it. */
+  /** Plain click selects the row and opens it; Ctrl/⌘ and Shift add to the selection. */
   onRowClick(event: MouseEvent, row: any): void {
-    if (!this.selection.handleClick(event, row, this.visible())) this.selection.selectOnly(row);
+    if (this.selection.handleClick(event, row, this.visible())) return;
+    this.selection.selectOnly(row);
+    this.openRecording(row);
+  }
+
+  openRecording(row: any): void {
+    if (String(row.uuid) === this.openUuid()) return;
+    this.confirmDiscard().subscribe(ok => ok && this.openUuid.set(String(row.uuid)));
+  }
+
+  closeRecording(): void {
+    this.confirmDiscard().subscribe(ok => ok && this.openUuid.set(null));
+  }
+
+  onSaved(): void {
+    this.snack.open('Recording saved', undefined, { duration: 2500 });
+    this.load();
+  }
+
+  private confirmDiscard(): Observable<boolean> {
+    if (!this.recForm?.hasUnsavedChanges()) return of(true);
+    return this.confirm('Discard changes?', 'You have unsaved changes to this recording.', 'Discard');
+  }
+
+  isRecordingNow(r: any): boolean {
+    return /record/i.test(String(r?.sched_status || '')) || (this.view() === 'upcoming' && /running|waiting for/i.test(String(r?.status || '')));
+  }
+
+  paddingText(r: any): string {
+    const pre = Number(r.start_extra) || 0, post = Number(r.stop_extra) || 0;
+    if (!pre && !post) return '';
+    return [pre ? `${pre} min early` : '', post ? `${post} min late` : ''].filter(Boolean).join(', ');
+  }
+
+  formatTime(seconds: number | undefined): string {
+    if (!seconds) return '—';
+    return new Date(seconds * 1000).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  }
+
+  downloadUrl(r: any): string {
+    return this.tvh.getRecordingStreamUrl(String(r.uuid), { includeAuth: false });
+  }
+
+  // ---------------------------------------------------------------- single-recording actions
+
+  cancelOne(r: any): void {
+    this.confirm('Cancel this recording?', `${this.names([r])} will not be recorded. Auto-record rules may schedule it again.`, 'Cancel recording')
+      .subscribe(ok => ok && this.single(this.tvh.cancelRecording(r.uuid), 'Recording cancelled', true));
+  }
+
+  stopRecording(r: any): void {
+    this.confirm('Stop this recording?', `${this.names([r])} stops now. What’s been recorded so far is kept.`, 'Stop recording')
+      .subscribe(ok => ok && this.single(this.tvh.stopRecording(r.uuid), 'Recording stopped', false));
+  }
+
+  deleteOne(r: any): void {
+    this.confirm('Delete this recording?', `${this.names([r])} will be removed${r.filesize > 0 ? ' and its file deleted from disk' : ''}.`, 'Delete')
+      .subscribe(ok => ok && this.single(this.tvh.removeRecording(r.uuid), 'Recording deleted', true));
+  }
+
+  rerecord(r: any): void {
+    this.single(this.tvh.allowRerecord(r.uuid), 'It will be recorded again if the guide shows another airing', false);
+  }
+
+  moveToFinished(r: any): void {
+    this.single(this.tvh.moveRecordingToFinished(r.uuid), 'Moved to finished recordings', true);
+  }
+
+  private single(request: Observable<unknown>, done: string, closes: boolean): void {
+    this.busy.set(true);
+    request.subscribe({
+      next: () => {
+        this.busy.set(false);
+        this.snack.open(done, undefined, { duration: 3500 });
+        if (closes) this.openUuid.set(null);
+        this.load();
+      },
+      error: err => { this.busy.set(false); this.snack.open(`That didn’t work (${err?.status || 'network error'})`, 'Dismiss', { duration: 6000 }); },
+    });
+  }
+
+  // ---------------------------------------------------------------- new recording
+
+  addRecording(): void {
+    forkJoin({
+      channels: this.tvh.getGrid('channel/grid', { all: 1 }).pipe(catchError(() => of([]))),
+      profiles: this.tvh.getGrid('dvr/config/grid').pipe(catchError(() => of([]))),
+    }).subscribe(({ channels, profiles }) => {
+      const data: AddRecordingData = {
+        channels: channels.filter((c: any) => c?.enabled !== false)
+          .map((c: any) => ({ uuid: String(c.uuid), name: String(c.name || ''), number: c.number ? String(c.number) : '' }))
+          .sort((a, b) => (parseFloat(a.number) || 1e9) - (parseFloat(b.number) || 1e9)
+            || a.number.localeCompare(b.number, undefined, { numeric: true }) || a.name.localeCompare(b.name)),
+        profiles: profiles.filter((p: any) => p?.enabled !== false)
+          .map((p: any) => ({ uuid: String(p.uuid), name: String(p.name || '').trim() || 'Default profile' }))
+          .sort((a, b) => Number(b.name === 'Default profile') - Number(a.name === 'Default profile') || a.name.localeCompare(b.name)),
+      };
+      if (!data.channels.length) {
+        this.snack.open('Couldn’t load the channel list', 'Dismiss', { duration: 5000 });
+        return;
+      }
+      this.dialog.open<AddRecordingDialogComponent, AddRecordingData, AddRecordingResult>(AddRecordingDialogComponent, { data })
+        .afterClosed().subscribe(conf => {
+          if (!conf) return;
+          this.tvh.createRecordingEntry(conf).subscribe({
+            next: res => {
+              this.snack.open(`Scheduled “${conf['disp_title']}”`, undefined, { duration: 3500 });
+              if (this.view() !== 'upcoming') this.view.set('upcoming');
+              this.load();
+              if (res?.uuid) this.openUuid.set(String(res.uuid));
+            },
+            error: err => this.snack.open(`Couldn’t schedule it (${err?.status || 'network error'})`, 'Dismiss', { duration: 6000 }),
+          });
+        });
+    });
   }
 
   offerAllMatching(): boolean {
@@ -250,6 +472,7 @@ export class RecordingsComponent implements OnInit, AfterViewInit {
 
   setView(view: RecordingView): void {
     this.selection.clear(); // actions differ per view
+    this.openUuid.set(null);
     this.view.set(view);
     this.load();
   }
@@ -262,8 +485,8 @@ export class RecordingsComponent implements OnInit, AfterViewInit {
     };
     this.loading.set(true);
     source[this.view()]().subscribe({
-      next: rows => { this.data.data = rows; this.loading.set(false); },
-      error: () => { this.data.data = []; this.loading.set(false); },
+      next: rows => { this.data.data = rows; this.rows.set(rows); this.loading.set(false); },
+      error: () => { this.data.data = []; this.rows.set([]); this.loading.set(false); },
     });
   }
 

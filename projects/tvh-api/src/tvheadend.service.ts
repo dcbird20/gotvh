@@ -2252,6 +2252,26 @@ export class TvheadendService {
     return this.http.post<any>(this.buildUrl('dvr/entry/stop'), this.buildFormBody({ uuid }), this.getFormRequestOptions());
   }
 
+  /**
+   * One-off recording from explicit fields (dvr/entry/create): channel uuid,
+   * start/stop epoch seconds, disp_title, optional disp_subtitle, comment,
+   * config_name (DVR profile uuid), start_extra/stop_extra (padding minutes).
+   */
+  createRecordingEntry(conf: Record<string, unknown>): Observable<any> {
+    return this.http.post<any>(this.buildUrl('dvr/entry/create'),
+      this.buildFormBody({ conf: JSON.stringify(conf) }), this.getFormRequestOptions());
+  }
+
+  /** Failed recording: allow Tvheadend to record it again at another airing. */
+  allowRerecord(uuid: string): Observable<any> {
+    return this.http.post<any>(this.buildUrl('dvr/entry/rerecord/allow'), this.buildFormBody({ uuid }), this.getFormRequestOptions());
+  }
+
+  /** Failed recording whose file is usable anyway: move it to finished recordings. */
+  moveRecordingToFinished(uuid: string): Observable<any> {
+    return this.http.post<any>(this.buildUrl('dvr/entry/move/finished'), this.buildFormBody({ uuid }), this.getFormRequestOptions());
+  }
+
   /** Queue a full rescan of every mux on a network. */
   scanNetwork(uuid: string): Observable<any> {
     return this.http.post<any>(this.buildUrl('mpegts/network/scan'), this.buildFormBody({ uuid }), this.getFormRequestOptions());

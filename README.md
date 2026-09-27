@@ -103,6 +103,16 @@ Built so far:
   disconnect. Tuners come from `idnode/load` class `mpegts_input`; streams can only be
   ended by closing their connection (`connections/cancel`), as in the stock UI.
 
+- **Recordings (details)** — click a recording to open it: channel, times and padding,
+  status, file, size and errors; for failed ones **why it failed** in plain English (all
+  tuners busy, weak signal, disk full, channel not set up …) with a link to where to fix
+  it. Actions: stop (in progress), cancel, download, delete, **Record next airing**, and
+  **Keep it anyway** for recordings with too many errors that are still watchable. The
+  generic editor below edits title, start/stop (date-time pickers), padding, channel,
+  priority and DVR profile. **New recording** schedules a one-off by channel, date and time.
+- **Timers** — record a channel at a fixed time on chosen days (`dvr/timerec`), with
+  days shown as Weekdays / Weekends / Mon, Wed …; create, edit, bulk edit/enable/delete.
+
 - **Channels** — all channels loaded once and filtered in the browser: search name or
   number, filter by Enabled, Tags (any of / no tags), Network (via the channel's services)
   and service count; Network column; every column sortable (numbers sort 3.2 < 3.10 < 100).

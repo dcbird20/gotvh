@@ -4,11 +4,6 @@ Working list for the admin app (`projects/gotvh-admin`). Most-basic first.
 
 ## Basics still missing
 
-- [ ] **Recordings**
-  - [ ] open one recording to edit title, start/stop, padding
-  - [ ] show why a recording failed (errors, file, size)
-  - [ ] add a one-off recording by channel + time
-  - [ ] time-based timers (`dvr/timerec/*` — calls already in the shared client)
 - [ ] **Add a mux by hand** to a network (for regions whose predefined list is missing one).
 - [ ] **"Map to channels" on Services** — the stock one-click mapping with defaults, as a
       stopgap until the full screen below.
@@ -46,6 +41,7 @@ The stock UI needs you to know the chain
 - [x] Admin app scaffold, shared API library, desktop layout
 - [x] Live status (tuner signal/SNR/errors with rising-error warning, streams, clients; stop recording, disconnect)
 - [x] Dashboard (read-only), Recordings (bulk cancel / delete / watched)
+- [x] Recordings part 2: side panel (details, why it failed with next steps, edit times/padding/title), stop, download, record next airing, keep anyway; new one-off recording; Timers screen
 - [x] Auto-record rules (full editor, bulk enable/disable/delete)
 - [x] DVR profiles (metadata-driven editor)
 - [x] Tuners & networks (tuner tree, networks, muxes, services)

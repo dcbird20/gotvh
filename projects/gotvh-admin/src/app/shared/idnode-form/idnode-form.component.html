@@ -93,6 +93,15 @@
                   }
                 </mat-form-field>
               }
+              @case ('datetime') {
+                <mat-form-field appearance="outline">
+                  <mat-label>{{ f.label }}</mat-label>
+                  <input matInput type="datetime-local" [formControlName]="f.prop.id">
+                  @if (f.prop.description) {
+                    <mat-icon matSuffix class="info" [matTooltip]="f.prop.description">info</mat-icon>
+                  }
+                </mat-form-field>
+              }
               @case ('namelist') {
                 @if (listMode(f.prop.id); as mode) {
                   <mat-button-toggle-group class="list-mode" [value]="mode" (change)="setListMode(f.prop.id, $event.value)"

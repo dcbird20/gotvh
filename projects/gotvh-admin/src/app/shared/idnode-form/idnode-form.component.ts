@@ -25,7 +25,7 @@ import { BulkResult, describeBulk, runBulk } from '../bulk';
 /** How a bulk edit changes a multi-value field on each item. */
 export type ListMode = 'add' | 'remove' | 'replace';
 
-type FieldKind = 'toggle' | 'select' | 'multiselect' | 'namelist' | 'number' | 'text' | 'password' | 'textarea' | 'readonly';
+type FieldKind = 'toggle' | 'select' | 'multiselect' | 'namelist' | 'number' | 'text' | 'password' | 'textarea' | 'datetime' | 'readonly';
 
 /**
  * Text fields that are really lists of channel-tag names, one per line.
@@ -59,6 +59,29 @@ const FIELD_HINTS: Record<string, string> = {
   ota_timeout: 'Seconds to spend on each mux collecting over-the-air guide data (30–7200).',
   epgdb_periodicsave: 'Hours between saving the guide to disk. 0 turns it off.',
 };
+
+/** Epoch seconds → value for <input type="datetime-local"> (local time, minutes). */
+export function toLocalInput(raw: unknown): string {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return '';
+  const d = new Date(n * 1000);
+  const p = (x: number) => String(x).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/** <input type="datetime-local"> value → epoch seconds (0 when empty). */
+export function fromLocalInput(value: unknown): number {
+  const text = String(value ?? '').trim();
+  if (!text) return 0;
+  const t = new Date(text).getTime(); // no zone in the string → local time
+  return Number.isFinite(t) ? Math.round(t / 1000) : Number.NaN;
+}
+
+export function formatDurationSeconds(s: number): string {
+  if (!Number.isFinite(s) || s <= 0) return '—';
+  const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60);
+  return h ? `${h} h ${String(m).padStart(2, '0')} min` : `${m} min`;
+}
 
 /** Split newline-separated names, trimmed, empties and duplicates (any case) removed. */
 export function splitNames(raw: unknown): string[] {
@@ -360,6 +383,7 @@ export class IdnodeFormComponent implements OnChanges {
     if (prop.enum) return prop.list ? 'multiselect' : 'select';
     if (prop.type === 'bool') return 'toggle';
     if (isNumericType(prop.type)) return prop.list ? 'readonly' : 'number';
+    if (prop.type === 'time' && !prop.list && !truthy(prop.duration)) return 'datetime';
     if (prop.type === 'str' || prop.type === 'perm') {
       if (prop.list) return 'readonly';
       if (truthy(prop.password)) return 'password';
@@ -379,6 +403,7 @@ export class IdnodeFormComponent implements OnChanges {
         return prop.intsplit ? formatIntsplit(raw) : String(raw);
       case 'select': return raw ?? '';
       case 'readonly': return raw;
+      case 'datetime': return toLocalInput(raw);
       default: return raw === undefined || raw === null ? '' : String(raw);
     }
   }
@@ -393,6 +418,7 @@ export class IdnodeFormComponent implements OnChanges {
       return Number.isFinite(n) ? n : Number.NaN;
     }
     if (field.kind === 'toggle') return !!value;
+    if (field.kind === 'datetime') return fromLocalInput(value);
     if (field.kind === 'namelist') return splitNames(value).join('\n'); // Tvheadend stores one name per line
     return value;
   }
@@ -663,6 +689,7 @@ export class IdnodeFormComponent implements OnChanges {
   displayReadonly(field: Field): string {
     const v = this.form.controls[field.prop.id]?.getRawValue();
     if (v === null || v === undefined || v === '') return '—';
+    if (field.prop.type === 'time' && truthy(field.prop.duration)) return formatDurationSeconds(Number(v));
     if (field.prop.type === 'time' && Number(v) > 0) return new Date(Number(v) * 1000).toLocaleString();
     if (field.prop.type === 'bool') return truthy(v) ? 'Yes' : 'No';
     if (field.options) {
