@@ -22,6 +22,8 @@ export interface GridColumn {
   sortable?: boolean;
   /** Custom display, e.g. mapping tag uuids to names. Overrides `kind` formatting. */
   format?: (value: any, row: any) => string;
+  /** Client-side mode: value to sort by (defaults to the field itself). */
+  sortValue?: (row: any) => string | number | null | undefined;
 }
 
 /**
@@ -29,6 +31,11 @@ export interface GridColumn {
  * (e.g. `mpegts/mux/grid`). Emits the clicked row; the page decides what to
  * open. Large lists (thousands of services) stay fast because only one page
  * is fetched at a time.
+ *
+ * Client-side mode (`clientSide`): loads every row once and does search,
+ * filtering (`rowFilter`), sorting and paging in the browser. Use it for lists
+ * of a few thousand rows at most (e.g. channels) when filters need data the
+ * server can't filter on, or several fields at once.
  *
  * Multi-select: checkbox column, Ctrl/⌘-click, Shift-click range, Space on a
  * focused row. While rows are selected, content marked `bulkActions` is shown
@@ -48,7 +55,11 @@ export interface GridColumn {
           <input matInput [value]="filter()" (input)="onFilter($any($event.target).value)">
         </mat-form-field>
       }
-      <span class="muted num">{{ total() }} total</span>
+      @if (clientSide() && total() !== loadedTotal()) {
+        <span class="muted num">{{ total() }} of {{ loadedTotal() }}</span>
+      } @else {
+        <span class="muted num">{{ total() }} total</span>
+      }
       <span class="spacer"></span>
       <ng-content />
     </div>
@@ -142,6 +153,12 @@ export class IdnodeGridComponent implements OnChanges {
   readonly emptyText = input('Nothing here yet.');
   /** Show checkboxes and allow multi-select (default on). */
   readonly selectable = input(true);
+  /** Load all rows once and search/filter/sort/page in the browser. */
+  readonly clientSide = input(false);
+  /** Client-side: fields the search box matches (default: `filterField`). */
+  readonly searchFields = input<string[] | null>(null);
+  /** Client-side: extra filter from the page (e.g. tags, network). */
+  readonly rowFilter = input<((row: any) => boolean) | null>(null);
 
   readonly rowClick = output<any>();
 
@@ -158,11 +175,19 @@ export class IdnodeGridComponent implements OnChanges {
 
   readonly selection = new RowSelection<any>(r => String(r?.uuid || ''));
 
+  /** Client-side mode: every row from the server, and those passing search + filter. */
+  private allRows: any[] = [];
+  private filteredRows: any[] = [];
+  readonly loadedTotal = signal(0);
+
   private readonly filter$ = new Subject<string>();
   private request?: Subscription;
 
   constructor() {
-    this.filter$.pipe(debounceTime(300)).subscribe(() => { this.pageIndex.set(0); this.refresh(); });
+    this.filter$.pipe(debounceTime(300)).subscribe(() => {
+      this.pageIndex.set(0);
+      if (this.clientSide()) this.applyClient(); else this.refresh();
+    });
   }
 
   columnIds = () => (this.selectable() ? ['__select'] : []).concat(this.columns().map(c => c.id));
@@ -188,6 +213,10 @@ export class IdnodeGridComponent implements OnChanges {
 
   /** Fetch every row matching the current filter (just once, all pages) and select them. */
   selectAllMatching(): void {
+    if (this.clientSide()) {
+      this.selection.addAll(this.filteredRows);
+      return;
+    }
     const sort = this.sort();
     this.bulkBusy.set(true);
     this.tvh.getGridPage(this.path(), {
@@ -219,10 +248,17 @@ export class IdnodeGridComponent implements OnChanges {
     if (changes['path'] || changes['params']) {
       this.pageIndex.set(0);
       this.refresh();
+    } else if (changes['rowFilter'] && this.clientSide()) {
+      this.pageIndex.set(0);
+      this.applyClient();
     }
   }
 
   refresh(): void {
+    if (this.clientSide()) {
+      this.refreshClient();
+      return;
+    }
     this.request?.unsubscribe();
     this.loading.set(true);
     this.error.set('');
@@ -251,6 +287,60 @@ export class IdnodeGridComponent implements OnChanges {
     });
   }
 
+  /** Client-side mode: fetch everything, then filter/sort/page locally. */
+  private refreshClient(): void {
+    this.request?.unsubscribe();
+    this.loading.set(true);
+    this.error.set('');
+    this.request = this.tvh.getGridPage(this.path(), { start: 0, limit: 100000, params: this.params() }).subscribe({
+      next: page => {
+        this.allRows = page.entries;
+        this.loadedTotal.set(page.entries.length);
+        this.loading.set(false);
+        this.applyClient();
+      },
+      error: err => {
+        this.loading.set(false);
+        this.allRows = [];
+        this.loadedTotal.set(0);
+        this.applyClient();
+        this.error.set(Number(err?.status) === 401 ? 'Sign in required — use Sign in at the top right.'
+          : `Couldn’t load this list (${err?.status || 'network error'}).`);
+      },
+    });
+  }
+
+  /** Re-run search, filter, sort and paging over the loaded rows. */
+  applyClient(): void {
+    const q = this.filter().trim().toLowerCase();
+    const fields = this.searchFields() || (this.filterField() ? [this.filterField()!] : []);
+    const extra = this.rowFilter();
+    let rows = this.allRows.filter(r =>
+      (!q || fields.some(f => String(r?.[f] ?? '').toLowerCase().includes(q))) && (!extra || extra(r)));
+
+    const { active, direction } = this.sort();
+    if (active && direction) {
+      const col = this.columns().find(c => c.id === active);
+      const key = (r: any) => col?.sortValue ? col.sortValue(r) : r?.[active];
+      const dir = direction === 'asc' ? 1 : -1;
+      rows = [...rows].sort((a, b) => {
+        const ka = key(a), kb = key(b);
+        const ea = ka === null || ka === undefined || ka === '', eb = kb === null || kb === undefined || kb === '';
+        if (ea || eb) return ea === eb ? 0 : ea ? 1 : -1; // blanks last either way
+        if (typeof ka === 'number' && typeof kb === 'number') return (ka - kb) * dir;
+        // numeric-aware text compare: "3.2" < "3.10" < "100", "WPSU 2" < "WPSU 10"
+        return String(ka).localeCompare(String(kb), undefined, { numeric: true, sensitivity: 'base' }) * dir;
+      });
+    }
+
+    this.filteredRows = rows;
+    this.total.set(rows.length);
+    const pages = Math.max(1, Math.ceil(rows.length / this.pageSize()));
+    if (this.pageIndex() >= pages) this.pageIndex.set(pages - 1);
+    const start = this.pageIndex() * this.pageSize();
+    this.rows.set(rows.slice(start, start + this.pageSize()));
+  }
+
   onFilter(value: string): void {
     this.filter.set(value);
     this.filter$.next(value);
@@ -259,13 +349,13 @@ export class IdnodeGridComponent implements OnChanges {
   onSort(sort: Sort): void {
     this.sort.set(sort);
     this.pageIndex.set(0);
-    this.refresh();
+    if (this.clientSide()) this.applyClient(); else this.refresh();
   }
 
   onPage(e: PageEvent): void {
     this.pageIndex.set(e.pageIndex);
     this.pageSize.set(e.pageSize);
-    this.refresh();
+    if (this.clientSide()) this.applyClient(); else this.refresh();
   }
 
   isEmpty(v: unknown): boolean {

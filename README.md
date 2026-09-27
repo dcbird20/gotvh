@@ -95,8 +95,10 @@ Built so far:
 - **Tuners & networks** — tuner hardware tree, networks (add by type, scan), muxes and
   services in server-paged tables; everything opens in the generic editor
 
-- **Channels** — server-paged list (split numbers like 5.1 shown properly, tag names),
-  create, edit, delete, bulk edit
+- **Channels** — all channels loaded once and filtered in the browser: search name or
+  number, filter by Enabled, Tags (any of / no tags), Network (via the channel's services)
+  and service count; Network column; every column sortable (numbers sort 3.2 < 3.10 < 100).
+  Create, edit, delete, bulk edit.
 
 Other sections are placeholders naming the API they'll use.
 
@@ -138,7 +140,10 @@ description — pass `uuid` to edit or `createPath` (e.g. `dvr/config`) to creat
 saves fields you changed. New config sections should reuse it rather than hand-build forms.
 
 `IdnodeGridComponent` (`shared/idnode-grid.component.ts`) is its list counterpart: a
-server-paged, sortable, filterable table for any `…/grid` endpoint. Rule helpers shared with the
+server-paged, sortable, filterable table for any `…/grid` endpoint. With `clientSide` it
+loads every row once and searches (`searchFields`), filters (`rowFilter`), sorts
+(`GridColumn.sortValue`) and pages in the browser — for lists up to a few thousand rows
+whose filters the server can't do. Rule helpers shared with the
 TV app live in `projects/tvh-api/src/autorec-rules.ts`.
 
 ## Workspace layout

@@ -2,13 +2,23 @@ import { Component, OnInit, ViewChild, computed, inject, signal } from '@angular
 import { Observable, of } from 'rxjs';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatSelectModule } from '@angular/material/select';
+import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatIconModule } from '@angular/material/icon';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
-import { TvheadendService } from '@gotvh/tvh-api';
+import { TvheadendService, truthy } from '@gotvh/tvh-api';
 import { BulkResult, describeBulk, runBulk } from '../../shared/bulk';
 import { ConfirmDialogComponent, ConfirmDialogData } from '../../shared/confirm-dialog.component';
 import { IdnodeFormComponent, formatIntsplit } from '../../shared/idnode-form/idnode-form.component';
 import { GridColumn, IdnodeGridComponent } from '../../shared/idnode-grid.component';
+
+type YesNo = 'all' | 'yes' | 'no';
+type ServiceCount = 'all' | 'none' | 'one' | 'many';
+
+/** Special filter values. */
+const NO_TAGS = '__none';
+const NO_NETWORK = '__none';
 
 interface EditorState {
   uuid: string | null;
@@ -25,15 +35,57 @@ interface EditorState {
 @Component({
   selector: 'admin-channels',
   standalone: true,
-  imports: [MatButtonModule, MatIconModule, MatDialogModule, MatSnackBarModule, IdnodeGridComponent, IdnodeFormComponent],
+  imports: [MatButtonModule, MatIconModule, MatDialogModule, MatSnackBarModule, MatFormFieldModule, MatSelectModule,
+    MatTooltipModule, IdnodeGridComponent, IdnodeFormComponent],
   template: `
     <div class="admin-page wide">
       <h1>Channels</h1>
       <p class="subtitle">Channel numbers, names, tags and which services feed them. Select several to change a setting on all of them.</p>
 
+      <div class="filters" role="group" aria-label="Filter channels">
+        <mat-form-field appearance="outline" class="f-small">
+          <mat-label>Enabled</mat-label>
+          <mat-select [value]="fEnabled()" (valueChange)="fEnabled.set($event)">
+            <mat-option value="all">Any</mat-option>
+            <mat-option value="yes">Enabled</mat-option>
+            <mat-option value="no">Disabled</mat-option>
+          </mat-select>
+        </mat-form-field>
+        <mat-form-field appearance="outline" class="f-wide">
+          <mat-label>Tags (any of)</mat-label>
+          <mat-select multiple [value]="fTags()" (valueChange)="fTags.set($event)">
+            <mat-option [value]="NO_TAGS"><em>No tags</em></mat-option>
+            @for (t of tagOptions(); track t.uuid) { <mat-option [value]="t.uuid">{{ t.name }}</mat-option> }
+          </mat-select>
+        </mat-form-field>
+        <mat-form-field appearance="outline" class="f-wide"
+                        [matTooltip]="networksError() ? 'Couldn’t load services, so channels can’t be matched to networks' : ''">
+          <mat-label>Network</mat-label>
+          <mat-select [value]="fNetwork()" (valueChange)="fNetwork.set($event)" [disabled]="!servicesLoaded()">
+            <mat-option value="">Any</mat-option>
+            <mat-option [value]="NO_NETWORK"><em>No services</em></mat-option>
+            @for (n of networkOptions(); track n) { <mat-option [value]="n">{{ n }}</mat-option> }
+          </mat-select>
+          @if (!servicesLoaded() && !networksError()) { <mat-hint>Loading…</mat-hint> }
+        </mat-form-field>
+        <mat-form-field appearance="outline" class="f-small">
+          <mat-label>Services</mat-label>
+          <mat-select [value]="fServices()" (valueChange)="fServices.set($event)">
+            <mat-option value="all">Any</mat-option>
+            <mat-option value="none">None</mat-option>
+            <mat-option value="one">Exactly one</mat-option>
+            <mat-option value="many">More than one</mat-option>
+          </mat-select>
+        </mat-form-field>
+        @if (activeFilters()) {
+          <button mat-button (click)="clearFilters()"><mat-icon>filter_alt_off</mat-icon> Clear {{ activeFilters() }} {{ activeFilters() === 1 ? 'filter' : 'filters' }}</button>
+        }
+      </div>
+
       <div class="layout" [class.with-editor]="!!editor()">
         <admin-idnode-grid
-          path="channel/grid" [columns]="columns()" filterField="name" filterLabel="Filter by name"
+          path="channel/grid" [columns]="columns()" filterField="name" filterLabel="Search name or number"
+          [clientSide]="true" [searchFields]="['name', 'number']" [rowFilter]="rowFilter()"
           [defaultSort]="{ active: 'number', direction: 'asc' }" [selectedUuid]="editor()?.uuid ?? null"
           emptyText="No channels yet. Map services from a scanned network, or add one."
           (rowClick)="open({ uuid: $event.uuid, title: $event.name || 'Channel' })">
@@ -62,6 +114,9 @@ interface EditorState {
   `,
   styles: [`
     .wide { max-width: none; }
+    .filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 8px; }
+    .f-small { width: 150px; }
+    .f-wide { width: 240px; }
     .layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-items: start; }
     .layout.with-editor { grid-template-columns: minmax(0, 1fr) 460px; }
     .danger-text { color: var(--mat-sys-error); }
@@ -79,23 +134,99 @@ export class ChannelsComponent implements OnInit {
   readonly editor = signal<EditorState | null>(null);
   private readonly tagNames = signal(new Map<string, string>());
 
-  readonly columns = computed<GridColumn[]>(() => {
+  readonly NO_TAGS = NO_TAGS;
+  readonly NO_NETWORK = NO_NETWORK;
+
+  // ---- filters
+  readonly fEnabled = signal<YesNo>('all');
+  readonly fTags = signal<string[]>([]);
+  readonly fNetwork = signal('');
+  readonly fServices = signal<ServiceCount>('all');
+
+  /** Service uuid → network name, for the Network column and filter. */
+  private readonly serviceNetwork = signal(new Map<string, string>());
+  readonly servicesLoaded = signal(false);
+  readonly networksError = signal(false);
+  private readonly networkNames = signal<string[]>([]);
+
+  readonly tagOptions = computed(() => [...this.tagNames()]
+    .map(([uuid, name]) => ({ uuid, name }))
+    .sort((a, b) => a.name.localeCompare(b.name)));
+
+  readonly networkOptions = computed(() => {
+    const names = new Set([...this.networkNames(), ...this.serviceNetwork().values()]);
+    return [...names].filter(Boolean).sort((a, b) => a.localeCompare(b));
+  });
+
+  readonly activeFilters = computed(() =>
+    Number(this.fEnabled() !== 'all') + Number(this.fTags().length > 0)
+    + Number(!!this.fNetwork()) + Number(this.fServices() !== 'all'));
+
+  /** Handed to the grid; a new function whenever a filter changes, so the grid re-filters. */
+  readonly rowFilter = computed(() => {
+    const enabled = this.fEnabled(), tags = this.fTags(), network = this.fNetwork(), count = this.fServices();
+    const svcNet = this.serviceNetwork();
+    if (enabled === 'all' && !tags.length && !network && count === 'all') return null;
+    const wantNoTags = tags.includes(NO_TAGS);
+    const wantTags = new Set(tags.filter(t => t !== NO_TAGS));
+    return (r: any): boolean => {
+      if (enabled !== 'all' && (truthy(r?.enabled) || r?.enabled === 'true') !== (enabled === 'yes')) return false;
+      const rowTags: string[] = Array.isArray(r?.tags) ? r.tags.map(String) : [];
+      if (tags.length && !((wantNoTags && !rowTags.length) || rowTags.some(t => wantTags.has(t)))) return false;
+      const services: string[] = Array.isArray(r?.services) ? r.services.map(String) : [];
+      if (count === 'none' && services.length) return false;
+      if (count === 'one' && services.length !== 1) return false;
+      if (count === 'many' && services.length < 2) return false;
+      if (network === NO_NETWORK && services.length) return false;
+      if (network && network !== NO_NETWORK && !services.some(s => svcNet.get(s) === network)) return false;
+      return true;
+    };
+  });
+
+  clearFilters(): void {
+    this.fEnabled.set('all');
+    this.fTags.set([]);
+    this.fNetwork.set('');
+    this.fServices.set('all');
+  }
+
+  /** Network names of a channel's services (usually one). */
+  networksOf(row: any): string[] {
+    const svcNet = this.serviceNetwork();
+    const services: string[] = Array.isArray(row?.services) ? row.services.map(String) : [];
+    return [...new Set(services.map(s => svcNet.get(s)).filter((n): n is string => !!n))].sort();
+  }
+
+  private tagLabel(row: any): string {
     const tags = this.tagNames();
+    return (Array.isArray(row?.tags) ? row.tags : []).map((u: unknown) => tags.get(String(u)) || '?').join(', ');
+  }
+
+  readonly columns = computed<GridColumn[]>(() => {
+    this.tagNames(); this.serviceNetwork(); this.servicesLoaded(); // re-render when lookups arrive
     const base: GridColumn[] = [
       // Tvheadend sends channel numbers ready to show: 100, or "3.1" for major.minor.
-      { id: 'number', label: '#', kind: 'num', format: (v: unknown) => (v === 0 || v === '0' || v === '' || v == null) ? '—' : formatIntsplit(v) },
+      { id: 'number', label: '#', kind: 'num', format: (v: unknown) => (v === 0 || v === '0' || v === '' || v == null) ? '—' : formatIntsplit(v),
+        sortValue: r => (r?.number === 0 || r?.number === '0' || r?.number == null) ? null : String(r.number) }, // "3.2" < "3.10" < 100; no number last
       { id: 'name', label: 'Channel' },
       { id: 'enabled', label: 'Enabled', kind: 'bool' },
     ];
     if (this.editor()) return base; // narrower while editing
     return base.concat([
       {
-        id: 'tags', label: 'Tags', sortable: false,
-        format: (v: unknown) => (Array.isArray(v) ? v : []).map(u => tags.get(String(u)) || '?').join(', ') || '—',
+        id: 'tags', label: 'Tags',
+        format: (_v: unknown, r: any) => this.tagLabel(r) || '—',
+        sortValue: r => this.tagLabel(r),
       },
       {
-        id: 'services', label: 'Services', sortable: false,
+        id: 'network', label: 'Network',
+        format: (_v: unknown, r: any) => this.networksOf(r).join(', ') || (this.servicesLoaded() ? '—' : '…'),
+        sortValue: r => this.networksOf(r).join(', '),
+      },
+      {
+        id: 'services', label: 'Services', kind: 'num',
         format: (v: unknown) => String(Array.isArray(v) ? v.length : 0),
+        sortValue: r => (Array.isArray(r?.services) ? r.services.length : 0),
       },
     ]);
   });
@@ -103,6 +234,18 @@ export class ChannelsComponent implements OnInit {
   ngOnInit(): void {
     this.tvh.getChannelTags().subscribe(tags =>
       this.tagNames.set(new Map(tags.map((t: any) => [String(t?.uuid || ''), String(t?.name || '')]))));
+    // Channels only list service uuids; the services list says which network each is on.
+    this.tvh.getGrid('mpegts/service/grid', { limit: 100000 }).subscribe({
+      next: services => {
+        this.serviceNetwork.set(new Map(services.map((s: any) => [String(s?.uuid || ''), String(s?.network || '')])));
+        this.servicesLoaded.set(true);
+      },
+      error: () => this.networksError.set(true),
+    });
+    this.tvh.getGrid('mpegts/network/grid').subscribe({
+      next: nets => this.networkNames.set(nets.map((n: any) => String(n?.networkname || '')).filter(Boolean)),
+      error: () => { /* names still come from services */ },
+    });
   }
 
   // ---------------------------------------------------------------- editor
