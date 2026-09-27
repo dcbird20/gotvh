@@ -17,6 +17,14 @@ The stock UI needs you to know the chain
 - [x] **Linked screens** (Connected to card on Channels and Tuners & networks): a "Connected to" panel in every editor with click-through links
       (channel → service → mux → network → tuner, EPG source; network → mux/service counts,
       services not yet mapped).
+- [ ] **IPTV channel names** — streams passed through FFmpeg all call themselves
+      "Service01" (provider "FFmpeg"); Map services already names them from the playlist.
+  - [ ] "Shorten names" option on Map services: keep the last part of names like
+        `PA | Johnstown | ABC WATM` → `ABC WATM` (split on ` | `).
+  - [ ] Find existing channels still named after placeholders (Service01, Program 3) and
+        offer to rename them from their playlist entry (on Channels).
+  - [ ] Note in the docs: fix at the source with `-metadata service_name="…"` on the FFmpeg
+        command (pipe:// entries or the IPTV proxy) so Tvheadend gets real names too.
 - [ ] **More Connected to links** — recordings (→ channel → … → tuner), EPG channels
       (→ channels they feed), channel tags (→ their channels).
 - [ ] **Guided "Add a source"** — pick a tuner or paste an IPTV playlist, pick region
