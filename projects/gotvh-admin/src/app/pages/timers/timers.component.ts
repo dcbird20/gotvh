@@ -11,6 +11,7 @@ import { BulkResult, describeBulk, runBulk } from '../../shared/bulk';
 import { ConfirmDialogComponent, ConfirmDialogData } from '../../shared/confirm-dialog.component';
 import { IdnodeFormComponent } from '../../shared/idnode-form/idnode-form.component';
 import { GridColumn, IdnodeGridComponent } from '../../shared/idnode-grid.component';
+import { SplitHandleDirective } from '../../shared/split-handle.directive';
 
 const DAY_NAMES = ['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -34,7 +35,7 @@ type Editor = { uuid: string | null; creating?: boolean; bulkUuids?: string[] } 
 @Component({
   selector: 'admin-timers',
   standalone: true,
-  imports: [MatButtonModule, MatIconModule, MatProgressBarModule, MatDialogModule, MatSnackBarModule,
+  imports: [SplitHandleDirective, MatButtonModule, MatIconModule, MatProgressBarModule, MatDialogModule, MatSnackBarModule,
     IdnodeGridComponent, IdnodeFormComponent],
   template: `
     <div class="admin-page wide">
@@ -42,7 +43,7 @@ type Editor = { uuid: string | null; creating?: boolean; bulkUuids?: string[] } 
       <p class="subtitle">Record a channel at the same time on chosen days, whatever the guide says — for shows the guide lists wrongly or not at all.</p>
       @if (error()) { <div class="banner error" role="alert">{{ error() }}</div> }
       @if (loading()) { <mat-progress-bar mode="indeterminate" /> }
-      <div class="layout" [class.with-editor]="!!editor()">
+      <div class="layout" adminSplit [class.with-editor]="!!editor()">
         <div class="main">
           <admin-idnode-grid #grid
             path="dvr/timerec/grid" [clientSide]="true" [data]="rows()" [columns]="columns()"
@@ -74,7 +75,7 @@ type Editor = { uuid: string | null; creating?: boolean; bulkUuids?: string[] } 
   styles: [`
     .wide { max-width: none; }
     .layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-items: start; }
-    .layout.with-editor { grid-template-columns: minmax(0, 1fr) 460px; }
+    .layout.with-editor { grid-template-columns: minmax(0, 1fr) var(--admin-side-width, 460px); }
     .main { min-width: 0; }
     .banner.error { padding: 10px 14px; border-radius: 8px; margin: 8px 0 12px;
                     background: var(--mat-sys-error-container); color: var(--mat-sys-on-error-container); }

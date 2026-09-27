@@ -2,7 +2,7 @@
   <h1>Tuners &amp; networks</h1>
   <p class="subtitle">Tuner hardware, the networks assigned to it, and the muxes and services found by scanning.</p>
 
-  <div class="layout" [class.with-editor]="!!selection()">
+  <div class="layout" adminSplit [class.with-editor]="!!selection()">
     <div class="main">
       <mat-tab-group [selectedIndex]="tabIndex()" (selectedIndexChange)="onTabChange($event)"
                      animationDuration="0ms" mat-stretch-tabs="false" mat-align-tabs="start">

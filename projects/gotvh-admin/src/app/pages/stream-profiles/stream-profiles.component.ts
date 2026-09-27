@@ -15,6 +15,7 @@ import { describeBulk, runBulk } from '../../shared/bulk';
 import { ConfirmDialogComponent, ConfirmDialogData } from '../../shared/confirm-dialog.component';
 import { IdnodeFormComponent } from '../../shared/idnode-form/idnode-form.component';
 import { GridColumn, IdnodeGridComponent } from '../../shared/idnode-grid.component';
+import { SplitHandleDirective } from '../../shared/split-handle.directive';
 
 /** Plain-English names for Tvheadend's stream profile types, in the order offered. */
 export const PROFILE_TYPES: Record<string, { label: string; detail: string; order: number }> = {
@@ -98,7 +99,7 @@ const plural = (n: number, one: string, many = one + 's') => `${n} ${n === 1 ? o
 @Component({
   selector: 'admin-stream-profiles',
   standalone: true,
-  imports: [
+  imports: [SplitHandleDirective, 
     RouterLink, MatTabsModule, MatButtonModule, MatIconModule, MatMenuModule, MatTooltipModule, MatProgressBarModule,
     MatDialogModule, MatSnackBarModule, IdnodeGridComponent, IdnodeFormComponent,
   ],

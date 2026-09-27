@@ -19,6 +19,7 @@ import { ConfirmDialogComponent, ConfirmDialogData } from '../../shared/confirm-
 import { IdnodeFormComponent } from '../../shared/idnode-form/idnode-form.component';
 import { GridColumn, IdnodeGridComponent } from '../../shared/idnode-grid.component';
 import { AddUserData, AddUserDialogComponent, AddUserResult, ROLE_INFO, UserRole } from './add-user-dialog.component';
+import { SplitHandleDirective } from '../../shared/split-handle.directive';
 
 /**
  * One row per user. Tvheadend keeps a user's rights (access entry) and
@@ -53,7 +54,7 @@ const isAnyone = (username: unknown) => { const u = String(username ?? '').trim(
 @Component({
   selector: 'admin-users',
   standalone: true,
-  imports: [
+  imports: [SplitHandleDirective, 
     FormsModule, MatTabsModule, MatButtonModule, MatIconModule, MatFormFieldModule, MatInputModule, MatSelectModule,
     MatSlideToggleModule, MatTooltipModule, MatProgressBarModule, MatDialogModule, MatSnackBarModule,
     IdnodeGridComponent, IdnodeFormComponent,

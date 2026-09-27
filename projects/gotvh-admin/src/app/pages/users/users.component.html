@@ -8,7 +8,7 @@
     <!-- ============================================================ users -->
     <mat-tab label="Users">
       <ng-template matTabContent>
-        <div class="tab-body layout" [class.with-editor]="!!selected()">
+        <div class="tab-body layout" adminSplit [class.with-editor]="!!selected()">
           <div class="main">
             @if (error()) { <div class="banner error" role="alert">{{ error() }}</div> }
             @if (problemCount() && fShow() !== 'problems') {
@@ -136,7 +136,7 @@
     <!-- ============================================================ blocked networks -->
     <mat-tab label="Blocked networks">
       <ng-template matTabContent>
-        <div class="tab-body layout" [class.with-editor]="!!blockEditor()">
+        <div class="tab-body layout" adminSplit [class.with-editor]="!!blockEditor()">
           <div class="main">
             <p class="muted intro">Connections from these networks are refused before any user check. Use it for ranges that should never reach Tvheadend.</p>
             <admin-idnode-grid #blockGrid

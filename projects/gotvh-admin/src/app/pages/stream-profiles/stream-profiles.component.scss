@@ -1,7 +1,7 @@
 .wide { max-width: none; }
 .tab-body { padding-top: 16px; }
 .layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-items: start; }
-.layout.with-editor { grid-template-columns: minmax(0, 1fr) 460px; }
+.layout.with-editor { grid-template-columns: minmax(0, 1fr) var(--admin-side-width, 460px); }
 .main { min-width: 0; }
 .filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 8px; }
 .f-small { width: 210px; }

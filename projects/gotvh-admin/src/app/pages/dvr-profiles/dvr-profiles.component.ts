@@ -14,6 +14,7 @@ import { IdnodeFormComponent } from '../../shared/idnode-form/idnode-form.compon
 import { BulkBarComponent } from '../../shared/bulk-bar.component';
 import { describeBulk, runBulk } from '../../shared/bulk';
 import { RowSelection } from '../../shared/row-selection';
+import { SplitHandleDirective } from '../../shared/split-handle.directive';
 
 interface ProfileRow {
   uuid: string;
@@ -33,7 +34,7 @@ const BASE = 'dvr/config';
 @Component({
   selector: 'admin-dvr-profiles',
   standalone: true,
-  imports: [MatTableModule, MatButtonModule, MatIconModule, MatProgressBarModule, MatTooltipModule, MatDialogModule,
+  imports: [SplitHandleDirective, MatTableModule, MatButtonModule, MatIconModule, MatProgressBarModule, MatTooltipModule, MatDialogModule,
     MatSnackBarModule, MatCheckboxModule, BulkBarComponent, IdnodeFormComponent],
   template: `
     <div class="admin-page wide">
@@ -52,7 +53,7 @@ const BASE = 'dvr/config';
         </admin-bulk-bar>
       }
 
-      <div class="layout" [class.with-editor]="editorOpen()">
+      <div class="layout" adminSplit [class.with-editor]="editorOpen()">
         <table mat-table [dataSource]="rows()">
           <ng-container matColumnDef="select">
             <th mat-header-cell *matHeaderCellDef class="col-select">
@@ -115,7 +116,7 @@ const BASE = 'dvr/config';
     .wide { max-width: none; }
     .head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
     .layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-items: start; }
-    .layout.with-editor { grid-template-columns: minmax(0, 1fr) 460px; }
+    .layout.with-editor { grid-template-columns: minmax(0, 1fr) var(--admin-side-width, 460px); }
     table { width: 100%; }
     .name { font-weight: 500; }
     .small { font: var(--mat-sys-body-small); }

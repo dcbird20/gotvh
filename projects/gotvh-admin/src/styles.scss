@@ -61,3 +61,29 @@ body {
 .num {
   font-variant-numeric: tabular-nums;
 }
+
+/* ---- resizable side panel (SplitHandleDirective) ---- */
+.admin-split-handle {
+  position: absolute; top: 0; bottom: 0; z-index: 2;
+  right: calc(var(--admin-side-width, 460px) + 2px); width: 16px;
+  cursor: col-resize; touch-action: none; display: none;
+}
+.layout.with-editor > .admin-split-handle { display: block; }
+.admin-split-handle::before {
+  content: ''; position: absolute; top: 0; bottom: 0; left: 7px; width: 2px; border-radius: 1px;
+  background: transparent; transition: background 120ms ease;
+}
+.admin-split-handle:hover::before, .admin-split-handle:focus-visible::before, body.admin-resizing .admin-split-handle::before {
+  background: var(--mat-sys-primary);
+}
+.admin-split-handle:focus-visible { outline: none; }
+.admin-split-grip { position: sticky; top: 45vh; display: flex; justify-content: center; }
+.admin-split-toggle {
+  font-family: 'Material Symbols Outlined'; font-size: 18px; line-height: 1;
+  width: 22px; height: 40px; padding: 0; border-radius: 11px; cursor: pointer;
+  border: 1px solid var(--mat-sys-outline-variant); background: var(--mat-sys-surface-container-high);
+  color: var(--mat-sys-on-surface-variant); overflow: hidden;
+}
+.admin-split-toggle:hover { background: var(--mat-sys-secondary-container); color: var(--mat-sys-on-secondary-container); }
+body.admin-resizing { cursor: col-resize; user-select: none; }
+@media (max-width: 1100px) { .layout.with-editor > .admin-split-handle { display: none; } }

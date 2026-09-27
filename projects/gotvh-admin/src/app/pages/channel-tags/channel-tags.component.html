@@ -2,7 +2,7 @@
   <h1>Channel tags</h1>
   <p class="subtitle">Groups of channels. Clients show them as categories; auto-record rules and user access can be limited to them.</p>
 
-  <div class="layout" [class.with-editor]="!!editor()">
+  <div class="layout" adminSplit [class.with-editor]="!!editor()">
     <div class="main">
       @if (error()) { <div class="banner error" role="alert"><span>{{ error() }}</span></div> }
       <div class="filters">

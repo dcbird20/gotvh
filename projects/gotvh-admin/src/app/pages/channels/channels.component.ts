@@ -13,6 +13,7 @@ import { BulkResult, describeBulk, runBulk } from '../../shared/bulk';
 import { ConfirmDialogComponent, ConfirmDialogData } from '../../shared/confirm-dialog.component';
 import { IdnodeFormComponent, formatIntsplit } from '../../shared/idnode-form/idnode-form.component';
 import { GridColumn, IdnodeGridComponent } from '../../shared/idnode-grid.component';
+import { SplitHandleDirective } from '../../shared/split-handle.directive';
 
 type YesNo = 'all' | 'yes' | 'no';
 type ServiceCount = 'all' | 'none' | 'one' | 'many';
@@ -36,7 +37,7 @@ interface EditorState {
 @Component({
   selector: 'admin-channels',
   standalone: true,
-  imports: [MatButtonModule, MatIconModule, MatDialogModule, MatSnackBarModule, MatFormFieldModule, MatSelectModule,
+  imports: [SplitHandleDirective, MatButtonModule, MatIconModule, MatDialogModule, MatSnackBarModule, MatFormFieldModule, MatSelectModule,
     MatTooltipModule, IdnodeGridComponent, IdnodeFormComponent],
   template: `
     <div class="admin-page wide">
@@ -92,7 +93,7 @@ interface EditorState {
         }
       </div>
 
-      <div class="layout" [class.with-editor]="!!editor()">
+      <div class="layout" adminSplit [class.with-editor]="!!editor()">
         <admin-idnode-grid
           path="channel/grid" [columns]="columns()" filterField="name" filterLabel="Search name or number"
           [clientSide]="true" [searchFields]="['name', 'number']" [rowFilter]="rowFilter()"
@@ -128,7 +129,7 @@ interface EditorState {
     .f-small { width: 150px; }
     .f-wide { width: 240px; }
     .layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-items: start; }
-    .layout.with-editor { grid-template-columns: minmax(0, 1fr) 460px; }
+    .layout.with-editor { grid-template-columns: minmax(0, 1fr) var(--admin-side-width, 460px); }
     .danger-text { color: var(--mat-sys-error); }
     @media (max-width: 1100px) { .layout.with-editor { grid-template-columns: minmax(0, 1fr); } }
   `],

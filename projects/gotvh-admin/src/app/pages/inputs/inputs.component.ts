@@ -13,6 +13,7 @@ import { ConfirmDialogComponent, ConfirmDialogData } from '../../shared/confirm-
 import { IdnodeFormComponent } from '../../shared/idnode-form/idnode-form.component';
 import { GridColumn, IdnodeGridComponent } from '../../shared/idnode-grid.component';
 import { BulkResult, describeBulk, runBulk } from '../../shared/bulk';
+import { SplitHandleDirective } from '../../shared/split-handle.directive';
 
 type TabId = 'tuners' | 'networks' | 'muxes' | 'services';
 
@@ -105,7 +106,7 @@ const GRID_TABS: GridTab[] = [
 @Component({
   selector: 'admin-inputs',
   standalone: true,
-  imports: [
+  imports: [SplitHandleDirective, 
     MatTabsModule, MatButtonModule, MatIconModule, MatMenuModule, MatProgressBarModule, MatTooltipModule,
     MatDialogModule, MatSnackBarModule, IdnodeFormComponent, IdnodeGridComponent,
   ],

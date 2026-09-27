@@ -19,7 +19,7 @@
   grid-template-columns: minmax(0, 1fr);
   gap: 20px;
   align-items: start;
-  &.with-editor { grid-template-columns: minmax(0, 1fr) 420px; }
+  &.with-editor { grid-template-columns: minmax(0, 1fr) var(--admin-side-width, 460px); }
 }
 
 .table-wrap { overflow-x: auto; }

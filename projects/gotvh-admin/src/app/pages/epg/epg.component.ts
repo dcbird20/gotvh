@@ -17,6 +17,7 @@ import { IdnodeFormComponent } from '../../shared/idnode-form/idnode-form.compon
 import { GridColumn, IdnodeGridComponent } from '../../shared/idnode-grid.component';
 import { MatchChannel, MatchGuide } from '../../shared/epg-match';
 import { EpgMapDialogComponent, EpgMapDialogData, EpgMapPair } from '../../shared/epg-map-dialog.component';
+import { SplitHandleDirective } from '../../shared/split-handle.directive';
 
 type Tab = 'grabbers' | 'settings' | 'channels';
 const TABS: Tab[] = ['grabbers', 'settings', 'channels'];
@@ -47,7 +48,7 @@ function moduleEnabled(row: any): boolean {
 @Component({
   selector: 'admin-epg',
   standalone: true,
-  imports: [
+  imports: [SplitHandleDirective, 
     MatTabsModule, MatButtonModule, MatButtonToggleModule, MatIconModule, MatFormFieldModule, MatSelectModule,
     MatTooltipModule, MatDialogModule, MatSnackBarModule, NgTemplateOutlet, IdnodeGridComponent, IdnodeFormComponent,
   ],
@@ -62,7 +63,7 @@ function moduleEnabled(row: any): boolean {
         <!-- ============================== grabbers -->
         <mat-tab label="Grabbers">
           <ng-template matTabContent>
-            <div class="tab-body layout" [class.with-editor]="editor()?.tab === 'grabbers'">
+            <div class="tab-body layout" adminSplit [class.with-editor]="editor()?.tab === 'grabbers'">
               <div class="main">
                 <div class="filters">
                   <mat-button-toggle-group [value]="modShow()" (change)="modShow.set($event.value)" hideSingleSelectionIndicator
@@ -119,7 +120,7 @@ function moduleEnabled(row: any): boolean {
         <!-- ============================== EPG channels -->
         <mat-tab label="EPG channels">
           <ng-template matTabContent>
-            <div class="tab-body layout" [class.with-editor]="editor()?.tab === 'channels'">
+            <div class="tab-body layout" adminSplit [class.with-editor]="editor()?.tab === 'channels'">
               <div class="main">
                 <div class="filters">
                   <mat-form-field appearance="outline" class="f-small">
@@ -184,7 +185,7 @@ function moduleEnabled(row: any): boolean {
     .wide { max-width: none; }
     .tab-body { padding-top: 16px; }
     .layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-items: start; }
-    .layout.with-editor { grid-template-columns: minmax(0, 1fr) 460px; }
+    .layout.with-editor { grid-template-columns: minmax(0, 1fr) var(--admin-side-width, 460px); }
     .main { min-width: 0; }
     .filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 8px; }
     .f-small { width: 190px; }

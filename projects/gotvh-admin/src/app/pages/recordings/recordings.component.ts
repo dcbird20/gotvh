@@ -15,6 +15,7 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatSort, MatSortModule } from '@angular/material/sort';
 import { MatTableDataSource, MatTableModule } from '@angular/material/table';
 import { MatTooltipModule } from '@angular/material/tooltip';
+import { MatTabsModule } from '@angular/material/tabs';
 import { TvheadendService } from '@gotvh/tvh-api';
 import { BulkBarComponent } from '../../shared/bulk-bar.component';
 import { describeBulk, runBulk } from '../../shared/bulk';
@@ -23,6 +24,7 @@ import { RowSelection } from '../../shared/row-selection';
 import { IdnodeFormComponent } from '../../shared/idnode-form/idnode-form.component';
 import { AddRecordingData, AddRecordingDialogComponent, AddRecordingResult } from './add-recording-dialog.component';
 import { FailureExplanation, explainRecording } from './recording-status';
+import { SplitHandleDirective } from '../../shared/split-handle.directive';
 
 type RecordingView = 'upcoming' | 'finished' | 'failed';
 
@@ -34,10 +36,10 @@ type RecordingView = 'upcoming' | 'finished' | 'failed';
 @Component({
   selector: 'admin-recordings',
   standalone: true,
-  imports: [
+  imports: [SplitHandleDirective, 
     MatTableModule, MatSortModule, MatPaginatorModule, MatFormFieldModule, MatInputModule,
     MatButtonModule, MatButtonToggleModule, MatIconModule, MatProgressBarModule, MatCheckboxModule,
-    MatDialogModule, MatSnackBarModule, MatTooltipModule, RouterLink, BulkBarComponent, IdnodeFormComponent,
+    MatDialogModule, MatSnackBarModule, MatTooltipModule, MatTabsModule, RouterLink, BulkBarComponent, IdnodeFormComponent,
   ],
   template: `
     <div class="admin-page wide">
@@ -81,7 +83,7 @@ type RecordingView = 'upcoming' | 'finished' | 'failed';
       }
       @if (loading()) { <mat-progress-bar mode="indeterminate" /> }
 
-      <div class="layout" [class.with-editor]="!!openUuid()">
+      <div class="layout" adminSplit [class.with-editor]="!!openUuid()">
       <div class="main">
       <table mat-table [dataSource]="data" matSort matSortActive="start"
              [matSortDirection]="view() === 'upcoming' ? 'asc' : 'desc'">
@@ -142,14 +144,17 @@ type RecordingView = 'upcoming' | 'finished' | 'failed';
 
       @if (openRow(); as r) {
         <div class="side">
-          <section class="card details">
-            <div class="d-head">
-              <div>
-                <h3>{{ r.disp_title || r.title || '(untitled)' }}</h3>
-                @if (r.disp_subtitle) { <div class="muted">{{ r.disp_subtitle }}</div> }
-              </div>
-              <button mat-icon-button (click)="closeRecording()" aria-label="Close"><mat-icon>close</mat-icon></button>
+          <div class="panel-head">
+            <div>
+              <h3>{{ r.disp_title || r.title || '(untitled)' }}</h3>
+              @if (r.disp_subtitle) { <div class="muted">{{ r.disp_subtitle }}</div> }
             </div>
+            <button mat-icon-button (click)="closeRecording()" aria-label="Close"><mat-icon>close</mat-icon></button>
+          </div>
+          <mat-tab-group [selectedIndex]="panelTab()" (selectedIndexChange)="panelTab.set($event)" animationDuration="0ms"
+                         mat-stretch-tabs="false" mat-align-tabs="start" preserveContent class="panel-tabs">
+          <mat-tab label="Details">
+          <section class="card details">
             <dl>
               <dt>Channel</dt><dd>{{ r.channelname || '—' }}</dd>
               <dt>When</dt><dd>{{ formatEpoch(r.start) }} – {{ formatTime(r.stop) }}
@@ -198,8 +203,12 @@ type RecordingView = 'upcoming' | 'finished' | 'failed';
               }
             </div>
           </section>
-
-          <admin-idnode-form #recForm [uuid]="r.uuid" title="Edit recording" (saved)="onSaved()" (closed)="closeRecording()" />
+          </mat-tab>
+          <mat-tab>
+            <ng-template mat-tab-label>Edit @if (recForm?.hasUnsavedChanges()) { <span class="dot" aria-label="unsaved changes"></span> }</ng-template>
+            <admin-idnode-form #recForm [uuid]="r.uuid" title="Edit recording" (saved)="onSaved()" (closed)="closeRecording()" />
+          </mat-tab>
+          </mat-tab-group>
         </div>
       }
       </div>
@@ -208,15 +217,18 @@ type RecordingView = 'upcoming' | 'finished' | 'failed';
   styles: [`
     .wide { max-width: none; }
     .layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-items: start; }
-    .layout.with-editor { grid-template-columns: minmax(0, 1fr) 460px; }
+    .layout.with-editor { grid-template-columns: minmax(0, 1fr) var(--admin-side-width, 460px); }
     .main { min-width: 0; }
     .side { display: flex; flex-direction: column; gap: 12px; position: sticky; top: 16px;
             max-height: calc(100vh - 96px); overflow-y: auto; }
     .side admin-idnode-form { position: static; max-height: none; }
     .card { border: 1px solid var(--mat-sys-outline-variant); border-radius: 12px; padding: 14px 20px;
             background: var(--mat-sys-surface-container-lowest); }
-    .d-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;
-              h3 { font: var(--mat-sys-title-medium); margin: 0; } }
+    .panel-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; padding: 0 4px;
+                  h3 { font: var(--mat-sys-title-large); margin: 0; } }
+    .panel-tabs { margin-top: -4px; }
+    .panel-tabs .card, .panel-tabs admin-idnode-form { margin-top: 12px; display: block; }
+    .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--mat-sys-primary); margin-left: 6px; }
     dl { display: grid; grid-template-columns: 76px 1fr; gap: 6px 12px; margin: 12px 0; }
     dt { color: var(--mat-sys-on-surface-variant); font: var(--mat-sys-body-small); padding-top: 2px; }
     dd { margin: 0; }
@@ -263,6 +275,8 @@ export class RecordingsComponent implements OnInit, AfterViewInit {
   @ViewChild('recForm') recForm?: IdnodeFormComponent;
   /** Recording shown in the side panel. */
   readonly openUuid = signal<string | null>(null);
+  /** 0 = Details, 1 = Edit. */
+  readonly panelTab = signal(0);
   private readonly rows = signal<any[]>([]);
   readonly openRow = computed(() => this.rows().find(r => String(r.uuid) === this.openUuid()) || null);
   readonly explanation = computed<FailureExplanation | null>(() => {
@@ -307,7 +321,12 @@ export class RecordingsComponent implements OnInit, AfterViewInit {
 
   openRecording(row: any): void {
     if (String(row.uuid) === this.openUuid()) return;
-    this.confirmDiscard().subscribe(ok => ok && this.openUuid.set(String(row.uuid)));
+    this.confirmDiscard().subscribe(ok => {
+      if (!ok) return;
+      // Upcoming recordings are opened to change them; finished and failed ones to see what happened.
+      this.panelTab.set(this.view() === 'upcoming' && !this.isRecordingNow(row) ? 1 : 0);
+      this.openUuid.set(String(row.uuid));
+    });
   }
 
   closeRecording(): void {

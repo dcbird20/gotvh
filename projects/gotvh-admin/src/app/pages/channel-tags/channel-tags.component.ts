@@ -16,6 +16,7 @@ import { ConfirmDialogComponent, ConfirmDialogData } from '../../shared/confirm-
 import { IdnodeFormComponent } from '../../shared/idnode-form/idnode-form.component';
 import { GridColumn, IdnodeGridComponent } from '../../shared/idnode-grid.component';
 import { ReorderTag, ReorderTagsDialogComponent } from './reorder-tags-dialog.component';
+import { SplitHandleDirective } from '../../shared/split-handle.directive';
 
 interface TagRow {
   uuid: string;
@@ -46,7 +47,7 @@ const userLabel = (a: any) => { const u = String(a?.username ?? '').trim(); retu
 @Component({
   selector: 'admin-channel-tags',
   standalone: true,
-  imports: [
+  imports: [SplitHandleDirective, 
     RouterLink, MatButtonModule, MatIconModule, MatTooltipModule, MatProgressBarModule, MatDialogModule, MatSnackBarModule,
     MatFormFieldModule, MatSelectModule, IdnodeGridComponent, IdnodeFormComponent,
   ],

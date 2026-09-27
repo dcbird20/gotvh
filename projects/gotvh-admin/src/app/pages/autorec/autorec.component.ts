@@ -28,6 +28,7 @@ import { BulkBarComponent } from '../../shared/bulk-bar.component';
 import { describeBulk, runBulk } from '../../shared/bulk';
 import { RowSelection } from '../../shared/row-selection';
 import { overlayIsOpen } from '../../shared/idnode-form/idnode-form.component';
+import { SplitHandleDirective } from '../../shared/split-handle.directive';
 
 interface RuleRow {
   raw: any;
@@ -54,7 +55,7 @@ const ALL_DAYS = [1, 2, 3, 4, 5, 6, 7];
 @Component({
   selector: 'admin-autorec',
   standalone: true,
-  imports: [
+  imports: [SplitHandleDirective, 
     ReactiveFormsModule, MatTableModule, MatSortModule, MatButtonModule, MatButtonToggleModule, MatCheckboxModule,
     MatFormFieldModule, MatInputModule, MatSelectModule, MatAutocompleteModule, MatSlideToggleModule, MatIconModule,
     MatTooltipModule, MatProgressBarModule, MatDialogModule, MatSnackBarModule, BulkBarComponent,

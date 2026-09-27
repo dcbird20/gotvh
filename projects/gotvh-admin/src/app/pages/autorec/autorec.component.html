@@ -29,7 +29,7 @@
     </admin-bulk-bar>
   }
 
-  <div class="layout" [class.with-editor]="editing() !== null">
+  <div class="layout" adminSplit [class.with-editor]="editing() !== null">
     <!-- ============================== rules table -->
     <div class="table-wrap">
       <table mat-table [dataSource]="visibleRows()" matSort [matSortActive]="sort().active"

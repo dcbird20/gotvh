@@ -149,6 +149,14 @@ Built so far:
 
 Other sections are placeholders naming the API they'll use.
 
+### Side panel
+
+Every screen with an editor beside the table shares one panel width: drag the line between
+table and panel to resize (or focus it and use ←/→), and click the arrow on it — or
+double-click the line — to switch between normal and wide. The width is remembered. A wide
+editor lays its fields out in two columns. Recordings splits its panel into **Details**
+(opens first for finished/failed) and **Edit** (opens first for upcoming).
+
 ### Selecting several rows
 
 Works the same in every table (and like the stock Tvheadend grids):
