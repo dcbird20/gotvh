@@ -61,6 +61,7 @@ interface Candidate {
   mux: string;
   kind: Kind;
   encrypted: boolean;
+  muxUuid: string;
   /** Antenna/cable/satellite (not IPTV): its guide comes over the air. */
   broadcast: Broadcast | null;
   /** From the broadcast (logical channel number, ATSC major.minor). */
@@ -219,7 +220,7 @@ export class MapServicesComponent implements OnInit {
             uuid: String(s.uuid), service: String(s.svcname || '').trim(),
             provider: String(s.provider || ''), network: String(s.network || 'Unknown network'),
             mux: String(mux?.name || s.multiplex || ''),
-            kind, encrypted, broadcastNumber,
+            kind, encrypted, broadcastNumber, muxUuid: String(s.multiplex_uuid || ''),
             // Not an IPTV mux → broadcast. ATSC services carry major.minor numbers (PSIP); others use DVB EIT.
             broadcast: iptvNets.has(String(s.network || '')) || (mux && ('iptv_sname' in mux || 'iptv_muxname' in mux))
               ? null : (minor ? 'atsc' : 'dvb'),
@@ -364,7 +365,7 @@ export class MapServicesComponent implements OnInit {
         const kinds = new Set(plans.flatMap(p => p.services).map(sv => sv.broadcast).filter((b): b is Broadcast => !!b));
         if (kinds.size && created + merged > 0) {
           this.guide.set('working');
-          enableOtaGuide(this.tvh, kinds).subscribe(g => this.guide.set(g));
+          enableOtaGuide(this.tvh, kinds, plans.flatMap(p => p.services).filter(sv => sv.broadcast && sv.muxUuid).map(sv => sv.muxUuid)).subscribe(g => this.guide.set(g));
         } else {
           this.guide.set(null);
         }

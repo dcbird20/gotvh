@@ -1,6 +1,8 @@
+import { broadcastMuxesWithChannels, primeAndGrab } from '../../shared/ota-guide';
 import { Component, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { Observable, of } from 'rxjs';
+import { switchMap } from 'rxjs/operators';
 import { MatButtonModule } from '@angular/material/button';
 import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
@@ -390,8 +392,21 @@ export class EpgComponent implements OnInit {
     this.run(this.tvh.rerunInternalEpgGrabbers(), 'Internal grabbers started. New guide data appears as they finish.');
   }
 
+  /**
+   * A grab only visits muxes the grabber has seen while tuned, so first rescan the broadcast muxes
+   * that feed channels (grabbers switched on after the scan otherwise find nothing), then grab.
+   */
   triggerOta(): void {
-    this.run(this.tvh.triggerOtaEpgGrab(1), 'Over-the-air grab started. It can take several minutes per mux.');
+    this.running.set(true);
+    broadcastMuxesWithChannels(this.tvh).pipe(switchMap(ids => primeAndGrab(this.tvh, ids))).subscribe({
+      next: r => {
+        this.running.set(false);
+        this.snack.open(r.primed
+          ? `Tuning ${r.primed} ${r.primed === 1 ? 'frequency' : 'frequencies'} so the guide grabbers see them; the over-the-air grab starts in about 1½ minutes.`
+          : 'Over-the-air grab started. It can take several minutes per frequency.', undefined, { duration: 7000 });
+      },
+      error: err => { this.running.set(false); this.snack.open(`Tvheadend refused (${err?.status || 'network error'})`, 'Dismiss', { duration: 6000 }); },
+    });
   }
 
   private run(request: Observable<unknown>, message: string): void {
