@@ -19,6 +19,7 @@ export const NAV_ITEMS: AdminNavItem[] = [
   { path: 'timers', label: 'Timers', icon: 'schedule', section: 'DVR' },
   { path: 'dvr-profiles', label: 'DVR profiles', icon: 'tune', section: 'DVR' },
   { path: 'inputs', label: 'Tuners & networks', icon: 'settings_input_antenna', section: 'Configuration' },
+  { path: 'map-services', label: 'Map services', icon: 'playlist_add', section: 'Configuration' },
   { path: 'channels', label: 'Channels', icon: 'live_tv', section: 'Configuration' },
   { path: 'channel-tags', label: 'Channel tags', icon: 'label', section: 'Configuration' },
   { path: 'epg', label: 'EPG sources', icon: 'calendar_view_week', section: 'Configuration' },
@@ -83,6 +84,11 @@ export const routes: Routes = [
     path: 'users',
     title: 'Users & access · GoTVH Admin',
     loadComponent: () => import('./pages/users/users.component').then(m => m.UsersComponent),
+  },
+  {
+    path: 'map-services',
+    title: 'Map services · GoTVH Admin',
+    loadComponent: () => import('./pages/map-services/map-services.component').then(m => m.MapServicesComponent),
   },
   {
     path: 'channel-tags',

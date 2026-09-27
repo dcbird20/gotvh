@@ -118,6 +118,13 @@ Built so far:
 - **Timers** — record a channel at a fixed time on chosen days (`dvr/timerec`), with
   days shown as Weekdays / Weekends / Mon, Wed …; create, edit, bulk edit/enable/delete.
 
+- **Map services** — every service not on a channel yet, grouped by network, with the
+  channel each will become: name and number (from the broadcast's LCN / ATSC major.minor)
+  editable in place; TV ticked, radio/data/encrypted not; one channel per name so the same
+  station on antenna and IPTV is fed by both; names matching an existing channel are added
+  to it; numbers already in use or repeated are flagged. Creates the channels directly
+  (`channel/create`, or adds services to existing ones), then points to guide matching.
+
 - **Channels** — all channels loaded once and filtered in the browser: search name or
   number, filter by Enabled, Tags (any of / no tags), Network (via the channel's services)
   and service count; Network column; every column sortable (numbers sort 3.2 < 3.10 < 100).

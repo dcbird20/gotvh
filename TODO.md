@@ -11,13 +11,14 @@ All basics are done — see below.
 The stock UI needs you to know the chain
 `tuner → network → mux → service → (map) → channel → (EPG match) → guide data`.
 
-- [ ] **Map services screen** — services not yet on a channel, grouped by network/mux;
-      preview of the channels to create (name, number from the broadcast where available,
-      tags), untick radio/data services, catch the same station on two networks and offer
-      one channel fed by both; create, then go straight to EPG match.
+- [x] **Map services screen** — unmapped services by network, editable names/numbers from the
+      broadcast, TV/radio/data defaults, one channel per name across networks, adds to
+      existing channels, number clashes flagged, then guide data.
 - [x] **Linked screens** (Connected to card on Channels and Tuners & networks): a "Connected to" panel in every editor with click-through links
       (channel → service → mux → network → tuner, EPG source; network → mux/service counts,
       services not yet mapped).
+- [ ] **More Connected to links** — recordings (→ channel → … → tuner), EPG channels
+      (→ channels they feed), channel tags (→ their channels).
 - [ ] **Guided "Add a source"** — pick a tuner or paste an IPTV playlist, pick region
       frequencies, scan with progress, map services, match EPG — in one flow built on the
       two items above.

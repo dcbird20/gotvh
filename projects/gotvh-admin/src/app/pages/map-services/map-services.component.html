@@ -1,0 +1,140 @@
+<div class="admin-page wide">
+  <h1>Map services</h1>
+  <p class="subtitle">Turn services found by scanning into channels. Check the names and numbers, untick what you don’t want, then create.</p>
+
+  @if (loading()) { <mat-progress-bar mode="indeterminate" /> }
+  @if (error()) { <div class="banner error" role="alert"><mat-icon>error</mat-icon><span>{{ error() }}</span></div> }
+
+  @if (result(); as r) {
+    <div class="banner ok">
+      <mat-icon>check_circle</mat-icon>
+      <span>
+        @if (r.created) { Created {{ plural(r.created, 'channel') }}. }
+        @if (r.merged) { Added services to {{ plural(r.merged, 'existing channel') }}. }
+        @if (r.failed) { {{ r.failed }} failed. }
+        Next: guide data for the new channels.
+      </span>
+      <a mat-flat-button routerLink="/epg">Match guide data</a>
+      <a mat-button routerLink="/channels">Open Channels</a>
+    </div>
+  }
+
+  @if (!loading() && !error() && !groups().length) {
+    <div class="empty">
+      <mat-icon>task_alt</mat-icon>
+      <p><strong>Every service is on a channel.</strong></p>
+      <p class="muted">{{ mappedCount() }} services are mapped. New services appear here after a network or mux is scanned.</p>
+      <a mat-stroked-button routerLink="/inputs" [queryParams]="{ tab: 'networks' }">Tuners &amp; networks</a>
+    </div>
+  }
+
+  @if (groups().length) {
+    <div class="layout">
+      <div class="main">
+        <div class="toolbar">
+          <mat-form-field appearance="outline" class="search">
+            <mat-icon matPrefix>search</mat-icon>
+            <mat-label>Search services</mat-label>
+            <input matInput [ngModel]="query()" (ngModelChange)="query.set($event)">
+          </mat-form-field>
+          <span class="muted">Select:</span>
+          <button mat-button (click)="selectKinds(['tv', 'unknown'])">TV</button>
+          <button mat-button (click)="selectKinds(['tv', 'unknown', 'radio'])">TV + radio</button>
+          <button mat-button (click)="selectKinds(['tv', 'unknown', 'radio', 'data'])">All</button>
+          <button mat-button (click)="selectNone()">None</button>
+        </div>
+
+        @for (g of groups(); track g.network) {
+          <section class="net">
+            <header>
+              <mat-checkbox [checked]="groupState(g) === 'all'" [indeterminate]="groupState(g) === 'some'"
+                            (change)="toggleGroup(g, $event.checked)" [attr.aria-label]="'Select all on ' + g.network" />
+              <button class="net-toggle" (click)="g.open = !g.open" [attr.aria-expanded]="g.open">
+                <mat-icon>{{ g.open ? 'expand_more' : 'chevron_right' }}</mat-icon>
+                <strong>{{ g.network }}</strong>
+                <span class="muted">{{ plural(g.items.length, 'unmapped service') }}</span>
+              </button>
+            </header>
+            @if (g.open) {
+              <table>
+                <thead>
+                  <tr>
+                    <th class="c-sel"></th><th>Service</th><th>Type</th><th class="c-num">Number</th><th>Channel name</th><th>Notes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (c of visible(g); track c.uuid) {
+                    <tr [class.off]="!c.selected">
+                      <td class="c-sel"><mat-checkbox [checked]="c.selected" (change)="toggle(c, $event.checked)" [attr.aria-label]="'Map ' + c.service" /></td>
+                      <td>
+                        <div>{{ c.service }}</div>
+                        <div class="muted small">{{ c.mux }}{{ c.provider ? ' · ' + c.provider : '' }}</div>
+                      </td>
+                      <td><span class="kind" [attr.data-kind]="c.kind">{{ kindLabel(c.kind) }}</span></td>
+                      <td class="c-num">
+                        <input class="cell num" [(ngModel)]="c.number" (ngModelChange)="touch()" [disabled]="!c.selected"
+                               [attr.aria-label]="'Number for ' + c.service" [placeholder]="c.broadcastNumber || '—'" inputmode="decimal">
+                      </td>
+                      <td>
+                        <input class="cell" [(ngModel)]="c.name" (ngModelChange)="touch()" [disabled]="!c.selected"
+                               [attr.aria-label]="'Channel name for ' + c.service">
+                        @if (c.selected && tidyNames() && finalName(c) !== c.name.trim()) {
+                          <div class="muted small">→ {{ finalName(c) }}</div>
+                        }
+                      </td>
+                      <td class="notes">
+                        @for (n of notes(c); track n.text) {
+                          <div [class.warn]="n.warn">
+                            @if (n.link) { <a [routerLink]="n.link.route" [queryParams]="n.link.query">{{ n.text }}</a> } @else { {{ n.text }} }
+                          </div>
+                        }
+                      </td>
+                    </tr>
+                  } @empty {
+                    <tr><td colspan="6" class="muted">Nothing matches the search.</td></tr>
+                  }
+                </tbody>
+              </table>
+            }
+          </section>
+        }
+      </div>
+
+      <aside class="summary">
+        <h3>Result</h3>
+        <p class="big">{{ plural(newCount(), 'new channel') }}</p>
+        @if (mergeCount()) { <p>+ services added to {{ plural(mergeCount(), 'existing channel') }}</p> }
+        <p class="muted small">from {{ plural(selected().length, 'service') }} selected</p>
+
+        <div class="opts">
+          <mat-checkbox [checked]="mergeSameName()" (change)="mergeSameName.set($event.checked)">
+            One channel per name
+            <span class="hint">The same station on two networks (antenna and IPTV) becomes one channel fed by both.</span>
+          </mat-checkbox>
+          <mat-checkbox [checked]="addToExisting()" (change)="addToExisting.set($event.checked)">
+            Add to existing channels with the same name
+            <span class="hint">Instead of making a duplicate.</span>
+          </mat-checkbox>
+          <mat-checkbox [checked]="tidyNames()" (change)="tidyNames.set($event.checked)">
+            Tidy names <span class="hint">Drop a trailing “HD”, “SD”, “4K”.</span>
+          </mat-checkbox>
+          <mat-form-field appearance="outline">
+            <mat-label>Tags for new channels</mat-label>
+            <mat-select multiple [(ngModel)]="tagUuids">
+              @for (t of tags(); track t.uuid) { <mat-option [value]="t.uuid">{{ t.name }}</mat-option> }
+            </mat-select>
+          </mat-form-field>
+        </div>
+
+        @if (progress(); as pr) {
+          <mat-progress-bar mode="determinate" [value]="pr.done / pr.total * 100" />
+          <p class="muted small">{{ pr.done }} of {{ pr.total }}…</p>
+        }
+        <button mat-flat-button class="go" (click)="create()" [disabled]="busy() || !selected().length">
+          <mat-icon>playlist_add</mat-icon> Create {{ plural(newCount(), 'channel') }}{{ mergeCount() ? ' · update ' + mergeCount() : '' }}
+        </button>
+        <p class="muted small">Then match guide data on EPG sources → EPG channels.</p>
+      </aside>
+    </div>
+  }
+</div>
