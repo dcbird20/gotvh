@@ -103,31 +103,34 @@
 
     <!-- ============================== editor -->
     @if (selection(); as sel) {
-      <admin-idnode-form
-        [uuid]="sel.uuid"
-        [bulkUuids]="sel.bulkUuids || null"
-        [createPath]="sel.createClass ? 'mpegts/network' : null"
-        [createClass]="sel.createClass || null"
-        [createVia]="sel.createVia || null"
-        [title]="editorTitle()"
-        (saved)="onSaved($event)"
-        (closed)="close()">
-        @if (sel.uuid && !sel.bulkUuids && sel.tab !== 'tuners') {
-          <button formExtraActions mat-button type="button" class="danger-text" (click)="confirmDelete()">Delete</button>
-        }
-        @if (sel.uuid && !sel.bulkUuids && sel.tab === 'networks') {
-          <button formExtraActions mat-button type="button" (click)="newMuxOnSelected()"
-                  matTooltip="Add a frequency or stream to this network by hand">
-            <mat-icon>add</mat-icon> Add mux
-          </button>
-        }
-        @if (sel.uuid && !sel.bulkUuids && sel.tab === 'networks') {
-          <button formExtraActions mat-button type="button" (click)="scan()"
-                  matTooltip="Queue every mux on this network for scanning">
-            <mat-icon>radar</mat-icon> Scan
-          </button>
-        }
-      </admin-idnode-form>
+      <div class="admin-side">
+        <admin-idnode-form
+          [uuid]="sel.uuid"
+          [bulkUuids]="sel.bulkUuids || null"
+          [createPath]="sel.createClass ? 'mpegts/network' : null"
+          [createClass]="sel.createClass || null"
+          [createVia]="sel.createVia || null"
+          [title]="editorTitle()"
+          (saved)="onSaved($event)"
+          (closed)="close()">
+          @if (sel.uuid && !sel.bulkUuids && sel.tab !== 'tuners') {
+            <button formExtraActions mat-button type="button" class="danger-text" (click)="confirmDelete()">Delete</button>
+          }
+          @if (sel.uuid && !sel.bulkUuids && sel.tab === 'networks') {
+            <button formExtraActions mat-button type="button" (click)="newMuxOnSelected()"
+                    matTooltip="Add a frequency or stream to this network by hand">
+              <mat-icon>add</mat-icon> Add mux
+            </button>
+          }
+          @if (sel.uuid && !sel.bulkUuids && sel.tab === 'networks') {
+            <button formExtraActions mat-button type="button" (click)="scan()"
+                    matTooltip="Queue every mux on this network for scanning">
+              <mat-icon>radar</mat-icon> Scan
+            </button>
+          }
+        </admin-idnode-form>
+        @if (connectionKind(sel); as kind) { <admin-connections [kind]="kind" [uuid]="sel.uuid!" /> }
+      </div>
     }
   </div>
 </div>

@@ -162,6 +162,16 @@ all interfaces, so another machine on the LAN can open `http://raven1:4401`. Use
 anything risky (stream profiles, users, deleting built-ins) before trying it on the main
 server.
 
+### Connected to
+
+Channels and everything on Tuners & networks show a **Connected to** card under the editor:
+where the object sits in the chain tuner → network → mux → service → channel → guide data.
+Every item is a link (e.g. a channel's service → its mux → its network → the tuners that
+use it), and a broken link is flagged: a channel with no service, a service not on a
+channel, a network no tuner uses, a tuner with no network, services not yet mapped.
+Links are plain URLs (`/inputs?tab=muxes&open=<uuid>`, `/channels?open=<uuid>`,
+`/channel-tags?open=<uuid>`), so they can be bookmarked or shared.
+
 ### Side panel
 
 Every screen with an editor beside the table shares one panel width: drag the line between

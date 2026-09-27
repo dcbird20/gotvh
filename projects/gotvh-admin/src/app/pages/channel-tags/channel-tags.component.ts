@@ -1,5 +1,6 @@
-import { Component, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { Component, DestroyRef, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Observable, forkJoin, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { MatButtonModule } from '@angular/material/button';
@@ -58,6 +59,9 @@ export class ChannelTagsComponent implements OnInit {
   private readonly tvh = inject(TvheadendService);
   private readonly dialog = inject(MatDialog);
   private readonly snack = inject(MatSnackBar);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
 
   @ViewChild('tagGrid') grid?: IdnodeGridComponent;
   @ViewChild('tagForm') form?: IdnodeFormComponent;
@@ -126,6 +130,12 @@ export class ChannelTagsComponent implements OnInit {
 
   ngOnInit(): void {
     this.load();
+    // /channel-tags?open=<uuid> (from a Connected to link)
+    this.route.queryParamMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(q => {
+      const open = q.get('open');
+      if (open) this.clearDeepLink();
+      if (open && open !== this.editor()?.uuid) this.confirmDiscard().subscribe(ok => ok && this.editor.set({ uuid: open }));
+    });
   }
 
   load(): void {
@@ -271,5 +281,10 @@ export class ChannelTagsComponent implements OnInit {
   private confirmDiscard(): Observable<boolean> {
     if (!this.form?.hasUnsavedChanges()) return of(true);
     return this.confirm('Discard changes?', 'You have unsaved changes.', 'Discard');
+  }
+
+  /** Drop ?open= once handled, so following the same link again still works. */
+  private clearDeepLink(): void {
+    this.router.navigate([], { relativeTo: this.route, queryParams: { open: null }, queryParamsHandling: 'merge', replaceUrl: true });
   }
 }

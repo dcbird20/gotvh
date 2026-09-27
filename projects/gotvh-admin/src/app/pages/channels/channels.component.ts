@@ -1,5 +1,6 @@
-import { Component, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
-import { ActivatedRoute } from '@angular/router';
+import { Component, DestroyRef, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
+import { ActivatedRoute, Router } from '@angular/router';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Observable, of } from 'rxjs';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
@@ -14,6 +15,7 @@ import { ConfirmDialogComponent, ConfirmDialogData } from '../../shared/confirm-
 import { IdnodeFormComponent, formatIntsplit } from '../../shared/idnode-form/idnode-form.component';
 import { GridColumn, IdnodeGridComponent } from '../../shared/idnode-grid.component';
 import { SplitHandleDirective } from '../../shared/split-handle.directive';
+import { ConnectionsComponent } from '../../shared/connections.component';
 
 type YesNo = 'all' | 'yes' | 'no';
 type ServiceCount = 'all' | 'none' | 'one' | 'many';
@@ -37,7 +39,7 @@ interface EditorState {
 @Component({
   selector: 'admin-channels',
   standalone: true,
-  imports: [SplitHandleDirective, MatButtonModule, MatIconModule, MatDialogModule, MatSnackBarModule, MatFormFieldModule, MatSelectModule,
+  imports: [SplitHandleDirective, ConnectionsComponent, MatButtonModule, MatIconModule, MatDialogModule, MatSnackBarModule, MatFormFieldModule, MatSelectModule,
     MatTooltipModule, IdnodeGridComponent, IdnodeFormComponent],
   template: `
     <div class="admin-page wide">
@@ -111,14 +113,17 @@ interface EditorState {
         </admin-idnode-grid>
 
         @if (editor(); as e) {
-          <admin-idnode-form
-            [uuid]="e.uuid" [bulkUuids]="e.bulkUuids || null"
-            [createPath]="e.creating ? 'channel' : null" [title]="e.title"
-            (saved)="onSaved($event)" (closed)="close()">
-            @if (e.uuid) {
-              <button formExtraActions mat-button type="button" class="danger-text" (click)="deleteOne(e)">Delete</button>
-            }
-          </admin-idnode-form>
+          <div class="admin-side">
+            <admin-idnode-form
+              [uuid]="e.uuid" [bulkUuids]="e.bulkUuids || null"
+              [createPath]="e.creating ? 'channel' : null" [title]="e.title"
+              (saved)="onSaved($event)" (closed)="close()">
+              @if (e.uuid) {
+                <button formExtraActions mat-button type="button" class="danger-text" (click)="deleteOne(e)">Delete</button>
+              }
+            </admin-idnode-form>
+            @if (e.uuid && !e.bulkUuids) { <admin-connections kind="channel" [uuid]="e.uuid" /> }
+          </div>
         }
       </div>
     </div>
@@ -139,6 +144,8 @@ export class ChannelsComponent implements OnInit {
   private readonly dialog = inject(MatDialog);
   private readonly snack = inject(MatSnackBar);
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
 
   @ViewChild(IdnodeGridComponent) grid?: IdnodeGridComponent;
   @ViewChild(IdnodeFormComponent) form?: IdnodeFormComponent;
@@ -263,6 +270,12 @@ export class ChannelsComponent implements OnInit {
     // Linked from elsewhere, e.g. Channel tags → /channels?tag=<uuid> (or ?tag=none).
     const tag = this.route.snapshot.queryParamMap.get('tag');
     if (tag) this.fTags.set([tag === 'none' ? NO_TAGS : tag]);
+    // …and /channels?open=<uuid> opens that channel (from a Connected to link).
+    this.route.queryParamMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(q => {
+      const open = q.get('open');
+      if (open) this.clearDeepLink();
+      if (open) this.open({ uuid: open, title: '' });
+    });
     this.tvh.getChannelTags().subscribe(tags =>
       this.tagNames.set(new Map(tags.map((t: any) => [String(t?.uuid || ''), String(t?.name || '')]))));
     // Channels only list service uuids; the services list says which network each is on.
@@ -374,5 +387,10 @@ export class ChannelsComponent implements OnInit {
     if (!this.form?.hasUnsavedChanges()) return of(true);
     const data: ConfirmDialogData = { title: 'Discard changes?', message: 'You have unsaved changes.', confirm: 'Discard', destructive: true };
     return this.dialog.open(ConfirmDialogComponent, { data }).afterClosed();
+  }
+
+  /** Drop ?open= once handled, so following the same link again still works. */
+  private clearDeepLink(): void {
+    this.router.navigate([], { relativeTo: this.route, queryParams: { open: null }, queryParamsHandling: 'merge', replaceUrl: true });
   }
 }

@@ -15,7 +15,7 @@ The stock UI needs you to know the chain
       preview of the channels to create (name, number from the broadcast where available,
       tags), untick radio/data services, catch the same station on two networks and offer
       one channel fed by both; create, then go straight to EPG match.
-- [ ] **Linked screens** — a "Connected to" panel in every editor with click-through links
+- [x] **Linked screens** (Connected to card on Channels and Tuners & networks): a "Connected to" panel in every editor with click-through links
       (channel → service → mux → network → tuner, EPG source; network → mux/service counts,
       services not yet mapped).
 - [ ] **Guided "Add a source"** — pick a tuner or paste an IPTV playlist, pick region

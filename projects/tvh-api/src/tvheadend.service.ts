@@ -2314,6 +2314,19 @@ export class TvheadendService {
     return this.http.post<any>(this.buildUrl('service/mapper/stop'), this.buildFormBody({}), this.getFormRequestOptions());
   }
 
+  /**
+   * Current values of several objects of the same kind, flat ({ uuid, field: value }),
+   * via idnode/load with a uuid list. `fields` limits what's returned.
+   */
+  idnodeValues(uuids: string[], fields?: string[]): Observable<any[]> {
+    const list = uuids.filter(Boolean);
+    if (!list.length) return of([]);
+    const body: Record<string, unknown> = { uuid: JSON.stringify(list), grid: 1 };
+    if (fields?.length) body['list'] = fields.join(',');
+    return this.http.post<any>(this.buildUrl('idnode/load'), this.buildFormBody(body), this.getFormRequestOptions()).pipe(
+      map(data => Array.isArray(data?.entries) ? data.entries : []));
+  }
+
   /** Queue a full rescan of every mux on a network. */
   scanNetwork(uuid: string): Observable<any> {
     return this.http.post<any>(this.buildUrl('mpegts/network/scan'), this.buildFormBody({ uuid }), this.getFormRequestOptions());

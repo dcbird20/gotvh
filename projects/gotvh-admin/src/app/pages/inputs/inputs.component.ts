@@ -1,4 +1,4 @@
-import { Component, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
 import { Observable, of } from 'rxjs';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
@@ -15,6 +15,9 @@ import { MapServicesData, MapServicesDialogComponent } from './map-services-dial
 import { GridColumn, IdnodeGridComponent } from '../../shared/idnode-grid.component';
 import { BulkResult, describeBulk, runBulk } from '../../shared/bulk';
 import { SplitHandleDirective } from '../../shared/split-handle.directive';
+import { ConnectionKind, ConnectionsComponent } from '../../shared/connections.component';
+import { ActivatedRoute, Router } from '@angular/router';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
 type TabId = 'tuners' | 'networks' | 'muxes' | 'services';
 
@@ -110,7 +113,7 @@ const GRID_TABS: GridTab[] = [
 @Component({
   selector: 'admin-inputs',
   standalone: true,
-  imports: [SplitHandleDirective, 
+  imports: [SplitHandleDirective, ConnectionsComponent, 
     MatTabsModule, MatButtonModule, MatIconModule, MatMenuModule, MatProgressBarModule, MatTooltipModule,
     MatDialogModule, MatSnackBarModule, IdnodeFormComponent, IdnodeGridComponent,
   ],
@@ -121,6 +124,9 @@ export class InputsComponent implements OnInit {
   private readonly tvh = inject(TvheadendService);
   private readonly dialog = inject(MatDialog);
   private readonly snack = inject(MatSnackBar);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
 
   @ViewChild(IdnodeFormComponent) editor?: IdnodeFormComponent;
   @ViewChild(IdnodeGridComponent) grid?: IdnodeGridComponent;
@@ -158,6 +164,20 @@ export class InputsComponent implements OnInit {
       error: () => this.builders.set([]),
     });
     this.loadNetworks();
+    // Deep links, e.g. from a Connected to panel: /inputs?tab=muxes&open=<uuid>
+    this.route.queryParamMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(q => {
+      const tab = q.get('tab') as TabId | null, open = q.get('open');
+      if (open || tab) this.clearDeepLink();
+      const index = tab === 'tuners' ? 0 : GRID_TABS.findIndex(t => t.id === tab) + 1;
+      if (tab && index >= 0) this.tabIndex.set(index);
+      if (open && tab) this.open({ tab, uuid: open, label: '' });
+    });
+  }
+
+  /** Which Connected to panel fits the open object. */
+  connectionKind(sel: Selection): ConnectionKind | null {
+    if (!sel.uuid || sel.bulkUuids || sel.createClass || sel.createVia) return null;
+    return ({ tuners: 'tuner', networks: 'network', muxes: 'mux', services: 'service' } as const)[sel.tab];
   }
 
   private loadNetworks(): void {
@@ -453,5 +473,10 @@ export class InputsComponent implements OnInit {
       title: 'Discard changes?', message: 'You have unsaved changes.', confirm: 'Discard', destructive: true,
     };
     return this.dialog.open(ConfirmDialogComponent, { data }).afterClosed();
+  }
+
+  /** Drop ?open= once handled, so following the same link again still works. */
+  private clearDeepLink(): void {
+    this.router.navigate([], { relativeTo: this.route, queryParams: { open: null, tab: null }, queryParamsHandling: 'merge', replaceUrl: true });
   }
 }
