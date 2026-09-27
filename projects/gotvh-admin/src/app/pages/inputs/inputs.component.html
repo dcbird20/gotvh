@@ -79,7 +79,7 @@
                   <!-- shown in the bar above the table while rows are selected -->
                   <ng-container ngProjectAs="[bulkActions]">
                     <button mat-button (click)="bulkEdit(tab)"><mat-icon>edit</mat-icon> Edit…</button>
-                    @if (tab.id === 'networks') {
+                    @if (tab.id === 'networks' || tab.id === 'muxes') {
                       <button mat-button (click)="bulkScan(tab)"><mat-icon>radar</mat-icon> Scan</button>
                     }
                     @if (tab.id === 'services') {

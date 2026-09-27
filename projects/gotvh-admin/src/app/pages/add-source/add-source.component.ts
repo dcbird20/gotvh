@@ -35,6 +35,8 @@ interface ScanState {
   pending: number;
   services: number;
   mapped: number;
+  /** Muxes whose last scan failed (nothing received). */
+  failedUuids: string[];
 }
 
 const SYSTEMS = ['ATSC-T', 'ATSC-C', 'DVB-T', 'DVB-C', 'DVB-S', 'ISDB-T', 'ISDB-C', 'ISDB-S', 'DAB', 'DTMB'];
@@ -387,7 +389,29 @@ export class AddSourceComponent implements OnInit {
         pending: Math.max(pending, Number(v.scanq_length) || 0),
         services: Number(v.num_svc) || mine.reduce((sum: number, m: any) => sum + (Number(m.num_svc) || 0), 0),
         mapped: Number(v.num_chn) || 0,
+        failedUuids: mine.filter((m: any) => result(m) === 2).map((m: any) => String(m.uuid)),
       });
+    });
+  }
+
+  readonly retrying = signal(false);
+  readonly retries = signal(0);
+
+  /**
+   * Scan again only the frequencies that came back empty. Tvheadend marks a frequency as failed
+   * straight away when its tuner is busy elsewhere (an HDHomeRun tuner in use by another server or
+   * app), instead of waiting for a free one — so a retry often finds stations the first pass missed.
+   */
+  retryFailed(): void {
+    const ids = this.scan()?.failedUuids ?? [];
+    if (!ids.length) return;
+    this.retrying.set(true);
+    forkJoin(ids.map(id => this.tvh.idnodeSave(id, { scan_state: 1 }).pipe(catchError(() => of(null))))).subscribe(() => {
+      this.retrying.set(false);
+      this.retries.update(n => n + 1);
+      this.scanStarted.set(Date.now());
+      if (!this.timer) this.timer = setInterval(() => this.poll(), 2000);
+      this.poll();
     });
   }
 

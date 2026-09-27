@@ -68,3 +68,5 @@ mat-icon.bad { color: var(--mat-sys-error); }
 .narrow { width: 220px; margin-bottom: 8px; }
 code { font-size: 12px; }
 @media (max-width: 900px) { .options2 { grid-template-columns: 1fr; } }
+
+.retry { margin: 4px 0 8px; p { margin: 0 0 8px; } }

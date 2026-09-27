@@ -244,6 +244,19 @@
           }
           @if (scanDone()) {
             <p><strong>Scan finished.</strong></p>
+            @if (kind() === 'tuner' && s.ok && s.failed) {
+              <div class="retry">
+                <p class="muted">
+                  Expected more stations? Frequencies also come back empty when a tuner was busy — for example an
+                  HDHomeRun tuner in use by another server or app during the scan. Tvheadend doesn’t wait for it to
+                  free up, so scanning the empty ones again often finds the rest.
+                  @if (retries()) { (Retried {{ retries() }}×.) }
+                </p>
+                <button mat-stroked-button (click)="retryFailed()" [disabled]="retrying()">
+                  <mat-icon>refresh</mat-icon> Scan the {{ s.failed }} empty frequencies again
+                </button>
+              </div>
+            }
           } @else {
             <p class="muted">{{ kind() === 'iptv'
               ? 'Each stream is opened briefly to see what it carries — a few at a time, up to your stream limit.'

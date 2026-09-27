@@ -39,6 +39,12 @@ The stock UI needs you to know the chain
       Add a source (they fixed omv-dell behind NordLynx: UDP base port + one per tuner).
 - [ ] **Over-the-air guide** — offer the ATSC PSIP/EIT grabber on the Channels & guide step for antenna sources.
 
+- [x] Retry empty frequencies after a scan; Scan on selected muxes.
+- [ ] **Shared HDHomeRun** — Tvheadend marks a mux FAIL at once when a tuner's lock is held by
+      another client (`failed to acquire lockkey`), rather than trying another tuner. Options: give each
+      server its own tuners; point the other server's playlist at specific tuners; or patch Tvheadend to
+      return "no free adapter" so the scan requeues.
+
 ## Housekeeping
 
 - [ ] Test every screen against the real server (built and tested against mocks so far).

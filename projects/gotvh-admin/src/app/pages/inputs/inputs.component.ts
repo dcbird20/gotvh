@@ -428,7 +428,10 @@ export class InputsComponent implements OnInit {
     const grid = this.grid;
     if (!grid) return;
     grid.bulkBusy.set(true);
-    runBulk(grid.selection.keys(), uuid => this.tvh.scanNetwork(uuid)).subscribe(result => {
+    runBulk(grid.selection.keys(), uuid => tab.id === 'muxes'
+      // A mux is queued for scanning by setting its scan state to "pending".
+      ? this.tvh.idnodeSave(uuid, { scan_state: 1 })
+      : this.tvh.scanNetwork(uuid)).subscribe(result => {
       grid.bulkBusy.set(false);
       this.snack.open(describeBulk('Queued scans for', result, ...tab.noun), undefined, { duration: 4000 });
       grid.refresh();
