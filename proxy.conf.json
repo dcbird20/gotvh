@@ -34,5 +34,13 @@
     "secure": false,
     "changeOrigin": true,
     "logLevel": "warn"
+  },
+  "/hdhr/192.168.1.54": {
+    "target": "http://192.168.1.54",
+    "changeOrigin": true,
+    "pathRewrite": {
+      "^/hdhr/192\\.168\\.1\\.54": ""
+    },
+    "logLevel": "warn"
   }
 }

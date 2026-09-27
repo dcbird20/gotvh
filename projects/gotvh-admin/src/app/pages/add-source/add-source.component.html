@@ -221,7 +221,34 @@
   @if (step() === 'scan') {
     <section class="card">
       <h2>Scanning {{ networkLabel() }}</h2>
-      @if (scan(); as s) {
+      @if (sharing(); as sh) {
+        @for (d of sh.devices; track d.ip) {
+          <p class="small sharing">
+            <mat-icon inline>settings_input_antenna</mat-icon>
+            <strong>{{ d.model || 'HDHomeRun' }}</strong> ({{ d.ip }}) · {{ d.tunerCount }} tuners
+            @for (t of d.tuners; track t.index) {
+              @if (t.busy) { · #{{ t.index }} in use by {{ t.target || 'another app' }}@if (t.what) { ({{ t.what }})} }
+            }
+          </p>
+        }
+        @if (sh.held.length) {
+          <p class="small muted">
+            Switched off in Tvheadend while scanning, so the scan doesn’t trip over them:
+            {{ heldNames(sh) }}. They’re switched back on when the scan ends.
+          </p>
+        }
+        @if (sh.unreachable.length) {
+          <p class="small muted">
+            Couldn’t ask {{ sh.unreachable.join(', ') }} which tuners are free, so if another app is using one,
+            some frequencies may come back empty. Empty ones are retried automatically.
+          </p>
+        }
+      }
+      @if (waitingForTuner()) {
+        <mat-progress-bar mode="indeterminate" />
+        <p>All the tuners are in use by other apps right now. The scan starts as soon as one is free.</p>
+      } @else if (scan()) {
+        @let s = scan()!;
         @if (s.muxes) {
           <mat-progress-bar mode="determinate" [value]="scanProgress() ?? 0" />
           <div class="stats">
@@ -242,8 +269,11 @@
               </div>
             </div>
           }
+          @if (pass() > 1 && !scanDone()) {
+            <p class="small muted">Pass {{ pass() }} of {{ MAX_PASSES }}: scanning the empty frequencies again with the free tuners.</p>
+          }
           @if (scanDone()) {
-            <p><strong>Scan finished.</strong></p>
+            <p><strong>Scan finished.</strong>@if (pass() > 1) { ({{ pass() }} passes)}</p>
             @if (kind() === 'tuner' && s.ok && s.failed) {
               <div class="retry">
                 <p class="muted">

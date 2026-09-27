@@ -2,7 +2,7 @@ import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angula
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { Observable, concat, forkJoin, of } from 'rxjs';
-import { catchError, last, map, switchMap } from 'rxjs/operators';
+import { catchError, last, map, switchMap, tap } from 'rxjs/operators';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -12,6 +12,7 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatRadioModule } from '@angular/material/radio';
 import { MatSelectModule } from '@angular/material/select';
 import { IdnodeOption, TvheadendService, isDeferredEnum, normalizeEnum, truthy } from '@gotvh/tvh-api';
+import { GuardReport, HdhrGuard } from '../../shared/hdhomerun';
 
 type Step = 'kind' | 'tuner' | 'iptv' | 'hdhr' | 'scan' | 'done';
 type Kind = 'tuner' | 'iptv';
@@ -64,6 +65,7 @@ const plural = (n: number, one: string, many = one + 's') => `${n} ${n === 1 ? o
 export class AddSourceComponent implements OnInit {
   private readonly tvh = inject(TvheadendService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly guard = inject(HdhrGuard);
 
   readonly step = signal<Step>('kind');
   readonly kind = signal<Kind | null>(null);
@@ -124,12 +126,13 @@ export class AddSourceComponent implements OnInit {
   });
 
   ngOnInit(): void {
-    this.destroyRef.onDestroy(() => this.stopPolling());
-    forkJoin({
+    this.destroyRef.onDestroy(() => { this.stopPolling(); this.stopWaiting(); this.guard.restore().subscribe(); });
+    // Tuners switched off for an earlier scan that didn't finish (page closed) go back on first.
+    this.guard.restore().pipe(switchMap(() => forkJoin({
       inputs: this.tvh.idnodeLoadByClass('mpegts_input').pipe(catchError(() => of([]))),
       builders: this.tvh.getBuilders('mpegts/network').pipe(catchError(() => of([]))),
       networks: this.tvh.getGrid('mpegts/network/grid').pipe(catchError(() => of([]))),
-    }).subscribe(({ inputs, builders, networks }) => {
+    }))).subscribe(({ inputs, builders, networks }) => {
       this.applyInputs(inputs);
       this.builders.set(builders.map(b => ({ ...b, system: systemOf(b.caption) })));
       this.networks.set(networks.map((n: any) => ({ uuid: String(n.uuid), name: String(n.networkname || n.uuid) }))
@@ -307,12 +310,14 @@ export class AddSourceComponent implements OnInit {
       // Enable each chosen tuner and add the network to it (keeping networks it already has).
       switchMap(net => concat(...this.selectedTuners().map(t =>
         this.tvh.idnodeSave(t.uuid, { enabled: true, networks: [...new Set([...t.networks, net])] }))).pipe(last(null, null), map(() => net))),
-      switchMap(net => this.tvh.scanNetwork(net).pipe(catchError(() => of(null)), map(() => net))),
+      // Shared HDHomeRun: switch off the tuners someone else is using before scanning.
+      switchMap(net => this.guard.prepare(this.selectedTuners()).pipe(tap(r => this.sharing.set(r)), map(() => net))),
     ).subscribe({
       next: net => {
         this.busy.set(false);
         const label = this.networkMode === 'existing' ? this.networkName$(net) : this.networkName.trim();
-        this.beginScan(net, label);
+        this.pass.set(1);
+        this.scanWhenFree(net, label);
       },
       error: err => {
         this.busy.set(false);
@@ -361,6 +366,7 @@ export class AddSourceComponent implements OnInit {
     this.networkUuid.set(network);
     this.networkLabel.set(label);
     this.scan.set(null);
+    this.passDoneHandled = false;
     this.scanStarted.set(Date.now());
     this.step.set('scan');
     this.poll();
@@ -391,7 +397,79 @@ export class AddSourceComponent implements OnInit {
         mapped: Number(v.num_chn) || 0,
         failedUuids: mine.filter((m: any) => result(m) === 2).map((m: any) => String(m.uuid)),
       });
+      if (this.scanDone() && !this.passDoneHandled) { this.passDoneHandled = true; this.afterPass(); }
     });
+  }
+
+  /** What the HDHomeRun said about its tuners before the latest pass. */
+  readonly sharing = signal<GuardReport | null>(null);
+  /** Waiting for another app to free a tuner (all of ours were busy). */
+  readonly waitingForTuner = signal(false);
+  /** Scan passes so far; empty frequencies are retried automatically up to MAX_PASSES. */
+  readonly pass = signal(0);
+  readonly MAX_PASSES = 3;
+  private waitTimer: ReturnType<typeof setInterval> | null = null;
+  private finishing = false;
+
+  /** Start the scan once at least one tuner is free (checking every 5 s). */
+  private scanWhenFree(net: string, label: string): void {
+    const go = () => {
+      this.stopWaiting();
+      this.tvh.scanNetwork(net).pipe(catchError(() => of(null))).subscribe();
+      this.beginScan(net, label);
+    };
+    if (this.sharing()?.free.length !== 0) { go(); return; }
+    this.networkUuid.set(net);
+    this.networkLabel.set(label);
+    this.step.set('scan');
+    this.waitingForTuner.set(true);
+    this.waitTimer = setInterval(() => {
+      this.guard.prepare(this.selectedTuners()).subscribe(r => {
+        this.sharing.set(r);
+        if (r.free.length) go();
+      });
+    }, 5000);
+  }
+
+  private stopWaiting(): void {
+    this.waitingForTuner.set(false);
+    if (this.waitTimer) { clearInterval(this.waitTimer); this.waitTimer = null; }
+  }
+
+  /**
+   * Called when a pass finishes. With HDHomeRun tuners involved, empty frequencies may just mean a
+   * tuner was busy elsewhere, so check the tuners again and rescan the empty ones (up to MAX_PASSES);
+   * then switch any held tuners back on.
+   */
+  private afterPass(): void {
+    const s = this.scan();
+    if (this.finishing || !s || this.kind() !== 'tuner') return;
+    const hdhr = !!this.sharing()?.devices.length || !!this.sharing()?.unreachable.length;
+    if (hdhr && s.ok > 0 && s.failed > 0 && this.pass() < this.MAX_PASSES) {
+      this.finishing = true;
+      this.guard.prepare(this.selectedTuners()).subscribe(r => {
+        this.sharing.set(r);
+        this.finishing = false;
+        if (!r.free.length) { this.releaseTuners(); return; }
+        this.pass.update(n => n + 1);
+        this.retryFailed(true);
+      });
+      return;
+    }
+    this.releaseTuners();
+  }
+
+  private releaseTuners(): void {
+    if (this.finishing) return;
+    this.finishing = true;
+    this.guard.restore().subscribe(() => {
+      this.finishing = false;
+      if (this.sharing()) this.sharing.update(r => r && { ...r, held: [] });
+    });
+  }
+
+  heldNames(r: GuardReport): string {
+    return r.held.map(t => `#${/#(\d+)/.exec(t.name)?.[1] ?? '?'} (used by ${t.by})`).join(', ');
   }
 
   readonly retrying = signal(false);
@@ -402,18 +480,27 @@ export class AddSourceComponent implements OnInit {
    * straight away when its tuner is busy elsewhere (an HDHomeRun tuner in use by another server or
    * app), instead of waiting for a free one — so a retry often finds stations the first pass missed.
    */
-  retryFailed(): void {
+  retryFailed(auto = false): void {
     const ids = this.scan()?.failedUuids ?? [];
     if (!ids.length) return;
+    if (!auto) {
+      // A manual retry: take another look at who is using the tuners first.
+      this.retrying.set(true);
+      this.guard.prepare(this.selectedTuners()).subscribe(r => { this.sharing.set(r); this.retrying.set(false); this.retryFailed(true); });
+      return;
+    }
     this.retrying.set(true);
     forkJoin(ids.map(id => this.tvh.idnodeSave(id, { scan_state: 1 }).pipe(catchError(() => of(null))))).subscribe(() => {
       this.retrying.set(false);
       this.retries.update(n => n + 1);
+      this.passDoneHandled = false;
       this.scanStarted.set(Date.now());
       if (!this.timer) this.timer = setInterval(() => this.poll(), 2000);
       this.poll();
     });
   }
+
+  private passDoneHandled = false;
 
   private stopPolling(): void {
     if (this.timer) { clearInterval(this.timer); this.timer = null; }
