@@ -175,7 +175,7 @@ Other sections are placeholders naming the API they'll use.
 ### Testing against the spare server (omv-dell)
 
 `npm run start:admin:omv` serves the admin app on port 4401 with `/api` proxied to the
-Tvheadend on omv-dell (`192.168.1.222:9983`, see `proxy.omv-dell.conf.json`). It listens on
+Tvheadend on omv-dell (`192.168.1.222:9981`, see `proxy.omv-dell.conf.json`). It listens on
 all interfaces, so another machine on the LAN can open `http://raven1:4401`. Use it for
 anything risky (stream profiles, users, deleting built-ins) before trying it on the main
 server.

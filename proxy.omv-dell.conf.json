@@ -1,36 +1,36 @@
 {
   "/api": {
-    "target": "http://192.168.1.222:9983",
+    "target": "http://192.168.1.222:9981",
     "secure": false,
     "changeOrigin": true,
     "logLevel": "warn"
   },
   "/play/": {
-    "target": "http://192.168.1.222:9983",
+    "target": "http://192.168.1.222:9981",
     "secure": false,
     "changeOrigin": true,
     "logLevel": "warn"
   },
   "/dvrfile/": {
-    "target": "http://192.168.1.222:9983",
+    "target": "http://192.168.1.222:9981",
     "secure": false,
     "changeOrigin": true,
     "logLevel": "warn"
   },
   "/stream": {
-    "target": "http://192.168.1.222:9983",
+    "target": "http://192.168.1.222:9981",
     "secure": false,
     "changeOrigin": true,
     "logLevel": "warn"
   },
   "/xmltv": {
-    "target": "http://192.168.1.222:9983",
+    "target": "http://192.168.1.222:9981",
     "secure": false,
     "changeOrigin": true,
     "logLevel": "warn"
   },
   "/imagecache": {
-    "target": "http://192.168.1.222:9983",
+    "target": "http://192.168.1.222:9981",
     "secure": false,
     "changeOrigin": true,
     "logLevel": "warn"
