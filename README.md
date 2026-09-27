@@ -116,6 +116,13 @@ Built so far:
   Changes that could lock out the signed-in account ask first, and it can't be deleted or
   disabled. **Blocked networks** tab manages `ipblock/entry`.
 
+- **Stream profiles** — every profile with its type in plain English (pass-through,
+  HTSP, Matroska, transcode …), whether it's built in, the default, and which DVR
+  profiles and users pick it. **Add profile** explains each type; **Make default**;
+  deleting says what falls back to pass-through. Built-in and default profiles can't be
+  deleted. The **Codec profiles** tab (only when Tvheadend has transcoding built in)
+  manages the encoder settings Transcode profiles use, and shows which profiles use each.
+
 Other sections are placeholders naming the API they'll use.
 
 ### Selecting several rows

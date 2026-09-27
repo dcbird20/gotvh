@@ -13,7 +13,6 @@ Working list for the admin app (`projects/gotvh-admin`). Most-basic first.
   - [ ] show why a recording failed (errors, file, size)
   - [ ] add a one-off recording by channel + time
   - [ ] time-based timers (`dvr/timerec/*` — calls already in the shared client)
-- [ ] **Stream profiles** screen (`profile/*`) — list + generic editor.
 - [ ] **Add a mux by hand** to a network (for regions whose predefined list is missing one).
 - [ ] **"Map to channels" on Services** — the stock one-click mapping with defaults, as a
       stopgap until the full screen below.
@@ -37,6 +36,7 @@ The stock UI needs you to know the chain
 ## Housekeeping
 
 - [ ] Test every screen against the real server (built and tested against mocks so far).
+      Try risky changes (stream/codec profiles, users) on a second Tvheadend instance first.
 - [ ] Merge `admin-workspace` into `main`.
 - [ ] Serve the production admin build from nginx on raven1 (`npm run build:admin` →
       `dist/gotvh-admin/browser`) instead of the dev server.
@@ -55,4 +55,5 @@ The stock UI needs you to know the chain
 - [x] Channels (filters, EPG source column, bulk edit)
 - [x] EPG sources (grabbers, settings incl. cron, EPG channels, map by name)
 - [x] Users & access (users joined with passwords, roles, lockout guards, blocked networks)
+- [x] Stream profiles (types in plain English, used-by, default, codec profiles for transcoding)
 - [x] Multi-select + bulk actions + bulk edit (add/remove/replace for lists) everywhere

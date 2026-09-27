@@ -2181,6 +2181,38 @@ export class TvheadendService {
     return this.http.get<any>(this.buildUrl('access/whoami'), this.getRequestOptions());
   }
 
+  /**
+   * Every object of a class (and its subclasses), with values — for classes
+   * that have no grid endpoint, e.g. "profile" (stream profiles) or
+   * "codec_profile". Each entry's params carry per-object flags such as rdonly.
+   */
+  idnodeLoadByClass(className: string): Observable<IdnodeEntry[]> {
+    return this.http.post<any>(this.buildUrl('idnode/load'),
+      this.buildFormBody({ class: className }), this.getFormRequestOptions()).pipe(
+      map(data => (Array.isArray(data?.entries) ? data.entries : []) as IdnodeEntry[])
+    );
+  }
+
+  /** Transcoding codecs Tvheadend knows (codec/list): name (sent on create), title, and the codec's idnode class. */
+  getCodecs(): Observable<Array<{ name: string; title: string; class: string; caption: string }>> {
+    return this.http.get<any>(this.buildUrl('codec/list'), this.getRequestOptions()).pipe(
+      map(data => (Array.isArray(data?.entries) ? data.entries : [])
+        .map((c: any) => ({
+          name: String(c?.name || ''), title: String(c?.title || c?.name || ''),
+          class: String(c?.class || ''), caption: String(c?.caption || ''),
+        }))
+        .filter((c: { name: string }) => c.name))
+    );
+  }
+
+  /** Codec profiles used by transcoding stream profiles (codec_profile/list). */
+  getCodecProfiles(): Observable<Array<{ uuid: string; title: string; status: string }>> {
+    return this.http.get<any>(this.buildUrl('codec_profile/list'), this.getRequestOptions()).pipe(
+      map(data => (Array.isArray(data?.entries) ? data.entries : [])
+        .map((p: any) => ({ uuid: String(p?.uuid || ''), title: String(p?.title || ''), status: String(p?.status || '') })))
+    );
+  }
+
   /** Queue a full rescan of every mux on a network. */
   scanNetwork(uuid: string): Observable<any> {
     return this.http.post<any>(this.buildUrl('mpegts/network/scan'), this.buildFormBody({ uuid }), this.getFormRequestOptions());

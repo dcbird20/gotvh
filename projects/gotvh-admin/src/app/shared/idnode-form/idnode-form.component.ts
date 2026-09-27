@@ -46,6 +46,10 @@ const NAME_LIST_FIELDS: Record<string, { hint: string }> = {
 const PROMOTED_FIELDS: Array<{ id: string; label?: string; hint?: string }> = [
   { id: 'epggrab', label: 'EPG source (guide data)',
     hint: 'Guide channels that supply this channel’s programme guide. Over-the-air channels also get guide data from their service without this.' },
+  // Transcoding stream profiles: the codec choices are the point of the profile.
+  { id: 'pro_vcodec', label: 'Video codec profile', hint: 'How video is re-encoded. “Copy” passes it through unchanged; “Disabled” drops it.' },
+  { id: 'pro_acodec', label: 'Audio codec profile', hint: 'How audio is re-encoded. “Copy” passes it through unchanged; “Disabled” drops it.' },
+  { id: 'pro_scodec', label: 'Subtitle codec profile', hint: 'How subtitles are handled. “Copy” passes them through; “Disabled” drops them.' },
 ];
 
 /** Plain-English help for fields whose Tvheadend caption doesn't explain much. */
@@ -149,6 +153,11 @@ export class IdnodeFormComponent implements OnChanges {
    */
   readonly createClass = input<string | null>(null);
   /**
+   * Class to read field metadata from when it differs from the `class` sent on
+   * create (codec profiles: created by codec name, described by the codec's class).
+   */
+  readonly createMetaClass = input<string | null>(null);
+  /**
    * A settings object with its own load/save endpoints and no uuid, e.g.
    * "epggrab/config" (loads from …/load, saves changes to …/save).
    */
@@ -251,7 +260,7 @@ export class IdnodeFormComponent implements OnChanges {
       ? this.tvh.idnodeLoadSimple(configPath)
       : uuid
       ? this.tvh.idnodeLoad(uuid)
-      : createClass ? this.tvh.idnodeClassByName(createClass) : this.tvh.idnodeClass(createPath!);
+      : createClass ? this.tvh.idnodeClassByName(this.createMetaClass() || createClass) : this.tvh.idnodeClass(createPath!);
 
     request.subscribe({
       next: entry => {

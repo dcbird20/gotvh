@@ -73,8 +73,8 @@ export const routes: Routes = [
   },
   {
     path: 'streaming',
-    ...placeholder('Stream profiles', 'profile/*',
-      'Not in the shared client yet. Pass-through and transcoding profiles.'),
+    title: 'Stream profiles · GoTVH Admin',
+    loadComponent: () => import('./pages/stream-profiles/stream-profiles.component').then(m => m.StreamProfilesComponent),
   },
   { path: '**', redirectTo: 'dashboard' },
 ];
