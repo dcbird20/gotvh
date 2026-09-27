@@ -36,6 +36,18 @@ const list = (v: unknown): string[] => (Array.isArray(v) ? v : v ? [v] : []).map
 const plural = (n: number, one: string, many = one + 's') => `${n} ${n === 1 ? one : many}`;
 /** Names compare without case, spaces or punctuation: "WPSU-HD" ~ "wpsu hd". */
 const nameKey = (n: string) => n.toLowerCase().replace(/[^a-z0-9]+/g, '');
+/** Shared leading text of all names, cut back to a " - " / " | " / ": " separator (e.g. a playlist id "vYSe42W83QyE - "). */
+function commonPrefix(names: string[]): string {
+  if (names.length < 2) return '';
+  let p = names[0];
+  for (const n of names) { while (p && !n.startsWith(p)) p = p.slice(0, -1); }
+  let cut = 0;
+  for (const sep of [' - ', ' | ', ': ']) {
+    const at = p.lastIndexOf(sep);
+    if (at >= 0) cut = Math.max(cut, at + sep.length);
+  }
+  return p.slice(0, cut);
+}
 const tidy = (n: string) => n.replace(/[\s-]*(hd|sd|uhd|4k)$/i, '').trim() || n;
 
 interface Candidate {
@@ -130,7 +142,10 @@ export class MapServicesComponent implements OnInit {
     const plans = new Map<string, Plan>();
     for (const c of this.selected()) {
       const name = this.finalName(c);
-      const key = merge ? nameKey(name) : c.uuid;
+      // The same name on *different* networks is one station received two ways; on the same
+      // network it's two different services (IPTV playlists often repeat or lack names).
+      let key = merge ? nameKey(name) : c.uuid;
+      if (merge && plans.get(key)?.services.some(x => x.network === c.network)) key = c.uuid;
       let p = plans.get(key);
       if (!p) {
         const ex = existing ? byName.get(nameKey(name)) : null;
@@ -177,14 +192,22 @@ export class MapServicesComponent implements OnInit {
           const lcn = Number(s.lcn) || 0, minor = Number(s.lcn_minor) || 0;
           const broadcastNumber = lcn ? (minor ? `${lcn}.${minor}` : String(lcn)) : '';
           const c: Candidate = {
-            uuid: String(s.uuid), service: String(s.svcname || '').trim() || `Service ${s.sid ?? ''}`.trim(),
+            uuid: String(s.uuid), service: String(s.svcname || '').trim(),
             provider: String(s.provider || ''), network: String(s.network || 'Unknown network'), mux: String(s.multiplex || ''),
             kind, encrypted, broadcastNumber,
             selected: (kind === 'tv' || kind === 'unknown') && !encrypted,
             name: '', number: broadcastNumber,
           };
-          c.name = c.service;
           byNet.set(c.network, [...(byNet.get(c.network) || []), c]);
+        }
+        // Services without a name yet (common for IPTV until a stream has been played) are named
+        // after their mux, minus any prefix every mux on that network shares (a playlist id).
+        for (const items of byNet.values()) {
+          const prefix = commonPrefix(items.map(c => c.mux));
+          for (const c of items) {
+            if (!c.service) c.service = c.mux.slice(prefix.length).trim() || c.mux || 'Unnamed service';
+            c.name = c.service;
+          }
         }
         this.groups.set([...byNet.entries()]
           .map(([network, items]) => ({
@@ -261,8 +284,8 @@ export class MapServicesComponent implements OnInit {
     if (plan?.existing) {
       out.push({ text: `adds to existing channel “${plan.existing.name}”`, link: { route: '/channels', query: { open: plan.existing.uuid } } });
     } else if (plan && plan.services.length > 1 && plan.services[0] === c) {
-      const others = plan.services.slice(1).map(s => s.network === c.network ? s.mux : s.network);
-      out.push({ text: `one channel, also fed by ${others.join(', ')}` });
+      const others = [...new Set(plan.services.slice(1).map(s => s.network))];
+      out.push({ text: `one channel, also received on ${others.slice(0, 2).join(' and ')}${others.length > 2 ? ` and ${others.length - 2} more` : ''}` });
     } else if (plan && plan.services.length > 1) {
       out.push({ text: `joins “${plan.name}” above` });
     }
