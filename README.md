@@ -97,6 +97,15 @@ Built so far:
 
 Other sections are placeholders naming the API they'll use.
 
+### Selecting several rows
+
+Every table supports multi-select: checkboxes, Ctrl/⌘-click to add a row, Shift-click
+for a range, Space on a focused row, and the header checkbox for the whole page. A bar
+with bulk actions (enable, disable, delete, scan, cancel, mark watched — whatever fits
+the table) appears while rows are selected. Selections survive paging and filtering;
+the bar says when some selected rows aren't on screen. Shared pieces: `RowSelection`
+(`shared/row-selection.ts`), `runBulk` (`shared/bulk.ts`) and `admin-bulk-bar`.
+
 ### Generic config editor
 
 Most Tvheadend config objects are "idnodes", and the API describes their fields (type,

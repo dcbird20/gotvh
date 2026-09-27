@@ -1,6 +1,7 @@
 import { Component, OnChanges, SimpleChanges, inject, input, output, signal } from '@angular/core';
 import { Subject, Subscription } from 'rxjs';
 import { debounceTime } from 'rxjs/operators';
+import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
@@ -9,6 +10,8 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatSortModule, Sort } from '@angular/material/sort';
 import { MatTableModule } from '@angular/material/table';
 import { TvheadendService, truthy } from '@gotvh/tvh-api';
+import { BulkBarComponent } from './bulk-bar.component';
+import { RowSelection } from './row-selection';
 
 export interface GridColumn {
   /** Field name in the grid response. */
@@ -24,11 +27,16 @@ export interface GridColumn {
  * (e.g. `mpegts/mux/grid`). Emits the clicked row; the page decides what to
  * open. Large lists (thousands of services) stay fast because only one page
  * is fetched at a time.
+ *
+ * Multi-select: checkbox column, Ctrl/⌘-click, Shift-click range, Space on a
+ * focused row. While rows are selected, content marked `bulkActions` is shown
+ * in a bar above the table; the page reads `selection.rows()` to act on them.
  */
 @Component({
   selector: 'admin-idnode-grid',
   standalone: true,
-  imports: [MatTableModule, MatSortModule, MatPaginatorModule, MatFormFieldModule, MatInputModule, MatIconModule, MatProgressBarModule],
+  imports: [MatTableModule, MatSortModule, MatPaginatorModule, MatFormFieldModule, MatInputModule, MatIconModule,
+    MatProgressBarModule, MatCheckboxModule, BulkBarComponent],
   template: `
     <div class="toolbar">
       @if (filterField()) {
@@ -42,12 +50,29 @@ export interface GridColumn {
       <span class="spacer"></span>
       <ng-content />
     </div>
+    @if (selectable() && selection.count()) {
+      <admin-bulk-bar [count]="selection.count()" [busy]="bulkBusy()" [hint]="offPageHint()" (clear)="selection.clear()">
+        <ng-content select="[bulkActions]" />
+      </admin-bulk-bar>
+    }
     @if (loading()) { <mat-progress-bar mode="indeterminate" /> }
     @if (error()) { <div class="banner error" role="alert">{{ error() }}</div> }
 
     <div class="table-wrap">
       <table mat-table [dataSource]="rows()" matSort (matSortChange)="onSort($event)"
              [matSortActive]="sort().active" [matSortDirection]="sort().direction">
+        <ng-container matColumnDef="__select">
+          <th mat-header-cell *matHeaderCellDef class="col-select">
+            <mat-checkbox [checked]="selection.allSelected(rows())" [indeterminate]="selection.someSelected(rows())"
+                          [disabled]="!rows().length" (change)="selection.toggleAll(rows())"
+                          aria-label="Select all rows on this page" />
+          </th>
+          <!-- The cell handles the click (so Shift works); the checkbox is display-only.
+               Keyboard users toggle with Space on the focused row. -->
+          <td mat-cell *matCellDef="let r" class="col-select" (click)="onCheckboxCell($event, r)">
+            <mat-checkbox class="display-only" [checked]="selection.isSelected(r)" [tabIndex]="-1" aria-hidden="true" />
+          </td>
+        </ng-container>
         @for (c of columns(); track c.id) {
           <ng-container [matColumnDef]="c.id">
             <th mat-header-cell *matHeaderCellDef mat-sort-header [disabled]="c.sortable === false"
@@ -60,10 +85,11 @@ export interface GridColumn {
         }
         <tr mat-header-row *matHeaderRowDef="columnIds(); sticky: true"></tr>
         <tr mat-row *matRowDef="let r; columns: columnIds()" class="clickable"
-            [class.selected]="r.uuid && r.uuid === selectedUuid()" (click)="rowClick.emit(r)"
-            tabindex="0" (keydown.enter)="rowClick.emit(r)"></tr>
+            [class.selected]="r.uuid && r.uuid === selectedUuid()" [class.checked]="selection.isSelected(r)"
+            (click)="onRowClick($event, r)" tabindex="0" (keydown.enter)="rowClick.emit(r)"
+            (keydown.space)="$event.preventDefault(); selectable() && selection.toggle(r)"></tr>
         <tr class="mat-row" *matNoDataRow>
-          <td class="mat-cell empty muted" [attr.colspan]="columns().length">
+          <td class="mat-cell empty muted" [attr.colspan]="columnIds().length">
             {{ loading() ? 'Loading…' : filter() ? 'Nothing matches “' + filter() + '”.' : emptyText() }}
           </td>
         </tr>
@@ -86,7 +112,11 @@ export interface GridColumn {
     tr.clickable { cursor: pointer; }
     tr.clickable:hover td { background: var(--mat-sys-surface-container-low); }
     tr.clickable:focus-visible { outline: 2px solid var(--mat-sys-primary); outline-offset: -2px; }
+    tr.checked td { background: color-mix(in srgb, var(--mat-sys-secondary-container) 55%, transparent); }
     tr.selected td { background: var(--mat-sys-secondary-container) !important; }
+    .col-select { width: 48px; padding-right: 0 !important; }
+    td.col-select { cursor: pointer; }
+    .display-only { pointer-events: none; }
     .empty { padding: 24px 16px; }
     .banner.error { padding: 10px 14px; border-radius: 8px; margin: 8px 0;
                     background: var(--mat-sys-error-container); color: var(--mat-sys-on-error-container); }
@@ -105,6 +135,8 @@ export class IdnodeGridComponent implements OnChanges {
   readonly params = input<Record<string, string | number>>({});
   readonly selectedUuid = input<string | null>(null);
   readonly emptyText = input('Nothing here yet.');
+  /** Show checkboxes and allow multi-select (default on). */
+  readonly selectable = input(true);
 
   readonly rowClick = output<any>();
 
@@ -116,6 +148,10 @@ export class IdnodeGridComponent implements OnChanges {
   readonly sort = signal<Sort>({ active: '', direction: '' });
   readonly pageIndex = signal(0);
   readonly pageSize = signal(50);
+  /** Set by the page while a bulk action runs. */
+  readonly bulkBusy = signal(false);
+
+  readonly selection = new RowSelection<any>(r => String(r?.uuid || ''));
 
   private readonly filter$ = new Subject<string>();
   private request?: Subscription;
@@ -124,7 +160,23 @@ export class IdnodeGridComponent implements OnChanges {
     this.filter$.pipe(debounceTime(300)).subscribe(() => { this.pageIndex.set(0); this.refresh(); });
   }
 
-  columnIds = () => this.columns().map(c => c.id);
+  columnIds = () => (this.selectable() ? ['__select'] : []).concat(this.columns().map(c => c.id));
+
+  /** Plain click opens the row; Ctrl/⌘/Shift-click changes the selection instead. */
+  onRowClick(event: MouseEvent, row: any): void {
+    if (this.selectable() && this.selection.handleClick(event, row, this.rows())) return;
+    this.rowClick.emit(row);
+  }
+
+  onCheckboxCell(event: MouseEvent, row: any): void {
+    this.selection.cellClick(event, row, this.rows());
+  }
+
+  offPageHint(): string {
+    const here = this.rows().filter(r => this.selection.isSelected(r)).length;
+    const elsewhere = this.selection.count() - here;
+    return elsewhere > 0 ? `${elsewhere} not shown on this page` : '';
+  }
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['defaultSort'] && !this.sort().active) this.sort.set(this.defaultSort());

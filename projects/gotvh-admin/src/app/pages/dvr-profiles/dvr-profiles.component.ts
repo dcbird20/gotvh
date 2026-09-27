@@ -1,6 +1,7 @@
 import { Component, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
 import { Observable, of } from 'rxjs';
 import { MatButtonModule } from '@angular/material/button';
+import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
@@ -10,6 +11,9 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { TvheadendService, truthy } from '@gotvh/tvh-api';
 import { ConfirmDialogComponent, ConfirmDialogData } from '../../shared/confirm-dialog.component';
 import { IdnodeFormComponent } from '../../shared/idnode-form/idnode-form.component';
+import { BulkBarComponent } from '../../shared/bulk-bar.component';
+import { describeBulk, runBulk } from '../../shared/bulk';
+import { RowSelection } from '../../shared/row-selection';
 
 interface ProfileRow {
   uuid: string;
@@ -30,7 +34,7 @@ const BASE = 'dvr/config';
   selector: 'admin-dvr-profiles',
   standalone: true,
   imports: [MatTableModule, MatButtonModule, MatIconModule, MatProgressBarModule, MatTooltipModule, MatDialogModule,
-    MatSnackBarModule, IdnodeFormComponent],
+    MatSnackBarModule, MatCheckboxModule, BulkBarComponent, IdnodeFormComponent],
   template: `
     <div class="admin-page wide">
       <div class="head">
@@ -42,9 +46,26 @@ const BASE = 'dvr/config';
       </div>
       @if (loading()) { <mat-progress-bar mode="indeterminate" /> }
       @if (error()) { <div class="banner error" role="alert">{{ error() }}</div> }
+      @if (selection.count()) {
+        <admin-bulk-bar [count]="selection.count()" [busy]="bulkBusy()" (clear)="selection.clear()">
+          <button mat-button class="danger-text" (click)="bulkDelete()"><mat-icon>delete</mat-icon> Delete</button>
+        </admin-bulk-bar>
+      }
 
       <div class="layout" [class.with-editor]="editorOpen()">
         <table mat-table [dataSource]="rows()">
+          <ng-container matColumnDef="select">
+            <th mat-header-cell *matHeaderCellDef class="col-select">
+              <mat-checkbox [checked]="selection.allSelected(rows())" [indeterminate]="selection.someSelected(rows())"
+                            (change)="selection.toggleAll(rows())" aria-label="Select all profiles except the default" />
+            </th>
+            <td mat-cell *matCellDef="let r" class="col-select"
+                (click)="r.isDefault ? $event.stopPropagation() : selection.cellClick($event, r, rows())"
+                [matTooltip]="r.isDefault ? 'The default profile can’t be deleted' : ''">
+              <mat-checkbox class="display-only" [checked]="selection.isSelected(r)" [disabled]="r.isDefault"
+                            [tabIndex]="-1" aria-hidden="true" />
+            </td>
+          </ng-container>
           <ng-container matColumnDef="name">
             <th mat-header-cell *matHeaderCellDef>Profile</th>
             <td mat-cell *matCellDef="let r">
@@ -62,8 +83,10 @@ const BASE = 'dvr/config';
             <td mat-cell *matCellDef="let r"><code>{{ r.storage || '—' }}</code></td>
           </ng-container>
           <tr mat-header-row *matHeaderRowDef="columns()"></tr>
-          <tr mat-row *matRowDef="let r; columns: columns()" class="clickable"
-              [class.selected]="selected() === r.uuid" (click)="select(r)"></tr>
+          <tr mat-row *matRowDef="let r; columns: columns()" class="clickable" tabindex="0"
+              [class.selected]="selected() === r.uuid" [class.checked]="selection.isSelected(r)"
+              (click)="onRowClick($event, r)" (keydown.enter)="select(r)"
+              (keydown.space)="$event.preventDefault(); selection.toggle(r)"></tr>
           <tr class="mat-row" *matNoDataRow>
             <td class="mat-cell empty muted" [attr.colspan]="columns().length">{{ loading() ? 'Loading…' : 'No DVR profiles found.' }}</td>
           </tr>
@@ -100,7 +123,12 @@ const BASE = 'dvr/config';
     code { font-size: 12px; word-break: break-all; }
     tr.clickable { cursor: pointer; }
     tr.clickable:hover td { background: var(--mat-sys-surface-container-low); }
+    tr.checked td { background: color-mix(in srgb, var(--mat-sys-secondary-container) 55%, transparent); }
     tr.selected td { background: var(--mat-sys-secondary-container) !important; }
+    tr.clickable:focus-visible { outline: 2px solid var(--mat-sys-primary); outline-offset: -2px; }
+    .col-select { width: 48px; padding-right: 0 !important; }
+    td.col-select { cursor: pointer; }
+    .display-only { pointer-events: none; }
     .empty { padding: 24px 16px; }
     .banner.error { padding: 10px 14px; border-radius: 8px; margin: 8px 0 12px;
                     background: var(--mat-sys-error-container); color: var(--mat-sys-on-error-container); }
@@ -124,7 +152,9 @@ export class DvrProfilesComponent implements OnInit {
 
   readonly editorOpen = computed(() => this.creating() || !!this.selected());
   readonly selectedRow = computed(() => this.rows().find(r => r.uuid === this.selected()) || null);
-  readonly columns = computed(() => this.editorOpen() ? ['name', 'enabled'] : ['name', 'enabled', 'storage']);
+  readonly columns = computed(() => this.editorOpen() ? ['select', 'name', 'enabled'] : ['select', 'name', 'enabled', 'storage']);
+  readonly selection = new RowSelection<ProfileRow>(r => r.uuid, r => !r.isDefault);
+  readonly bulkBusy = signal(false);
   readonly editorTitle = computed(() => this.creating()
     ? 'New DVR profile'
     : (this.selectedRow()?.isDefault ? 'Default profile' : this.selectedRow()?.name || 'DVR profile'));
@@ -153,6 +183,34 @@ export class DvrProfilesComponent implements OnInit {
         this.error.set(Number(err?.status) === 401 ? 'Sign in required — use Sign in at the top right.'
           : `Couldn’t load DVR profiles (${err?.status || 'network error'}).`);
       },
+    });
+  }
+
+  /** Plain click opens the profile; Ctrl/⌘-click and Shift-click select instead. */
+  onRowClick(event: MouseEvent, row: ProfileRow): void {
+    if (this.selection.handleClick(event, row, this.rows())) return;
+    this.select(row);
+  }
+
+  bulkDelete(): void {
+    const rows = this.selection.rows();
+    const names = rows.map(r => `“${r.name}”`).join(', ');
+    const data: ConfirmDialogData = {
+      title: `Delete ${rows.length} DVR ${rows.length === 1 ? 'profile' : 'profiles'}?`,
+      message: `${names} will be removed. Recordings and rules that use them fall back to the default profile.`,
+      confirm: 'Delete',
+      destructive: true,
+    };
+    this.dialog.open(ConfirmDialogComponent, { data }).afterClosed().subscribe(ok => {
+      if (!ok) return;
+      this.bulkBusy.set(true);
+      runBulk(rows, r => this.tvh.idnodeDelete(r.uuid)).subscribe(result => {
+        this.bulkBusy.set(false);
+        this.snack.open(describeBulk('Deleted', result, 'profile'), undefined, { duration: 4000 });
+        if (rows.some(r => r.uuid === this.selected())) this.selected.set(null);
+        this.selection.clear();
+        this.load();
+      });
     });
   }
 

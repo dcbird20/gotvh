@@ -24,6 +24,9 @@ import {
   parseOptionalNonNegativeInteger, parseStoredTitlePattern, parseTimeToMinutes,
 } from '@gotvh/tvh-api';
 import { ConfirmDialogComponent, ConfirmDialogData } from '../../shared/confirm-dialog.component';
+import { BulkBarComponent } from '../../shared/bulk-bar.component';
+import { describeBulk, runBulk } from '../../shared/bulk';
+import { RowSelection } from '../../shared/row-selection';
 import { overlayIsOpen } from '../../shared/idnode-form/idnode-form.component';
 
 interface RuleRow {
@@ -54,7 +57,7 @@ const ALL_DAYS = [1, 2, 3, 4, 5, 6, 7];
   imports: [
     ReactiveFormsModule, MatTableModule, MatSortModule, MatButtonModule, MatButtonToggleModule, MatCheckboxModule,
     MatFormFieldModule, MatInputModule, MatSelectModule, MatAutocompleteModule, MatSlideToggleModule, MatIconModule,
-    MatTooltipModule, MatProgressBarModule, MatDialogModule, MatSnackBarModule,
+    MatTooltipModule, MatProgressBarModule, MatDialogModule, MatSnackBarModule, BulkBarComponent,
   ],
   templateUrl: './autorec.component.html',
   styleUrl: './autorec.component.scss',
@@ -102,8 +105,11 @@ export class AutorecComponent implements OnInit {
 
   /** Narrower table while the editor panel is open. */
   readonly columns = computed(() => this.editing() === null
-    ? ['enabled', 'label', 'channel', 'when', 'padding', 'profile', 'actions']
-    : ['enabled', 'label', 'channel', 'when', 'actions']);
+    ? ['select', 'enabled', 'label', 'channel', 'when', 'padding', 'profile', 'actions']
+    : ['select', 'enabled', 'label', 'channel', 'when', 'actions']);
+
+  readonly selection = new RowSelection<RuleRow>(r => r.uuid);
+  readonly bulkBusy = signal(false);
 
   readonly enabledCount = computed(() => this.rows().filter(r => r.enabled).length);
 
@@ -271,6 +277,53 @@ export class AutorecComponent implements OnInit {
           this.busyUuid.set('');
           this.snack.open(this.describeError(err), 'Dismiss', { duration: 6000 });
         },
+      });
+    });
+  }
+
+  // ---------------------------------------------------------------- selection & bulk
+
+  /** Plain click opens the rule; Ctrl/⌘-click and Shift-click select instead. */
+  onRowClick(event: MouseEvent, row: RuleRow): void {
+    if (this.selection.handleClick(event, row, this.visibleRows())) return;
+    this.openEdit(row);
+  }
+
+  hiddenHint(): string {
+    const shown = this.visibleRows().filter(r => this.selection.isSelected(r)).length;
+    const hidden = this.selection.count() - shown;
+    return hidden > 0 ? `${hidden} hidden by the filter` : '';
+  }
+
+  bulkSetEnabled(enabled: boolean): void {
+    const rows = this.selection.rows();
+    this.bulkBusy.set(true);
+    runBulk(rows, r => this.tvh.saveAutorec(r.uuid, { enabled: enabled ? 1 : 0 })).subscribe(result => {
+      this.bulkBusy.set(false);
+      this.snack.open(describeBulk(enabled ? 'Enabled' : 'Disabled', result, 'rule'), undefined, { duration: 4000 });
+      if (!result.failed) this.selection.clear();
+      this.load();
+    });
+  }
+
+  bulkDelete(): void {
+    const rows = this.selection.rows();
+    const names = rows.slice(0, 3).map(r => `“${r.label}”`).join(', ') + (rows.length > 3 ? ` and ${rows.length - 3} more` : '');
+    const data: ConfirmDialogData = {
+      title: `Delete ${rows.length} ${rows.length === 1 ? 'rule' : 'rules'}?`,
+      message: `${names} will stop scheduling new recordings. Recordings they already scheduled are not affected.`,
+      confirm: 'Delete',
+      destructive: true,
+    };
+    this.dialog.open(ConfirmDialogComponent, { data }).afterClosed().subscribe(ok => {
+      if (!ok) return;
+      this.bulkBusy.set(true);
+      runBulk(rows, r => this.tvh.deleteAutorec(r.uuid)).subscribe(result => {
+        this.bulkBusy.set(false);
+        this.snack.open(describeBulk('Deleted', result, 'rule'), undefined, { duration: 4000 });
+        if (rows.some(r => r.uuid === this.editing())) this.closeEditor();
+        this.selection.clear();
+        this.load();
       });
     });
   }

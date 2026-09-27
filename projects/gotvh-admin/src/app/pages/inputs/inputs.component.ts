@@ -12,6 +12,7 @@ import { TvheadendService } from '@gotvh/tvh-api';
 import { ConfirmDialogComponent, ConfirmDialogData } from '../../shared/confirm-dialog.component';
 import { IdnodeFormComponent } from '../../shared/idnode-form/idnode-form.component';
 import { GridColumn, IdnodeGridComponent } from '../../shared/idnode-grid.component';
+import { describeBulk, runBulk } from '../../shared/bulk';
 
 type TabId = 'tuners' | 'networks' | 'muxes' | 'services';
 
@@ -42,6 +43,10 @@ interface GridTab {
   columns: GridColumn[];
   deleteWarning: string;
   emptyText: string;
+  /** Singular/plural nouns for bulk messages. */
+  noun: [string, string];
+  /** Has an `enabled` field that bulk enable/disable can set. */
+  canEnable: boolean;
 }
 
 const GRID_TABS: GridTab[] = [
@@ -57,6 +62,7 @@ const GRID_TABS: GridTab[] = [
     ],
     deleteWarning: 'Its muxes and services are removed too. Channels mapped from them lose their source.',
     emptyText: 'No networks yet. Use Add network, then assign it to a tuner.',
+    noun: ['network', 'networks'], canEnable: false,
   },
   {
     id: 'muxes', label: 'Muxes', path: 'mpegts/mux/grid',
@@ -70,6 +76,7 @@ const GRID_TABS: GridTab[] = [
     ],
     deleteWarning: 'Services on this mux are removed too.',
     emptyText: 'No muxes. Scanning a network finds them.',
+    noun: ['mux', 'muxes'], canEnable: true,
   },
   {
     id: 'services', label: 'Services', path: 'mpegts/service/grid',
@@ -84,6 +91,7 @@ const GRID_TABS: GridTab[] = [
     ],
     deleteWarning: 'It may reappear the next time the mux is scanned.',
     emptyText: 'No services. They appear after a mux is scanned.',
+    noun: ['service', 'services'], canEnable: true,
   },
 ];
 
@@ -288,6 +296,66 @@ export class InputsComponent implements OnInit {
         error: err => this.snack.open(`Delete failed (${err?.status || 'network error'})`, 'Dismiss', { duration: 6000 }),
       });
     });
+  }
+
+  // ---------------------------------------------------------------- bulk actions
+
+  /** Enable or disable every selected mux/service. 1/0 works for both bool and the mux enable enum. */
+  bulkSetEnabled(tab: GridTab, enabled: boolean): void {
+    const grid = this.grid;
+    if (!grid) return;
+    const uuids = grid.selection.keys();
+    grid.bulkBusy.set(true);
+    runBulk(uuids, uuid => this.tvh.idnodeSave(uuid, { enabled: enabled ? 1 : 0 })).subscribe(result => {
+      grid.bulkBusy.set(false);
+      this.snack.open(describeBulk(enabled ? 'Enabled' : 'Disabled', result, ...tab.noun), undefined, { duration: 4000 });
+      if (!result.failed) grid.selection.clear();
+      grid.refresh();
+      this.reloadEditorIfSelected(uuids);
+    });
+  }
+
+  bulkScan(tab: GridTab): void {
+    const grid = this.grid;
+    if (!grid) return;
+    grid.bulkBusy.set(true);
+    runBulk(grid.selection.keys(), uuid => this.tvh.scanNetwork(uuid)).subscribe(result => {
+      grid.bulkBusy.set(false);
+      this.snack.open(describeBulk('Queued scans for', result, ...tab.noun), undefined, { duration: 4000 });
+      grid.refresh();
+    });
+  }
+
+  bulkDelete(tab: GridTab): void {
+    const grid = this.grid;
+    if (!grid) return;
+    const rows = grid.selection.rows();
+    const [one, many] = tab.noun;
+    const names = rows.slice(0, 3).map(r => `“${r?.[tab.nameField] || r?.uuid}”`).join(', ') + (rows.length > 3 ? ` and ${rows.length - 3} more` : '');
+    const data: ConfirmDialogData = {
+      title: `Delete ${rows.length} ${rows.length === 1 ? one : many}?`,
+      message: `${names} will be deleted. ${tab.deleteWarning}`,
+      confirm: 'Delete',
+      destructive: true,
+    };
+    this.dialog.open(ConfirmDialogComponent, { data }).afterClosed().subscribe(ok => {
+      if (!ok) return;
+      grid.bulkBusy.set(true);
+      const uuids = rows.map(r => String(r.uuid));
+      runBulk(uuids, uuid => this.tvh.idnodeDelete(uuid)).subscribe(result => {
+        grid.bulkBusy.set(false);
+        this.snack.open(describeBulk('Deleted', result, one, many), undefined, { duration: 4000 });
+        grid.selection.clear();
+        if (this.selection()?.uuid && uuids.includes(this.selection()!.uuid!)) this.selection.set(null);
+        grid.refresh();
+      });
+    });
+  }
+
+  /** If the open editor shows one of the changed rows, reload it so it isn't stale. */
+  private reloadEditorIfSelected(uuids: string[]): void {
+    const open = this.selection()?.uuid;
+    if (open && uuids.includes(open)) this.editor?.load();
   }
 
   private confirmDiscard(): Observable<boolean> {

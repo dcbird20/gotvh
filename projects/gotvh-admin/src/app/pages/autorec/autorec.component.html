@@ -21,12 +21,30 @@
   </div>
   @if (loading()) { <mat-progress-bar mode="indeterminate" /> }
   @if (error() && editing() === null) { <div class="banner error" role="alert">{{ error() }}</div> }
+  @if (selection.count()) {
+    <admin-bulk-bar [count]="selection.count()" [busy]="bulkBusy()" [hint]="hiddenHint()" (clear)="selection.clear()">
+      <button mat-button (click)="bulkSetEnabled(true)">Enable</button>
+      <button mat-button (click)="bulkSetEnabled(false)">Disable</button>
+      <button mat-button class="danger-text" (click)="bulkDelete()"><mat-icon>delete</mat-icon> Delete</button>
+    </admin-bulk-bar>
+  }
 
   <div class="layout" [class.with-editor]="editing() !== null">
     <!-- ============================== rules table -->
     <div class="table-wrap">
       <table mat-table [dataSource]="visibleRows()" matSort [matSortActive]="sort().active"
              [matSortDirection]="sort().direction" (matSortChange)="onSort($event)">
+        <ng-container matColumnDef="select">
+          <th mat-header-cell *matHeaderCellDef class="col-select">
+            <mat-checkbox [checked]="selection.allSelected(visibleRows())" [indeterminate]="selection.someSelected(visibleRows())"
+                          [disabled]="!visibleRows().length" (change)="selection.toggleAll(visibleRows())"
+                          aria-label="Select all rules shown" />
+          </th>
+          <td mat-cell *matCellDef="let r" class="col-select" (click)="selection.cellClick($event, r, visibleRows())">
+            <mat-checkbox class="display-only" [checked]="selection.isSelected(r)" [tabIndex]="-1" aria-hidden="true" />
+          </td>
+        </ng-container>
+
         <ng-container matColumnDef="enabled">
           <th mat-header-cell *matHeaderCellDef mat-sort-header class="col-toggle">On</th>
           <td mat-cell *matCellDef="let r" class="col-toggle" (click)="$event.stopPropagation()">
@@ -90,7 +108,9 @@
         <tr mat-header-row *matHeaderRowDef="columns(); sticky: true"></tr>
         <tr mat-row *matRowDef="let r; columns: columns()" class="clickable"
             [class.selected]="editing() === r.uuid" [class.disabled-rule]="!r.enabled"
-            (click)="openEdit(r)"></tr>
+            [class.checked]="selection.isSelected(r)" tabindex="0"
+            (click)="onRowClick($event, r)" (keydown.enter)="openEdit(r)"
+            (keydown.space)="$event.preventDefault(); selection.toggle(r)"></tr>
         <tr class="mat-row" *matNoDataRow>
           <td class="mat-cell empty muted" [attr.colspan]="columns().length">
             @if (loading()) { Loading… }

@@ -64,6 +64,19 @@
                       <mat-icon>add</mat-icon> Add network
                     </button>
                   }
+                  <!-- shown in the bar above the table while rows are selected -->
+                  <ng-container ngProjectAs="[bulkActions]">
+                    @if (tab.id === 'networks') {
+                      <button mat-button (click)="bulkScan(tab)"><mat-icon>radar</mat-icon> Scan</button>
+                    }
+                    @if (tab.canEnable) {
+                      <button mat-button (click)="bulkSetEnabled(tab, true)">Enable</button>
+                      <button mat-button (click)="bulkSetEnabled(tab, false)">Disable</button>
+                    }
+                    <button mat-button class="danger-text" (click)="bulkDelete(tab)">
+                      <mat-icon>delete</mat-icon> Delete
+                    </button>
+                  </ng-container>
                 </admin-idnode-grid>
               </div>
             </ng-template>

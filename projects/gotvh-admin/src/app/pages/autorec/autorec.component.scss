@@ -36,8 +36,13 @@ table { width: 100%; }
 }
 tr.clickable { cursor: pointer; }
 tr.clickable:hover td { background: var(--mat-sys-surface-container-low); }
+tr.checked td { background: color-mix(in srgb, var(--mat-sys-secondary-container) 55%, transparent); }
 tr.selected td { background: var(--mat-sys-secondary-container) !important; }
-tr.disabled-rule td:not(.col-toggle):not(.col-actions) { opacity: .55; }
+tr.clickable:focus-visible { outline: 2px solid var(--mat-sys-primary); outline-offset: -2px; }
+.col-select { width: 48px; padding-right: 0 !important; }
+td.col-select { cursor: pointer; }
+.display-only { pointer-events: none; }
+tr.disabled-rule td:not(.col-toggle):not(.col-actions):not(.col-select) { opacity: .55; }
 .empty { padding: 24px 16px; }
 
 /* ---------------------------------------------------------- editor */
