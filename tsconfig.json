@@ -18,7 +18,13 @@
       "dom"
     ],
     "skipLibCheck": true,
-    "strict": false
+    "strict": false,
+    "baseUrl": "./",
+    "paths": {
+      "@gotvh/tvh-api": [
+        "projects/tvh-api/src/index.ts"
+      ]
+    }
   },
   "exclude": [
     "node_modules",

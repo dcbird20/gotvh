@@ -5,7 +5,9 @@
   "scripts": {
     "ng": "ng",
     "start": "ng serve --proxy-config proxy.conf.json",
+    "start:admin": "ng serve gotvh-admin",
     "build": "ng build --configuration=production",
+    "build:admin": "ng build gotvh-admin --configuration=production",
     "build:dev": "ng build",
     "build:debug-apk": "ng build --configuration=production && rm -rf android/app/src/main/assets/public/* && cp -R dist/gotvh/. android/app/src/main/assets/public/ && cd android && ANDROID_SDK_ROOT=$HOME/Android/Sdk JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew assembleDebug",
     "build:apk": "ng build --configuration=production && npx cap sync android && cd android && ANDROID_SDK_ROOT=$HOME/Android/Sdk JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew assembleRelease",
@@ -13,10 +15,12 @@
   },
   "dependencies": {
     "@angular/animations": "19.2.7",
+    "@angular/cdk": "19.2.19",
     "@angular/common": "19.2.7",
     "@angular/compiler": "19.2.7",
     "@angular/core": "19.2.7",
     "@angular/forms": "19.2.7",
+    "@angular/material": "19.2.19",
     "@angular/platform-browser": "19.2.7",
     "@angular/platform-browser-dynamic": "19.2.7",
     "@angular/router": "19.2.7",

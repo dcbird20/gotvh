@@ -5,7 +5,7 @@ import { Subject, Subscription, forkJoin, of } from 'rxjs';
 import { catchError, debounceTime, distinctUntilChanged, map, switchMap } from 'rxjs/operators';
 import { TvFocusableDirective } from '../../directives/tv-focusable.directive';
 import { SpatialNavService } from '../../services/spatial-nav.service';
-import { GuideDataSnapshot, TvheadendService } from '../../services/tvheadend.service';
+import { GuideDataSnapshot, TvheadendService } from '@gotvh/tvh-api';
 
 type MatchMode = 'title' | 'fulltext';
 type ConfigPickerTarget = 'create' | 'edit';

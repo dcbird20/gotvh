@@ -5,7 +5,7 @@ import { forkJoin, Subject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 import { TvFocusableDirective } from '../../directives/tv-focusable.directive';
 import { ReturnNavigationContext, ReturnNavigationService } from '../../services/return-navigation.service';
-import { TvheadendService } from '../../services/tvheadend.service';
+import { TvheadendService } from '@gotvh/tvh-api';
 import { ViewStateCacheService } from '../../services/view-state-cache.service';
 import { TvCardComponent } from '../../shared/tv-card/tv-card.component';
 

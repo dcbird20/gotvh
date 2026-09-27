@@ -6,7 +6,7 @@ import { forkJoin, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { TvFocusableDirective } from '../../directives/tv-focusable.directive';
 import { ReturnNavigationContext, ReturnNavigationService } from '../../services/return-navigation.service';
-import { GuideDataSnapshot, RecordingScheduleResult, TvheadendService } from '../../services/tvheadend.service';
+import { GuideDataSnapshot, RecordingScheduleResult, TvheadendService } from '@gotvh/tvh-api';
 
 interface HourTick {
   label: string;

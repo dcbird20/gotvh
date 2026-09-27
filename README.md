@@ -69,6 +69,33 @@ The Android build also accepts these environment variables if you prefer not to 
 - `GOTVH_RELEASE_KEY_ALIAS`
 - `GOTVH_RELEASE_KEY_PASSWORD`
 
+## Admin app (gotvh-admin)
+
+The workspace holds a second Angular app for mouse/keyboard admin work. It's a plain
+desktop web app (Angular Material, compact tables), not part of the Android build.
+
+```bash
+npm run start:admin   # dev server on http://localhost:4300, uses proxy.conf.json
+npm run build:admin   # production build -> dist/gotvh-admin/browser
+```
+
+Serve `dist/gotvh-admin/browser` from nginx on the same host as the Tvheadend proxy
+(`nginx/gotvh-tvh.conf`) so its relative `/api` calls reach Tvheadend.
+
+Built so far: Dashboard (server info, subscriptions, connections) and Recordings
+(sortable, filterable table). Other sections are placeholders naming the API they'll use.
+
+## Workspace layout
+
+| Path | What it is |
+| --- | --- |
+| `src/` | TV app (`gotvh`) — Google TV / D-pad UI, packaged by Capacitor |
+| `projects/gotvh-admin/` | Admin app — desktop web UI |
+| `projects/tvh-api/` | Shared Tvheadend API client, imported as `@gotvh/tvh-api` |
+
+Each app passes its connection settings to the shared client through the
+`TVH_API_CONFIG` injection token (see `src/main.ts`, `projects/gotvh-admin/src/main.ts`).
+
 ## Navigation
 
 - **D-Pad / Arrow Keys**: Navigate between focusable elements
@@ -77,7 +104,7 @@ The Android build also accepts these environment variables if you prefer not to 
 
 ## Architecture
 
-- **Services**: `TvheadendService` (API client), `SpatialNavService` (keyboard navigation)
+- **Services**: `TvheadendService` (API client, in `projects/tvh-api`), `SpatialNavService` (keyboard navigation)
 - **Directives**: `TvFocusableDirective` (makes elements spatially navigable)
 - **Components**: Shell layout, Home, Channels, Guide, Recordings, Auto-Rec, Status, Player
 - **Styling**: SCSS with CSS custom properties for theming

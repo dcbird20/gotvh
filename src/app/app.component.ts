@@ -9,7 +9,7 @@ import { TvFocusableDirective } from './directives/tv-focusable.directive';
 import { RemoteKeyDebugService } from './services/remote-key-debug.service';
 import { ReturnNavigationService } from './services/return-navigation.service';
 import { SpatialNavService } from './services/spatial-nav.service';
-import { TvheadendService, TvheadendAuthDialogState, TvheadendAuthState } from './services/tvheadend.service';
+import { TvheadendService, TvheadendAuthDialogState, TvheadendAuthState } from '@gotvh/tvh-api';
 
 interface NavItem {
   icon: string;

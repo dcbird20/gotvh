@@ -1,9 +1,9 @@
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
 import { Capacitor, CapacitorHttp } from '@capacitor/core';
 import { BehaviorSubject, forkJoin, from, Observable, of, throwError } from 'rxjs';
 import { catchError, map, shareReplay, switchMap, take } from 'rxjs/operators';
-import { environment } from '../../environments/environment';
+import { TVH_API_CONFIG, TvhApiConfig } from './tvh-api.config';
 
 export type RecordingScheduleMethod = 'event' | 'manual';
 
@@ -36,6 +36,8 @@ export interface TvheadendAuthState {
   providedIn: 'root'
 })
 export class TvheadendService {
+  // Must stay the first field: the field initializers below read from it.
+  private readonly config: TvhApiConfig = inject(TVH_API_CONFIG);
   private readonly authStorageKey = 'gotvh_tvh_basic_auth';
   private readonly badIconStorageKey = 'gotvh_bad_imagecache_urls';
   private readonly favoriteTagNameCandidates = ['streaming favorites', 'favorites'];
@@ -149,7 +151,7 @@ export class TvheadendService {
   }
 
   private resolveApiBase(): string {
-    const env: any = environment;
+    const env: any = this.config;
 
     if (env.apiUrl) {
       return env.apiUrl.replace(/\/+$/, '');
@@ -168,7 +170,7 @@ export class TvheadendService {
   }
 
   private resolveStreamBase(): string {
-    const env: any = environment;
+    const env: any = this.config;
     if (env.streamUrl) {
       return env.streamUrl.replace(/\/+$/, '');
     }
@@ -200,7 +202,7 @@ export class TvheadendService {
   }
 
   private resolveRecordingBase(): string {
-    const env: any = environment;
+    const env: any = this.config;
     const configuredStreamBase = String(env.streamUrl || '').trim().replace(/\/+$/, '');
     if (configuredStreamBase) {
       return configuredStreamBase === '/stream'
@@ -295,12 +297,12 @@ export class TvheadendService {
   }
 
   private resolveStreamProfile(): string {
-    const env: any = environment;
+    const env: any = this.config;
     return String(env.streamProfile || 'pass').trim() || 'pass';
   }
 
   private resolveNativeBufferedPlayback(): boolean {
-    const env: any = environment;
+    const env: any = this.config;
     if (typeof env.nativeBufferedPlayback === 'boolean') {
       return env.nativeBufferedPlayback;
     }
@@ -308,7 +310,7 @@ export class TvheadendService {
   }
 
   private resolveNativeAllowLiveFallback(): boolean {
-    const env: any = environment;
+    const env: any = this.config;
     if (typeof env.nativeAllowLiveFallback === 'boolean') {
       return env.nativeAllowLiveFallback;
     }
@@ -316,7 +318,7 @@ export class TvheadendService {
   }
 
   private resolveNativePlaybackBackend(): 'http' | 'kodi-htsp' {
-    const env: any = environment;
+    const env: any = this.config;
     const backend = String(env.nativePlaybackBackend || 'http').trim().toLowerCase();
     return backend === 'kodi-htsp' ? 'kodi-htsp' : 'http';
   }

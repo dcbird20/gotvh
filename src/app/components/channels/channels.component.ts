@@ -6,7 +6,7 @@ import { forkJoin, of, Subject } from 'rxjs';
 import { catchError, takeUntil } from 'rxjs/operators';
 import { TvFocusableDirective } from '../../directives/tv-focusable.directive';
 import { ReturnNavigationContext, ReturnNavigationService } from '../../services/return-navigation.service';
-import { TvheadendService } from '../../services/tvheadend.service';
+import { TvheadendService } from '@gotvh/tvh-api';
 import { ViewStateCacheService } from '../../services/view-state-cache.service';
 
 

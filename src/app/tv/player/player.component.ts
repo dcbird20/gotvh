@@ -7,7 +7,7 @@ import { TvFocusableDirective } from '../../directives/tv-focusable.directive';
 import { RemoteKeyDebugService } from '../../services/remote-key-debug.service';
 import { RecordingPlaybackProgress, RecordingPlaybackProgressService } from '../../services/recording-playback-progress.service';
 import { ReturnNavigationService } from '../../services/return-navigation.service';
-import { TvheadendService } from '../../services/tvheadend.service';
+import { TvheadendService } from '@gotvh/tvh-api';
 import { environment } from '../../../environments/environment';
 
 const NativeVideo = registerPlugin<{

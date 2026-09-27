@@ -4,7 +4,7 @@ import { forkJoin, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { TvFocusableDirective } from '../../directives/tv-focusable.directive';
 import { environment } from '../../../environments/environment';
-import { TvheadendService } from '../../services/tvheadend.service';
+import { TvheadendService } from '@gotvh/tvh-api';
 
 @Component({
   selector: 'app-status',

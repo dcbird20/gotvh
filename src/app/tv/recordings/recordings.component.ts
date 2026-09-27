@@ -8,7 +8,7 @@ import { TvFocusableDirective } from '../../directives/tv-focusable.directive';
 import { RecordingPlaybackProgressService } from '../../services/recording-playback-progress.service';
 import { ReturnNavigationContext, ReturnNavigationService } from '../../services/return-navigation.service';
 import { SpatialNavService } from '../../services/spatial-nav.service';
-import { TvheadendService } from '../../services/tvheadend.service';
+import { TvheadendService } from '@gotvh/tvh-api';
 
 interface RecordingProgramStack {
   key: string;
