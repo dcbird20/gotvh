@@ -100,6 +100,12 @@ Built so far:
   and service count; Network column; every column sortable (numbers sort 3.2 < 3.10 < 100).
   Create, edit, delete, bulk edit.
 
+- **Channel tags** — each tag with its channel count, order, visibility (shown / private /
+  hidden from clients) and the auto-record rules and users limited to it. **Change order…**
+  drags tags into the order clients list them. **Show these channels** opens Channels
+  filtered to the tag (`/channels?tag=<uuid>`, or `?tag=none` for untagged channels).
+  Deleting warns when rules would then match every channel or users' access would change.
+
 - **EPG sources** — grabber modules (enable/disable, per-grabber settings, run internal
   grabbers or an over-the-air grab now), global grabber settings incl. cron schedules
   (`epggrab/config`), and the grabbers' channel list with mapped/unmapped and grabber filters.

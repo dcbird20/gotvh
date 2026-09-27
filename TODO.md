@@ -6,8 +6,6 @@ Working list for the admin app (`projects/gotvh-admin`). Most-basic first.
 
 - [ ] **Stream & tuner status** — which tuner each stream is using, signal / SNR / error
       counts per tuner (`status/inputs`), stop a stream or client connection.
-- [ ] **Channel tags** — create, rename, delete, enable (`channeltag/*`); today tags can
-      be assigned but not managed.
 - [ ] **Recordings**
   - [ ] open one recording to edit title, start/stop, padding
   - [ ] show why a recording failed (errors, file, size)
@@ -55,5 +53,6 @@ The stock UI needs you to know the chain
 - [x] Channels (filters, EPG source column, bulk edit)
 - [x] EPG sources (grabbers, settings incl. cron, EPG channels, map by name)
 - [x] Users & access (users joined with passwords, roles, lockout guards, blocked networks)
+- [x] Channel tags (channel counts, order, hidden/private, what limits them, link to Channels)
 - [x] Stream profiles (types in plain English, used-by, default, codec profiles for transcoding)
 - [x] Multi-select + bulk actions + bulk edit (add/remove/replace for lists) everywhere

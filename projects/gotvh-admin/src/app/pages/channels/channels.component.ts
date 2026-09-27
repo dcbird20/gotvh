@@ -1,4 +1,5 @@
 import { Component, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
+import { ActivatedRoute } from '@angular/router';
 import { Observable, of } from 'rxjs';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
@@ -136,6 +137,7 @@ export class ChannelsComponent implements OnInit {
   private readonly tvh = inject(TvheadendService);
   private readonly dialog = inject(MatDialog);
   private readonly snack = inject(MatSnackBar);
+  private readonly route = inject(ActivatedRoute);
 
   @ViewChild(IdnodeGridComponent) grid?: IdnodeGridComponent;
   @ViewChild(IdnodeFormComponent) form?: IdnodeFormComponent;
@@ -257,6 +259,9 @@ export class ChannelsComponent implements OnInit {
   });
 
   ngOnInit(): void {
+    // Linked from elsewhere, e.g. Channel tags → /channels?tag=<uuid> (or ?tag=none).
+    const tag = this.route.snapshot.queryParamMap.get('tag');
+    if (tag) this.fTags.set([tag === 'none' ? NO_TAGS : tag]);
     this.tvh.getChannelTags().subscribe(tags =>
       this.tagNames.set(new Map(tags.map((t: any) => [String(t?.uuid || ''), String(t?.name || '')]))));
     // Channels only list service uuids; the services list says which network each is on.

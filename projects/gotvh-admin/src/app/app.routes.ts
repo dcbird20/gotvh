@@ -18,6 +18,7 @@ export const NAV_ITEMS: AdminNavItem[] = [
   { path: 'dvr-profiles', label: 'DVR profiles', icon: 'tune', section: 'DVR' },
   { path: 'inputs', label: 'Tuners & networks', icon: 'settings_input_antenna', section: 'Configuration' },
   { path: 'channels', label: 'Channels', icon: 'live_tv', section: 'Configuration' },
+  { path: 'channel-tags', label: 'Channel tags', icon: 'label', section: 'Configuration' },
   { path: 'epg', label: 'EPG sources', icon: 'calendar_view_week', section: 'Configuration' },
   { path: 'users', label: 'Users & access', icon: 'group', section: 'Configuration' },
   { path: 'streaming', label: 'Stream profiles', icon: 'movie', section: 'Configuration' },
@@ -70,6 +71,11 @@ export const routes: Routes = [
     path: 'users',
     title: 'Users & access · GoTVH Admin',
     loadComponent: () => import('./pages/users/users.component').then(m => m.UsersComponent),
+  },
+  {
+    path: 'channel-tags',
+    title: 'Channel tags · GoTVH Admin',
+    loadComponent: () => import('./pages/channel-tags/channel-tags.component').then(m => m.ChannelTagsComponent),
   },
   {
     path: 'streaming',

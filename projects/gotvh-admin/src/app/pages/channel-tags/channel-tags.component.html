@@ -1,0 +1,92 @@
+<div class="admin-page wide">
+  <h1>Channel tags</h1>
+  <p class="subtitle">Groups of channels. Clients show them as categories; auto-record rules and user access can be limited to them.</p>
+
+  <div class="layout" [class.with-editor]="!!editor()">
+    <div class="main">
+      @if (error()) { <div class="banner error" role="alert"><span>{{ error() }}</span></div> }
+      <div class="filters">
+        <mat-form-field appearance="outline" class="f-small">
+          <mat-label>Show</mat-label>
+          <mat-select [value]="fShow()" (valueChange)="fShow.set($event)">
+            <mat-option value="all">All tags</mat-option>
+            <mat-option value="empty">No channels</mat-option>
+            <mat-option value="hidden">Hidden from clients</mat-option>
+            <mat-option value="private">Private</mat-option>
+            <mat-option value="disabled">Disabled</mat-option>
+          </mat-select>
+        </mat-form-field>
+        @if (untaggedChannels()) {
+          <a mat-button routerLink="/channels" [queryParams]="{ tag: 'none' }">
+            {{ untaggedChannels() }} {{ untaggedChannels() === 1 ? 'channel has' : 'channels have' }} no tags
+          </a>
+        }
+      </div>
+      @if (loading() || busy()) { <mat-progress-bar mode="indeterminate" /> }
+      <admin-idnode-grid #tagGrid
+        path="channeltag/grid" [clientSide]="true" [data]="rows()" [columns]="columns()"
+        filterField="name" [searchFields]="['name', 'comment']" filterLabel="Search tags"
+        [rowFilter]="rowFilter()" [defaultSort]="{ active: 'index', direction: 'asc' }"
+        [selectedUuid]="editor()?.uuid ?? null" [emptyText]="loading() ? 'Loading…' : 'No channel tags yet.'"
+        (rowClick)="open($event)">
+        <button mat-stroked-button (click)="reorder()" [disabled]="rows().length < 2 || busy()">
+          <mat-icon>swap_vert</mat-icon> Change order…
+        </button>
+        <button mat-flat-button (click)="create()"><mat-icon>add</mat-icon> New tag</button>
+        <ng-container ngProjectAs="[bulkActions]">
+          <button mat-button (click)="bulkEdit()"><mat-icon>edit</mat-icon> Edit…</button>
+          <button mat-button (click)="bulkSetEnabled(true)">Enable</button>
+          <button mat-button (click)="bulkSetEnabled(false)">Disable</button>
+          <button mat-button class="danger-text" (click)="deleteTags(selectedRows())"><mat-icon>delete</mat-icon> Delete</button>
+        </ng-container>
+      </admin-idnode-grid>
+    </div>
+
+    @if (editor(); as ed) {
+      <div class="side">
+        <admin-idnode-form #tagForm
+          [uuid]="ed.uuid" [createPath]="ed.creating ? 'channeltag' : null" [bulkUuids]="ed.bulkUuids || null"
+          [createDefaults]="{ enabled: true }" [title]="editorTitle()"
+          (saved)="onSaved($event)" (closed)="close()">
+          @if (selected(); as t) {
+            <button formExtraActions mat-button type="button" class="danger-text" (click)="deleteTags([t])">Delete</button>
+          }
+        </admin-idnode-form>
+
+        @if (selected(); as t) {
+          <section class="card">
+            <h3>Channels</h3>
+            @if (t.channels) {
+              <p>{{ channelSummary(t) }}</p>
+            } @else {
+              <p class="muted">No channels have this tag yet.</p>
+            }
+            <div class="actions">
+              <a mat-stroked-button routerLink="/channels" [queryParams]="{ tag: t.uuid }">
+                <mat-icon>live_tv</mat-icon> {{ t.channels ? 'Show these channels' : 'Open Channels' }}
+              </a>
+            </div>
+            <p class="muted small hint">To add or remove channels, select them on the Channels screen and use Edit… → Tags → Add or Remove.</p>
+          </section>
+
+          <section class="card">
+            <h3>Who sees it</h3>
+            @if (t.internal) {
+              <p><strong>Hidden from clients.</strong> Kodi and the TV app don’t see this tag; it’s only for organising here.</p>
+            } @else if (t.private) {
+              <p><strong>Private.</strong> Only users whose access includes this tag can see it.</p>
+            } @else {
+              <p>Shown to every client as a category.</p>
+            }
+            @if (t.users.length) {
+              <p><a routerLink="/users">Users</a> with this tag in their access rules: {{ t.users.join(', ') }}</p>
+            }
+            @if (t.rules.length) {
+              <p><a routerLink="/autorec">Auto-record rules</a> limited to this tag: {{ t.rules.join(', ') }}</p>
+            }
+          </section>
+        }
+      </div>
+    }
+  </div>
+</div>
