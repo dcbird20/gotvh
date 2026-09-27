@@ -109,7 +109,7 @@
         <div class="opts">
           <mat-checkbox [checked]="mergeSameName()" (change)="mergeSameName.set($event.checked)">
             One channel per name
-            <span class="hint">The same station on two networks (antenna and IPTV) becomes one channel fed by both.</span>
+            <span class="hint">Services with the same name on different networks (e.g. antenna and IPTV) become one channel fed by both — Tvheadend uses the higher-priority tuner first and the other as a fallback. Check they really are the same station.</span>
           </mat-checkbox>
           <mat-checkbox [checked]="addToExisting()" (change)="addToExisting.set($event.checked)">
             Add to existing channels with the same name

@@ -100,7 +100,7 @@
               <mat-option value="">None — I’ll add muxes by hand</mat-option>
               @for (r of rs; track r.value) { <mat-option [value]="r.value">{{ r.label }}</mat-option> }
             </mat-select>
-            <mat-hint>Tvheadend scans every frequency on this list. Pick your country’s list for over-the-air.</mat-hint>
+            <mat-hint>Tvheadend scans every frequency on this list. US antenna TV: use us-ATSC-center-frequencies-8VSB — the NTSC list finds nothing on digital tuners.</mat-hint>
           </mat-form-field>
         }
       } @else {
@@ -226,10 +226,22 @@
           <mat-progress-bar mode="determinate" [value]="scanProgress() ?? 0" />
           <div class="stats">
             <div><span class="n">{{ s.scanned }}</span><span class="l">of {{ s.muxes }} {{ kind() === 'iptv' ? 'streams' : 'frequencies' }} checked</span></div>
-            <div><span class="n">{{ s.ok }}</span><span class="l">{{ kind() === 'iptv' ? 'working' : 'with a signal' }}</span></div>
+            <div><span class="n">{{ s.ok }}</span><span class="l">{{ kind() === 'iptv' ? 'working' : 'with a station' }}</span></div>
             <div><span class="n">{{ s.services }}</span><span class="l">services found</span></div>
             @if (s.failed) { <div class="bad"><span class="n">{{ s.failed }}</span><span class="l">{{ kind() === 'iptv' ? 'not responding' : 'nothing received' }}</span></div> }
           </div>
+          @if (kind() === 'tuner' && !s.ok && s.scanned >= 20) {
+            <div class="banner error">
+              <mat-icon>warning</mat-icon>
+              <div>
+                <strong>{{ s.scanned }} frequencies and no station yet — something is probably wrong.</strong>
+                Usual causes: the wrong frequency list (in the US, pick <em>us-ATSC-center-frequencies-8VSB</em>,
+                not the NTSC list); an HDHomeRun whose video can’t reach Tvheadend (Tvheadend in Docker or behind a VPN —
+                set Local IP / Local port in Tvheadend’s settings and forward those UDP ports); or no antenna signal.
+                You can stop here and change the network’s list in Tuners &amp; networks, then rescan.
+              </div>
+            </div>
+          }
           @if (scanDone()) {
             <p><strong>Scan finished.</strong></p>
           } @else {
