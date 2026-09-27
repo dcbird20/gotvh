@@ -38,6 +38,14 @@ const NAME_LIST_FIELDS: Record<string, { hint: string }> = {
   },
 };
 
+/** Plain-English help for fields whose Tvheadend caption doesn't explain much. */
+const FIELD_HINTS: Record<string, string> = {
+  cron: 'One schedule per line, cron style: minute hour day month weekday. “4 */12 * * *” runs at 4 minutes past every 12th hour.',
+  ota_cron: 'One schedule per line, cron style: minute hour day month weekday. “2 12,0 * * *” runs at 00:02 and 12:02.',
+  ota_timeout: 'Seconds to spend on each mux collecting over-the-air guide data (30–7200).',
+  epgdb_periodicsave: 'Hours between saving the guide to disk. 0 turns it off.',
+};
+
 /** Split newline-separated names, trimmed, empties and duplicates (any case) removed. */
 export function splitNames(raw: unknown): string[] {
   const list = Array.isArray(raw) ? raw : String(raw ?? '').split(/\r?\n/);
@@ -130,11 +138,18 @@ export class IdnodeFormComponent implements OnChanges {
    * class to create. Metadata comes from idnode/class and creation posts the class.
    */
   readonly createClass = input<string | null>(null);
+  /**
+   * A settings object with its own load/save endpoints and no uuid, e.g.
+   * "epggrab/config" (loads from …/load, saves changes to …/save).
+   */
+  readonly configPath = input<string | null>(null);
   /** Edit many objects at once (bulk mode). Takes precedence over `uuid`. */
   readonly bulkUuids = input<string[] | null>(null);
   /** Values to pre-fill when creating (override class defaults). */
   readonly createDefaults = input<Record<string, unknown>>({});
   readonly title = input('');
+  /** Show the close (×) and Close/Cancel buttons. Off for a settings page that is always shown. */
+  readonly closable = input(true);
 
   readonly saved = output<{ uuid: string | null; created: boolean; bulk?: BulkResult }>();
   readonly closed = output<void>();
@@ -158,13 +173,14 @@ export class IdnodeFormComponent implements OnChanges {
   /** Text typed in a tag-name picker, for filtering suggestions. */
   readonly nameQuery = signal('');
   readonly nameSeparators = [ENTER, COMMA];
+  readonly FIELD_HINT_IDS = new Set(Object.keys(FIELD_HINTS));
 
   form = new FormGroup<Record<string, FormControl>>({});
   private initial: Record<string, unknown> = {};
 
   readonly bulkMode = computed(() => (this.bulkUuids()?.length ?? 0) > 0);
   readonly bulkCount = computed(() => this.bulkUuids()?.length ?? 0);
-  readonly creating = computed(() => !this.uuid() && !this.bulkMode());
+  readonly creating = computed(() => !this.uuid() && !this.bulkMode() && !this.configPath());
   /** Hide read-only fields when creating or bulk-editing: they only describe one existing object. */
   private readonly editableOnly = computed(() => this.creating() || this.bulkMode());
 
@@ -208,14 +224,17 @@ export class IdnodeFormComponent implements OnChanges {
   load(): void {
     const uuid = this.bulkUuids()?.[0] || this.uuid();
     const createPath = this.createPath();
-    if (!uuid && !createPath) return;
+    const configPath = this.configPath();
+    if (!uuid && !createPath && !configPath) return;
 
     this.loading.set(true);
     this.error.set('');
     this.entry.set(null);
     this.fields.set([]);
     const createClass = this.createClass();
-    const request: Observable<IdnodeEntry> = uuid
+    const request: Observable<IdnodeEntry> = configPath && !uuid
+      ? this.tvh.idnodeLoadSimple(configPath)
+      : uuid
       ? this.tvh.idnodeLoad(uuid)
       : createClass ? this.tvh.idnodeClassByName(createClass) : this.tvh.idnodeClass(createPath!);
 
@@ -414,6 +433,11 @@ export class IdnodeFormComponent implements OnChanges {
     this.form.controls[field.prop.id].setValue(this.namesOf(field).filter(n => n !== name));
   }
 
+  /** Hint shown under text areas: our plain-English help, else Tvheadend's description. */
+  fieldHint(field: Field): string {
+    return FIELD_HINTS[field.prop.id] || field.prop.description || '';
+  }
+
   nameHint(field: Field): string {
     return NAME_LIST_FIELDS[field.prop.id]?.hint || field.prop.description || '';
   }
@@ -461,18 +485,21 @@ export class IdnodeFormComponent implements OnChanges {
       return;
     }
     const uuid = this.uuid();
-    const payload = uuid ? this.collectChanges() : this.collectAll();
+    const configPath = this.configPath();
+    const payload = uuid || configPath ? this.collectChanges() : this.collectAll();
     const bad = Object.entries(payload).find(([, v]) => typeof v === 'number' && Number.isNaN(v));
     if (bad) {
       this.error.set(this.numberError(bad[0]));
       return;
     }
-    if (uuid && !Object.keys(payload).length) return;
+    if ((uuid || configPath) && !Object.keys(payload).length) return;
 
     this.error.set('');
     this.saving.set(true);
     const createClass = this.createClass();
-    const request = uuid
+    const request = configPath && !uuid
+      ? this.tvh.idnodeSaveSimple(configPath, payload)
+      : uuid
       ? this.tvh.idnodeSave(uuid, payload)
       : createClass
         ? this.tvh.idnodeCreateWithClass(this.createPath()!, createClass, payload)
@@ -480,7 +507,7 @@ export class IdnodeFormComponent implements OnChanges {
     request.subscribe({
       next: res => {
         this.saving.set(false);
-        if (uuid) {
+        if (uuid || configPath) {
           this.initial = { ...this.form.getRawValue() };
           this.changeCount.set(0);
         }

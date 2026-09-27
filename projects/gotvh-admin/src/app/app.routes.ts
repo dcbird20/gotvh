@@ -63,8 +63,8 @@ export const routes: Routes = [
   },
   {
     path: 'epg',
-    ...placeholder('EPG sources', 'epggrab/config, epggrab/module/*',
-      'Not in the shared client yet. Grabber modules, cron schedule, OTA settings.'),
+    title: 'EPG sources · GoTVH Admin',
+    loadComponent: () => import('./pages/epg/epg.component').then(m => m.EpgComponent),
   },
   {
     path: 'users',

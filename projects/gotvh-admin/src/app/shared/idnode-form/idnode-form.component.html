@@ -4,7 +4,9 @@
       <h2>{{ title() || entry()?.text || entry()?.caption || (creating() ? 'New' : 'Edit') }}</h2>
       @if (entry()?.caption && title()) { <span class="muted small">{{ entry()?.caption }}</span> }
     </div>
-    <button mat-icon-button type="button" (click)="closed.emit()" aria-label="Close"><mat-icon>close</mat-icon></button>
+    @if (closable()) {
+      <button mat-icon-button type="button" (click)="closed.emit()" aria-label="Close"><mat-icon>close</mat-icon></button>
+    }
   </div>
 
   @if (availableLevels().length > 1) {
@@ -85,6 +87,7 @@
                 <mat-form-field appearance="outline">
                   <mat-label>{{ f.label }}</mat-label>
                   <input matInput [formControlName]="f.prop.id" inputmode="decimal" autocomplete="off" class="num">
+                  @if (FIELD_HINT_IDS.has(f.prop.id)) { <mat-hint>{{ fieldHint(f) }}</mat-hint> }
                   @if (f.prop.description) {
                     <mat-icon matSuffix class="info" [matTooltip]="f.prop.description">info</mat-icon>
                   }
@@ -123,8 +126,8 @@
               @case ('textarea') {
                 <mat-form-field appearance="outline">
                   <mat-label>{{ f.label }}</mat-label>
-                  <textarea matInput [formControlName]="f.prop.id" rows="3"></textarea>
-                  @if (f.prop.description) { <mat-hint>{{ f.prop.description }}</mat-hint> }
+                  <textarea matInput [formControlName]="f.prop.id" rows="3" spellcheck="false"></textarea>
+                  @if (fieldHint(f)) { <mat-hint>{{ fieldHint(f) }}</mat-hint> }
                 </mat-form-field>
               }
               @case ('readonly') {
@@ -160,7 +163,7 @@
     } @else if (!creating() && changeCount()) {
       <span class="muted small">{{ changeCount() }} unsaved {{ changeCount() === 1 ? 'change' : 'changes' }}</span>
       <button mat-button type="button" (click)="reset()">Revert</button>
-    } @else {
+    } @else if (closable()) {
       <button mat-button type="button" (click)="closed.emit()">{{ creating() || bulkMode() ? 'Cancel' : 'Close' }}</button>
     }
     <button mat-flat-button type="submit" [disabled]="saving() || loading() || !entry() || !changeCount()">

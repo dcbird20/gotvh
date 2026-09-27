@@ -2140,6 +2140,42 @@ export class TvheadendService {
       this.buildFormBody({ class: className, conf: JSON.stringify(conf) }), this.getFormRequestOptions());
   }
 
+  /**
+   * Singleton settings objects with their own load/save endpoints, e.g.
+   * `epggrab/config` → POST epggrab/config/load (meta=1) and epggrab/config/save.
+   * Returns the same shape as idnodeLoad.
+   */
+  idnodeLoadSimple(basePath: string): Observable<IdnodeEntry> {
+    const path = `${basePath.replace(/\/+$/, '')}/load`;
+    return this.http.post<any>(this.buildUrl(path), this.buildFormBody({ meta: 1 }), this.getFormRequestOptions()).pipe(
+      map(data => {
+        const entry = (data?.entries || [])[0] || data;
+        if (!entry || !Array.isArray(entry.params)) {
+          throw new Error('Tvheadend returned no settings for this page.');
+        }
+        return entry as IdnodeEntry;
+      })
+    );
+  }
+
+  idnodeSaveSimple(basePath: string, changes: Record<string, unknown>): Observable<any> {
+    const path = `${basePath.replace(/\/+$/, '')}/save`;
+    return this.http.post<any>(this.buildUrl(path), this.buildFormBody({ node: JSON.stringify(changes) }),
+      this.getFormRequestOptions());
+  }
+
+  /** Run the internal (XMLTV) EPG grabbers now. */
+  rerunInternalEpgGrabbers(): Observable<any> {
+    return this.http.post<any>(this.buildUrl('epggrab/internal/rerun'), this.buildFormBody({ rerun: 1 }),
+      this.getFormRequestOptions());
+  }
+
+  /** Start an over-the-air EPG grab (after `delaySeconds`, minimum 1). */
+  triggerOtaEpgGrab(delaySeconds = 1): Observable<any> {
+    return this.http.post<any>(this.buildUrl('epggrab/ota/trigger'),
+      this.buildFormBody({ trigger: Math.max(1, Math.floor(delaySeconds)) }), this.getFormRequestOptions());
+  }
+
   /** Queue a full rescan of every mux on a network. */
   scanNetwork(uuid: string): Observable<any> {
     return this.http.post<any>(this.buildUrl('mpegts/network/scan'), this.buildFormBody({ uuid }), this.getFormRequestOptions());

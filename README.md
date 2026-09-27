@@ -100,6 +100,10 @@ Built so far:
   and service count; Network column; every column sortable (numbers sort 3.2 < 3.10 < 100).
   Create, edit, delete, bulk edit.
 
+- **EPG sources** — grabber modules (enable/disable, per-grabber settings, run internal
+  grabbers or an over-the-air grab now), global grabber settings incl. cron schedules
+  (`epggrab/config`), and the grabbers' channel list with mapped/unmapped and grabber filters
+
 Other sections are placeholders naming the API they'll use.
 
 ### Selecting several rows

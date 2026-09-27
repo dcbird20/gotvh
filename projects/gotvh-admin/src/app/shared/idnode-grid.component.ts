@@ -161,6 +161,8 @@ export class IdnodeGridComponent implements OnChanges {
   readonly rowFilter = input<((row: any) => boolean) | null>(null);
 
   readonly rowClick = output<any>();
+  /** Client-side mode: every row after each load (for building filter choices). */
+  readonly rowsLoaded = output<any[]>();
 
   readonly rows = signal<any[]>([]);
   readonly total = signal(0);
@@ -298,6 +300,7 @@ export class IdnodeGridComponent implements OnChanges {
         this.loadedTotal.set(page.entries.length);
         this.loading.set(false);
         this.applyClient();
+        this.rowsLoaded.emit(page.entries);
       },
       error: err => {
         this.loading.set(false);
