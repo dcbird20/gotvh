@@ -19,6 +19,8 @@ type Quality = 'good' | 'fair' | 'poor' | 'unknown';
 interface Meter { text: string; pct: number | null; quality: Quality }
 
 interface TunerStream {
+  /** The tuning (mux instance) — what the error counters belong to. */
+  uuid: string;
   mux: string;
   subs: number;
   signal: Meter;
@@ -140,24 +142,26 @@ export class StatusComponent implements OnInit {
   readonly tuners = computed<Tuner[]>(() => {
     const status = this.inputStatus();
     const rising = this.rising();
-    const byUuid = new Map<string, any[]>();
-    for (const s of status) byUuid.set(String(s.uuid), [...(byUuid.get(String(s.uuid)) || []), s]);
-
     const known = (this.inputs() || []).map(e => {
       const values: Record<string, any> = {};
       for (const p of e.params || []) values[p.id] = p.value;
       return { uuid: String(e.uuid || e.id || ''), name: String(values['displayname'] || e.text || e.caption || 'Tuner'),
         kind: String(e.caption || ''), enabled: values['enabled'] === undefined ? true : truthy(values['enabled']) };
     });
-    // Inputs Tvheadend reports as busy but we couldn't list (e.g. the class load failed).
-    for (const uuid of byUuid.keys()) {
-      if (!known.some(k => k.uuid === uuid)) {
-        known.push({ uuid, name: String(byUuid.get(uuid)![0]?.input || 'Tuner'), kind: '', enabled: true });
-      }
+    // A busy tuner's status entry carries the uuid of the tuning (mux instance), not of the tuner,
+    // so match it to its tuner by name ("input"), falling back to the uuid.
+    const byUuid = new Map<string, any[]>();
+    for (const s of status) {
+      const owner = known.find(k => k.uuid === String(s.uuid)) || known.find(k => k.name === String(s.input || ''));
+      const key = owner?.uuid ?? String(s.uuid);
+      byUuid.set(key, [...(byUuid.get(key) || []), s]);
+      // Inputs Tvheadend reports as busy but we couldn't list (e.g. the class load failed).
+      if (!owner && !known.some(k => k.uuid === key)) known.push({ uuid: key, name: String(s.input || 'Tuner'), kind: '', enabled: true });
     }
     return known.map(k => ({
       ...k,
       streams: (byUuid.get(k.uuid) || []).map(s => ({
+        uuid: String(s.uuid || ''),
         mux: String(s.stream || s.input || ''),
         subs: Number(s.subs) || 0,
         signal: meter(s.signal, s.signal_scale, 'signal'),
@@ -286,7 +290,9 @@ export class StatusComponent implements OnInit {
   // ---------------------------------------------------------------- actions
 
   clearStats(t: Tuner): void {
-    this.tvh.clearInputStats(t.uuid).subscribe({
+    // Counters live on the tuning (mux instance), whose uuid is the stream's.
+    const ids = t.streams.map(x => x.uuid).filter(Boolean);
+    forkJoin((ids.length ? ids : [t.uuid]).map(id => this.tvh.clearInputStats(id))).subscribe({
       next: () => { this.snack.open(`Error counters reset for ${t.name}`, undefined, { duration: 2500 }); this.poll(); },
       error: () => this.snack.open('Couldn’t reset the counters', 'Dismiss', { duration: 5000 }),
     });

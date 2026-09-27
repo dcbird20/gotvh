@@ -119,13 +119,14 @@ export class HdhrGuard {
       ours: this.tvh.getInputStatus().pipe(catchError(() => of([]))),
     }).pipe(switchMap(({ devices, ours }) => {
       const byIp = new Map(devices.filter((d): d is HdhrDevice => !!d).map(d => [d.ip, d]));
-      const tvhUsing = new Set(ours.map((s: any) => String(s?.uuid || '')));
+      // A busy tuner's status entry has the tuning's uuid, not the tuner's — so match names too.
+      const tvhUsing = new Set(ours.flatMap((s: any) => [String(s?.uuid || ''), String(s?.input || '')]));
       const toDisable: Array<TunerRef & { by: string }> = [];
       const toEnable: TunerRef[] = [];
       for (const t of hd) {
         const use = byIp.get(t.hw!.ip)?.tuners.find(u => u.index === t.hw!.index);
         if (!use) continue;
-        const external = use.busy && !tvhUsing.has(t.uuid);
+        const external = use.busy && !tvhUsing.has(t.uuid) && !tvhUsing.has(t.name);
         if (external && !this.disabled.has(t.uuid)) toDisable.push({ uuid: t.uuid, name: t.name, by: use.target || 'another app' });
         if (!use.busy && this.disabled.has(t.uuid)) toEnable.push(t);
       }
