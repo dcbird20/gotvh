@@ -124,6 +124,11 @@ fields are written, to every selected item. List fields such as channel tags hav
 **Add / Remove / Replace** switch (default Add): Add and Remove merge into each item's own
 list, so other tags are kept; Replace sets the same list on all.
 
+IPTV muxes' **Channel tags** (`iptv_tags`, one tag name per line — applied to channels
+when the mux's services are mapped) is shown as a tag picker suggesting existing channel
+tags, with the same Add / Remove / Replace in bulk edit. Other name-list fields can be
+added to `NAME_LIST_FIELDS` in the editor.
+
 ### Generic config editor
 
 Most Tvheadend config objects are "idnodes", and the API describes their fields (type,

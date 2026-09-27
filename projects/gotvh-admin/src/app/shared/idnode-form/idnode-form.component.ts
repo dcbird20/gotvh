@@ -6,6 +6,9 @@ import { catchError, map, switchMap } from 'rxjs/operators';
 import { MatButtonModule } from '@angular/material/button';
 import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { MatCheckboxModule } from '@angular/material/checkbox';
+import { MatAutocompleteModule } from '@angular/material/autocomplete';
+import { MatChipInputEvent, MatChipsModule } from '@angular/material/chips';
+import { COMMA, ENTER } from '@angular/cdk/keycodes';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
@@ -22,7 +25,33 @@ import { BulkResult, describeBulk, runBulk } from '../bulk';
 /** How a bulk edit changes a multi-value field on each item. */
 export type ListMode = 'add' | 'remove' | 'replace';
 
-type FieldKind = 'toggle' | 'select' | 'multiselect' | 'number' | 'text' | 'password' | 'textarea' | 'readonly';
+type FieldKind = 'toggle' | 'select' | 'multiselect' | 'namelist' | 'number' | 'text' | 'password' | 'textarea' | 'readonly';
+
+/**
+ * Text fields that are really lists of channel-tag names, one per line.
+ * Shown as a tag picker (existing tags suggested, new names allowed) and
+ * bulk-editable with Add / Remove / Replace like other list fields.
+ */
+const NAME_LIST_FIELDS: Record<string, { hint: string }> = {
+  iptv_tags: {
+    hint: 'Given to channels when this mux’s services are mapped. Doesn’t change channels already mapped. New names create new tags.',
+  },
+};
+
+/** Split newline-separated names, trimmed, empties and duplicates (any case) removed. */
+export function splitNames(raw: unknown): string[] {
+  const list = Array.isArray(raw) ? raw : String(raw ?? '').split(/\r?\n/);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of list) {
+    const name = String(item ?? '').trim();
+    if (name && !seen.has(name.toLowerCase())) {
+      seen.add(name.toLowerCase());
+      out.push(name);
+    }
+  }
+  return out;
+}
 
 interface Field {
   prop: IdnodeProp;
@@ -83,6 +112,7 @@ export function overlayIsOpen(): boolean {
   imports: [
     ReactiveFormsModule, MatFormFieldModule, MatInputModule, MatSelectModule, MatSlideToggleModule,
     MatButtonModule, MatButtonToggleModule, MatIconModule, MatTooltipModule, MatProgressBarModule, MatCheckboxModule,
+    MatChipsModule, MatAutocompleteModule,
   ],
   templateUrl: './idnode-form.component.html',
   styleUrl: './idnode-form.component.scss',
@@ -122,6 +152,12 @@ export class IdnodeFormComponent implements OnChanges {
   readonly listModes = signal<Record<string, ListMode>>({});
   /** Bulk mode: the first object's list values, used when switching to Replace. */
   private firstValues: Record<string, unknown> = {};
+
+  /** Existing channel-tag names, suggested in tag-name pickers. */
+  readonly channelTagNames = signal<string[]>([]);
+  /** Text typed in a tag-name picker, for filtering suggestions. */
+  readonly nameQuery = signal('');
+  readonly nameSeparators = [ENTER, COMMA];
 
   form = new FormGroup<Record<string, FormControl>>({});
   private initial: Record<string, unknown> = {};
@@ -208,7 +244,7 @@ export class IdnodeFormComponent implements OnChanges {
       const editable = kind !== 'readonly' && !truthy(prop.rdonly) && !(truthy(prop.wronce) && !creating);
       const raw = creating ? (prop.id in overrides ? overrides[prop.id] : prop.default) : prop.value;
       let value = this.toControlValue(prop, kind, raw);
-      if (this.bulkMode() && kind === 'multiselect') {
+      if (this.bulkMode() && (kind === 'multiselect' || kind === 'namelist')) {
         this.firstValues[prop.id] = value;
         value = []; // "Add" starts empty: pick what to add
       }
@@ -228,7 +264,8 @@ export class IdnodeFormComponent implements OnChanges {
     this.fields.set(fields);
     this.applied.set(new Set());
     this.listModes.set(this.bulkMode()
-      ? Object.fromEntries(fields.filter(f => f.kind === 'multiselect' && f.editable).map(f => [f.prop.id, 'add' as ListMode]))
+      ? Object.fromEntries(fields.filter(f => (f.kind === 'multiselect' || f.kind === 'namelist') && f.editable)
+          .map(f => [f.prop.id, 'add' as ListMode]))
       : {});
     this.changeCount.set(creating ? 1 : 0); // a new object can always be saved
     if (this.bulkMode()) {
@@ -243,6 +280,10 @@ export class IdnodeFormComponent implements OnChanges {
       this.changeCount.set(this.creating() ? 1 : Object.keys(this.collectChanges()).length);
     });
     this.loadDeferredEnums(fields);
+    if (fields.some(f => f.kind === 'namelist')) {
+      this.tvh.getChannelTags().subscribe(tags => this.channelTagNames.set(
+        splitNames(tags.map((t: any) => t?.name)).sort((a, b) => a.localeCompare(b))));
+    }
   }
 
   /** Fetch choice lists that live on other endpoints; one request per distinct URI+params. */
@@ -267,6 +308,7 @@ export class IdnodeFormComponent implements OnChanges {
   }
 
   private kindFor(prop: IdnodeProp): FieldKind {
+    if (prop.id in NAME_LIST_FIELDS && prop.type === 'str' && !prop.enum) return 'namelist';
     if (prop.enum) return prop.list ? 'multiselect' : 'select';
     if (prop.type === 'bool') return 'toggle';
     if (isNumericType(prop.type)) return prop.list ? 'readonly' : 'number';
@@ -283,6 +325,7 @@ export class IdnodeFormComponent implements OnChanges {
     switch (kind) {
       case 'toggle': return truthy(raw) || raw === 'true';
       case 'multiselect': return Array.isArray(raw) ? [...raw] : (raw === undefined || raw === null || raw === '' ? [] : [raw]);
+      case 'namelist': return splitNames(raw);
       case 'number':
         if (raw === undefined || raw === null) return '';
         return prop.intsplit ? formatIntsplit(raw, Number(prop.intsplit)) : String(raw);
@@ -301,6 +344,7 @@ export class IdnodeFormComponent implements OnChanges {
       return Number.isFinite(n) ? n : Number.NaN;
     }
     if (field.kind === 'toggle') return !!value;
+    if (field.kind === 'namelist') return splitNames(value).join('\n'); // Tvheadend stores one name per line
     return value;
   }
 
@@ -345,6 +389,39 @@ export class IdnodeFormComponent implements OnChanges {
     control?.setValue(Array.isArray(value) ? [...value] : value, { emitEvent: false });
     this.initial[id] = control?.getRawValue();
     this.setApplied(id, false);
+  }
+
+  // ---------------------------------------------------------------- tag-name picker
+
+  namesOf(field: Field): string[] {
+    return (this.form.controls[field.prop.id]?.value as string[]) || [];
+  }
+
+  addName(field: Field, text: string): void {
+    const control = this.form.controls[field.prop.id];
+    const next = splitNames([...this.namesOf(field), ...String(text || '').split(',')]);
+    if (next.length !== this.namesOf(field).length) control.setValue(next);
+    this.nameQuery.set('');
+  }
+
+  onNameToken(field: Field, event: MatChipInputEvent): void {
+    this.addName(field, event.value);
+    event.chipInput.clear();
+  }
+
+  removeName(field: Field, name: string): void {
+    this.form.controls[field.prop.id].setValue(this.namesOf(field).filter(n => n !== name));
+  }
+
+  nameHint(field: Field): string {
+    return NAME_LIST_FIELDS[field.prop.id]?.hint || field.prop.description || '';
+  }
+
+  /** Existing tag names matching what's typed, minus ones already chosen. */
+  tagSuggestions(field: Field): string[] {
+    const chosen = new Set(this.namesOf(field).map(n => n.toLowerCase()));
+    const q = this.nameQuery().trim().toLowerCase();
+    return this.channelTagNames().filter(n => !chosen.has(n.toLowerCase()) && (!q || n.toLowerCase().includes(q))).slice(0, 30);
   }
 
   listLabel(field: Field): string {
@@ -438,6 +515,16 @@ export class IdnodeFormComponent implements OnChanges {
         const changes: Record<string, unknown> = { ...plain };
         for (const id of merged) {
           const current = entry.params.find(p => p.id === id)?.value;
+          if (this.fields().find(f => f.prop.id === id)?.kind === 'namelist') {
+            // Newline-separated names: merge ignoring case, write back as text.
+            const have = splitNames(current);
+            const picked = splitNames(payload[id]);
+            const lower = (list: string[]) => new Set(list.map(n => n.toLowerCase()));
+            changes[id] = (modes[id] === 'add'
+              ? [...have, ...picked.filter(n => !lower(have).has(n.toLowerCase()))]
+              : have.filter(n => !lower(picked).has(n.toLowerCase()))).join('\n');
+            continue;
+          }
           const have = Array.isArray(current) ? current : (current === undefined || current === null || current === '' ? [] : [current]);
           const picked = (payload[id] as unknown[]) || [];
           changes[id] = modes[id] === 'add'

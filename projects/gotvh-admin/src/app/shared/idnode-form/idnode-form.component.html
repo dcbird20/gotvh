@@ -90,6 +90,36 @@
                   }
                 </mat-form-field>
               }
+              @case ('namelist') {
+                @if (listMode(f.prop.id); as mode) {
+                  <mat-button-toggle-group class="list-mode" [value]="mode" (change)="setListMode(f.prop.id, $event.value)"
+                                           hideSingleSelectionIndicator [attr.aria-label]="'How to change ' + f.label">
+                    <mat-button-toggle value="add">Add</mat-button-toggle>
+                    <mat-button-toggle value="remove">Remove</mat-button-toggle>
+                    <mat-button-toggle value="replace">Replace</mat-button-toggle>
+                  </mat-button-toggle-group>
+                }
+                <mat-form-field appearance="outline" class="namelist">
+                  <mat-label>{{ listLabel(f) }}</mat-label>
+                  <mat-chip-grid #chipGrid [formControlName]="f.prop.id" [attr.aria-label]="f.label">
+                    @for (n of namesOf(f); track n) {
+                      <mat-chip-row (removed)="removeName(f, n)">
+                        {{ n }}
+                        <button matChipRemove type="button" [attr.aria-label]="'Remove ' + n"><mat-icon>cancel</mat-icon></button>
+                      </mat-chip-row>
+                    }
+                    <input #nameInput [placeholder]="namesOf(f).length ? '' : 'Type or pick a tag…'"
+                           [matChipInputFor]="chipGrid" [matChipInputSeparatorKeyCodes]="nameSeparators"
+                           (matChipInputTokenEnd)="onNameToken(f, $event)"
+                           [matAutocomplete]="nameAuto" (input)="nameQuery.set($any($event.target).value)">
+                  </mat-chip-grid>
+                  <mat-autocomplete #nameAuto="matAutocomplete"
+                                    (optionSelected)="addName(f, $event.option.value); nameInput.value = ''">
+                    @for (t of tagSuggestions(f); track t) { <mat-option [value]="t">{{ t }}</mat-option> }
+                  </mat-autocomplete>
+                  @if (nameHint(f)) { <mat-hint>{{ nameHint(f) }}</mat-hint> }
+                </mat-form-field>
+              }
               @case ('textarea') {
                 <mat-form-field appearance="outline">
                   <mat-label>{{ f.label }}</mat-label>
