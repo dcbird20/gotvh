@@ -1,0 +1,117 @@
+<form [formGroup]="form" (ngSubmit)="save()" class="idnode-form" (keydown.escape)="!$any($event).defaultPrevented && closed.emit()">
+  <div class="head">
+    <div class="titles">
+      <h2>{{ title() || entry()?.text || entry()?.caption || (creating() ? 'New' : 'Edit') }}</h2>
+      @if (entry()?.caption && title()) { <span class="muted small">{{ entry()?.caption }}</span> }
+    </div>
+    <button mat-icon-button type="button" (click)="closed.emit()" aria-label="Close"><mat-icon>close</mat-icon></button>
+  </div>
+
+  @if (availableLevels().length > 1) {
+    <div class="levels">
+      <mat-button-toggle-group [value]="level()" (change)="setLevel($event.value)" hideSingleSelectionIndicator aria-label="Fields to show">
+        @for (l of availableLevels(); track l) {
+          <mat-button-toggle [value]="l">{{ levelLabel(l) }}</mat-button-toggle>
+        }
+      </mat-button-toggle-group>
+      @if (hiddenCount()) { <span class="muted small">{{ hiddenCount() }} more fields hidden</span> }
+    </div>
+  }
+
+  @if (loading()) { <mat-progress-bar mode="indeterminate" /> }
+  @if (error()) { <div class="banner error" role="alert">{{ error() }}</div> }
+
+  <div class="body">
+    @for (section of sections(); track section.name) {
+      <section>
+        @if (section.name) { <h3>{{ section.name }}</h3> }
+        @for (f of section.fields; track f.prop.id) {
+          <div class="field" [class.changed]="isChanged(f)" [attr.data-prop]="f.prop.id">
+            @switch (f.editable ? f.kind : 'readonly') {
+              @case ('toggle') {
+                <div class="toggle-row">
+                  <mat-slide-toggle [formControlName]="f.prop.id">{{ f.label }}</mat-slide-toggle>
+                  @if (f.prop.description) {
+                    <mat-icon class="info" [matTooltip]="f.prop.description" tabindex="0" [attr.aria-label]="f.prop.description">info</mat-icon>
+                  }
+                </div>
+              }
+              @case ('select') {
+                <mat-form-field appearance="outline">
+                  <mat-label>{{ f.label }}</mat-label>
+                  <mat-select [formControlName]="f.prop.id">
+                    @if (missingOption(f); as m) { <mat-option [value]="m.value">{{ m.label }}</mat-option> }
+                    @for (o of f.options || []; track o.value) { <mat-option [value]="o.value">{{ o.label }}</mat-option> }
+                  </mat-select>
+                  @if (f.optionsLoading) { <mat-hint>Loading choices…</mat-hint> }
+                  @else if (f.optionsError) { <mat-hint class="warn">Couldn’t load choices.</mat-hint> }
+                  @if (f.prop.description) {
+                    <mat-icon matSuffix class="info" [matTooltip]="f.prop.description">info</mat-icon>
+                  }
+                </mat-form-field>
+              }
+              @case ('multiselect') {
+                <mat-form-field appearance="outline">
+                  <mat-label>{{ f.label }}</mat-label>
+                  <mat-select [formControlName]="f.prop.id" multiple>
+                    @for (o of f.options || []; track o.value) { <mat-option [value]="o.value">{{ o.label }}</mat-option> }
+                  </mat-select>
+                  @if (f.optionsLoading) { <mat-hint>Loading choices…</mat-hint> }
+                  @if (f.prop.description) {
+                    <mat-icon matSuffix class="info" [matTooltip]="f.prop.description">info</mat-icon>
+                  }
+                </mat-form-field>
+              }
+              @case ('number') {
+                <mat-form-field appearance="outline">
+                  <mat-label>{{ f.label }}</mat-label>
+                  <input matInput [formControlName]="f.prop.id" inputmode="decimal" autocomplete="off" class="num">
+                  @if (f.prop.description) {
+                    <mat-icon matSuffix class="info" [matTooltip]="f.prop.description">info</mat-icon>
+                  }
+                </mat-form-field>
+              }
+              @case ('textarea') {
+                <mat-form-field appearance="outline">
+                  <mat-label>{{ f.label }}</mat-label>
+                  <textarea matInput [formControlName]="f.prop.id" rows="3"></textarea>
+                  @if (f.prop.description) { <mat-hint>{{ f.prop.description }}</mat-hint> }
+                </mat-form-field>
+              }
+              @case ('readonly') {
+                <div class="readonly">
+                  <span class="ro-label">{{ f.label }}</span>
+                  <span class="ro-value">{{ displayReadonly(f) }}</span>
+                </div>
+              }
+              @default {
+                <mat-form-field appearance="outline">
+                  <mat-label>{{ f.label }}</mat-label>
+                  <input matInput [formControlName]="f.prop.id" [type]="f.kind === 'password' ? 'password' : 'text'"
+                         [attr.autocomplete]="f.kind === 'password' ? 'new-password' : 'off'" spellcheck="false">
+                  @if (f.prop.description) {
+                    <mat-icon matSuffix class="info" [matTooltip]="f.prop.description">info</mat-icon>
+                  }
+                </mat-form-field>
+              }
+            }
+          </div>
+        }
+      </section>
+    }
+  </div>
+
+  <div class="actions">
+    <ng-content select="[formExtraActions]" />
+    <span class="spacer"></span>
+    @if (!creating() && changeCount()) {
+      <span class="muted small">{{ changeCount() }} unsaved {{ changeCount() === 1 ? 'change' : 'changes' }}</span>
+      <button mat-button type="button" (click)="reset()">Revert</button>
+    } @else {
+      <button mat-button type="button" (click)="closed.emit()">{{ creating() ? 'Cancel' : 'Close' }}</button>
+    }
+    <button mat-flat-button type="submit" [disabled]="saving() || loading() || !entry() || !changeCount()">
+      {{ creating() ? 'Create' : 'Save' }}
+    </button>
+  </div>
+</form>

@@ -89,7 +89,18 @@ Built so far:
 - **Auto-record rules** — table with enable toggles, side-panel editor (match, channel,
   time window, days, padding, DVR profile), live preview of upcoming guide matches, delete
 
-Other sections are placeholders naming the API they'll use. Rule helpers shared with the
+- **DVR profiles** — list plus a generic editor built from Tvheadend's field metadata
+  (see below); create, edit, delete
+
+Other sections are placeholders naming the API they'll use.
+
+### Generic config editor
+
+Most Tvheadend config objects are "idnodes", and the API describes their fields (type,
+label, choices, read-only, basic/advanced/expert level). `IdnodeFormComponent`
+(`projects/gotvh-admin/src/app/shared/idnode-form/`) renders any of them from that
+description — pass `uuid` to edit or `createPath` (e.g. `dvr/config`) to create. It only
+saves fields you changed. New config sections should reuse it rather than hand-build forms. Rule helpers shared with the
 TV app live in `projects/tvh-api/src/autorec-rules.ts`.
 
 ## Workspace layout

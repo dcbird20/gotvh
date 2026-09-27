@@ -5,3 +5,4 @@
 export * from './tvh-api.config';
 export * from './tvheadend.service';
 export * from './autorec-rules';
+export * from './idnode';

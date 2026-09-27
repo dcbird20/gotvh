@@ -4,6 +4,7 @@ import { Capacitor, CapacitorHttp } from '@capacitor/core';
 import { BehaviorSubject, forkJoin, from, Observable, of, throwError } from 'rxjs';
 import { catchError, map, shareReplay, switchMap, take } from 'rxjs/operators';
 import { TVH_API_CONFIG, TvhApiConfig } from './tvh-api.config';
+import { IdnodeDeferredEnum, IdnodeEntry, IdnodeOption, normalizeEnum } from './idnode';
 
 export type RecordingScheduleMethod = 'event' | 'manual';
 
@@ -2003,6 +2004,80 @@ export class TvheadendService {
       this.buildUrl('idnode/delete'),
       this.buildFormBody({ uuid: normalizedUuid }),
       this.getFormRequestOptions()
+    );
+  }
+
+  // ------------------------------------------------------------------
+  // Generic idnode access — used by the admin app's metadata-driven forms.
+  // ------------------------------------------------------------------
+
+  /** Plain GET against the API for grid/list endpoints, returning `entries`. */
+  getGrid(path: string, params: Record<string, string | number> = {}): Observable<any[]> {
+    let query = new HttpParams().set('start', '0').set('limit', '9999');
+    Object.entries(params).forEach(([k, v]) => { query = query.set(k, String(v)); });
+    return this.http.get<any>(this.buildUrl(`${path}?${query.toString()}`), this.getRequestOptions()).pipe(
+      map(data => Array.isArray(data) ? data : (data?.entries || []))
+    );
+  }
+
+  /** Load one object with its field metadata and current values. */
+  idnodeLoad(uuid: string): Observable<IdnodeEntry> {
+    const body = this.buildFormBody({ uuid, meta: 1 });
+    return this.http.post<any>(this.buildUrl('idnode/load'), body, this.getFormRequestOptions()).pipe(
+      map(data => {
+        const entry = (data?.entries || [])[0];
+        if (!entry || !Array.isArray(entry.params)) {
+          throw new Error('Tvheadend returned no field metadata for this object.');
+        }
+        return entry as IdnodeEntry;
+      })
+    );
+  }
+
+  /**
+   * Field metadata (with defaults) for creating a new object, e.g. `dvr/config`
+   * → GET api/dvr/config/class. Normalized to the same shape as idnodeLoad.
+   */
+  idnodeClass(basePath: string): Observable<IdnodeEntry> {
+    const path = `${basePath.replace(/\/+$/, '')}/class`;
+    return this.http.get<any>(this.buildUrl(path), this.getRequestOptions()).pipe(
+      map(data => {
+        const params = data?.props || data?.params;
+        if (!Array.isArray(params)) {
+          throw new Error('Tvheadend returned no class metadata.');
+        }
+        return { caption: data?.caption, class: data?.class, params, meta: data?.meta } as IdnodeEntry;
+      })
+    );
+  }
+
+  /** Save changed fields. `changes` holds only the properties to update. */
+  idnodeSave(uuid: string, changes: Record<string, unknown>): Observable<any> {
+    const node = { uuid, ...changes };
+    return this.http.post<any>(this.buildUrl('idnode/save'), this.buildFormBody({ node: JSON.stringify(node) }),
+      this.getFormRequestOptions());
+  }
+
+  /** Create via `<basePath>/create`, e.g. `dvr/config` → api/dvr/config/create. */
+  idnodeCreate(basePath: string, conf: Record<string, unknown>): Observable<any> {
+    const path = `${basePath.replace(/\/+$/, '')}/create`;
+    return this.http.post<any>(this.buildUrl(path), this.buildFormBody({ conf: JSON.stringify(conf) }),
+      this.getFormRequestOptions());
+  }
+
+  idnodeDelete(uuid: string): Observable<any> {
+    return this.http.post<any>(this.buildUrl('idnode/delete'), this.buildFormBody({ uuid }), this.getFormRequestOptions());
+  }
+
+  /** Resolve a choice list that the metadata points at another endpoint for. */
+  idnodeEnumOptions(deferred: IdnodeDeferredEnum): Observable<IdnodeOption[]> {
+    const params: Record<string, string> = {};
+    Object.entries(deferred.params || {}).forEach(([k, v]) => {
+      params[k] = typeof v === 'object' ? JSON.stringify(v) : String(v);
+    });
+    const body = this.buildFormBody(params);
+    return this.http.post<any>(this.buildUrl(deferred.uri), body, this.getFormRequestOptions()).pipe(
+      map(data => normalizeEnum(Array.isArray(data) ? data : (data?.entries || [])))
     );
   }
 

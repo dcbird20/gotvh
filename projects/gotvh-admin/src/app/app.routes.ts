@@ -48,8 +48,8 @@ export const routes: Routes = [
   },
   {
     path: 'dvr-profiles',
-    ...placeholder('DVR profiles', 'dvr/config/* (idnode class "dvrconfig")',
-      'Read-only listing exists (getDvrConfigs). Editing is a good first test of a metadata-driven idnode form.'),
+    title: 'DVR profiles · GoTVH Admin',
+    loadComponent: () => import('./pages/dvr-profiles/dvr-profiles.component').then(m => m.DvrProfilesComponent),
   },
   {
     path: 'inputs',
