@@ -95,6 +95,9 @@ Built so far:
 - **Tuners & networks** — tuner hardware tree, networks (add by type, scan), muxes and
   services in server-paged tables; everything opens in the generic editor
 
+- **Channels** — server-paged list (split numbers like 5.1 shown properly, tag names),
+  create, edit, delete, bulk edit
+
 Other sections are placeholders naming the API they'll use.
 
 ### Selecting several rows
@@ -105,6 +108,14 @@ with bulk actions (enable, disable, delete, scan, cancel, mark watched — whate
 the table) appears while rows are selected. Selections survive paging and filtering;
 the bar says when some selected rows aren't on screen. Shared pieces: `RowSelection`
 (`shared/row-selection.ts`), `runBulk` (`shared/bulk.ts`) and `admin-bulk-bar`.
+
+### Changing a setting on many items
+
+Select rows, then **Edit…** in the selection bar (networks, muxes, services, channels).
+The editor opens in bulk mode showing the first item's values. Changing a field ticks
+its checkbox; you can also tick a field to push the shown value as-is. Only ticked
+fields are written, to every selected item. List fields such as channel tags are
+replaced, not merged.
 
 ### Generic config editor
 

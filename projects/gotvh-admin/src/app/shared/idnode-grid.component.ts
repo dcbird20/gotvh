@@ -20,6 +20,8 @@ export interface GridColumn {
   kind?: 'text' | 'num' | 'bool' | 'list' | 'mono';
   /** Server-side sortable (default true). */
   sortable?: boolean;
+  /** Custom display, e.g. mapping tag uuids to names. Overrides `kind` formatting. */
+  format?: (value: any, row: any) => string;
 }
 
 /**
@@ -79,7 +81,7 @@ export interface GridColumn {
                 [class.num]="c.kind === 'num'">{{ c.label }}</th>
             <td mat-cell *matCellDef="let r" [class.num]="c.kind === 'num'" [class.mono]="c.kind === 'mono'"
                 [class.muted]="isEmpty(r[c.id]) || (c.kind === 'bool' && !truthyValue(r[c.id]))">
-              {{ format(c, r[c.id]) }}
+              {{ c.format ? c.format(r[c.id], r) : format(c, r[c.id]) }}
             </td>
           </ng-container>
         }
@@ -180,7 +182,8 @@ export class IdnodeGridComponent implements OnChanges {
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['defaultSort'] && !this.sort().active) this.sort.set(this.defaultSort());
-    if (changes['path'] || changes['params'] || changes['columns']) {
+    // Column changes (e.g. narrower while an editor is open) don't need new data or a page reset.
+    if (changes['path'] || changes['params']) {
       this.pageIndex.set(0);
       this.refresh();
     }

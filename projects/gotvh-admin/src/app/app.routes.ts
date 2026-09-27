@@ -58,8 +58,8 @@ export const routes: Routes = [
   },
   {
     path: 'channels',
-    ...placeholder('Channels', 'channel/*, channeltag/*',
-      'The client reads channels and tags today. Needs create/edit/delete and service-to-channel mapping.'),
+    title: 'Channels · GoTVH Admin',
+    loadComponent: () => import('./pages/channels/channels.component').then(m => m.ChannelsComponent),
   },
   {
     path: 'epg',

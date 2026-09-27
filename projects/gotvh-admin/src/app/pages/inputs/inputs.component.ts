@@ -12,7 +12,7 @@ import { TvheadendService } from '@gotvh/tvh-api';
 import { ConfirmDialogComponent, ConfirmDialogData } from '../../shared/confirm-dialog.component';
 import { IdnodeFormComponent } from '../../shared/idnode-form/idnode-form.component';
 import { GridColumn, IdnodeGridComponent } from '../../shared/idnode-grid.component';
-import { describeBulk, runBulk } from '../../shared/bulk';
+import { BulkResult, describeBulk, runBulk } from '../../shared/bulk';
 
 type TabId = 'tuners' | 'networks' | 'muxes' | 'services';
 
@@ -31,6 +31,8 @@ interface Selection {
   label: string;
   /** Set when creating: the class to create and its display name. */
   createClass?: string;
+  /** Set when bulk-editing several rows. */
+  bulkUuids?: string[];
 }
 
 interface GridTab {
@@ -136,6 +138,7 @@ export class InputsComponent implements OnInit {
   readonly editorTitle = computed(() => {
     const s = this.selection();
     if (!s) return '';
+    if (s.bulkUuids) return s.label;
     if (!s.createClass) return s.label; // '' → the editor shows the object's own name
     return /network$/i.test(s.label) ? `New ${s.label}` : `New ${s.label} network`;
   });
@@ -235,7 +238,7 @@ export class InputsComponent implements OnInit {
 
   private open(sel: Selection): void {
     const current = this.selection();
-    if (current && current.uuid === sel.uuid && current.createClass === sel.createClass) return;
+    if (current && !sel.bulkUuids && !current.bulkUuids && current.uuid === sel.uuid && current.createClass === sel.createClass) return;
     this.confirmDiscard().subscribe(ok => { if (ok) this.selection.set(sel); });
   }
 
@@ -243,8 +246,16 @@ export class InputsComponent implements OnInit {
     this.confirmDiscard().subscribe(ok => { if (ok) this.selection.set(null); });
   }
 
-  onSaved(event: { uuid: string | null; created: boolean }): void {
+  onSaved(event: { uuid: string | null; created: boolean; bulk?: BulkResult }): void {
     const sel = this.selection();
+    if (event.bulk && sel) {
+      const tab = this.tabFor(sel.tab);
+      this.snack.open(describeBulk('Updated', event.bulk, ...(tab?.noun || ['item', 'items'] as [string, string])),
+        undefined, { duration: 4000 });
+      this.selection.set(null); // rows stay selected for another round
+      this.grid?.refresh();
+      return;
+    }
     this.snack.open(event.created ? 'Network created' : 'Saved', undefined, { duration: 3000 });
     if (event.created && sel) {
       this.selection.set(event.uuid ? { tab: sel.tab, uuid: event.uuid, label: '' } : null);
@@ -299,6 +310,16 @@ export class InputsComponent implements OnInit {
   }
 
   // ---------------------------------------------------------------- bulk actions
+
+  /** Open the editor in bulk mode for every selected row. */
+  bulkEdit(tab: GridTab): void {
+    const grid = this.grid;
+    if (!grid) return;
+    const uuids = grid.selection.keys();
+    if (!uuids.length) return;
+    const [one, many] = tab.noun;
+    this.open({ tab: tab.id, uuid: null, label: `Edit ${uuids.length} ${uuids.length === 1 ? one : many}`, bulkUuids: uuids });
+  }
 
   /** Enable or disable every selected mux/service. 1/0 works for both bool and the mux enable enum. */
   bulkSetEnabled(tab: GridTab, enabled: boolean): void {

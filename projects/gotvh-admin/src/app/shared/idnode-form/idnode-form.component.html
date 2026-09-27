@@ -18,6 +18,12 @@
     </div>
   }
 
+  @if (bulkMode() && entry()) {
+    <p class="bulk-note">
+      Showing values from <strong>{{ entry()?.text || 'the first selected item' }}</strong>.
+      Change a field, or tick its box, to set it on all {{ bulkCount() }}. Unticked fields are left alone.
+    </p>
+  }
   @if (loading()) { <mat-progress-bar mode="indeterminate" /> }
   @if (error()) { <div class="banner error" role="alert">{{ error() }}</div> }
 
@@ -26,7 +32,12 @@
       <section>
         @if (section.name) { <h3>{{ section.name }}</h3> }
         @for (f of section.fields; track f.prop.id) {
-          <div class="field" [class.changed]="isChanged(f)" [attr.data-prop]="f.prop.id">
+          <div class="field" [class.changed]="isChanged(f)" [class.bulk]="bulkMode()" [attr.data-prop]="f.prop.id">
+            @if (bulkMode()) {
+              <mat-checkbox class="apply" [checked]="applied().has(f.prop.id)" (change)="setApplied(f.prop.id, $event.checked)"
+                            [matTooltip]="'Set on all ' + bulkCount()" [attr.aria-label]="'Set ' + f.label + ' on all selected'" />
+            }
+            <div class="control">
             @switch (f.editable ? f.kind : 'readonly') {
               @case ('toggle') {
                 <div class="toggle-row">
@@ -95,6 +106,7 @@
                 </mat-form-field>
               }
             }
+            </div>
           </div>
         }
       </section>
@@ -104,14 +116,17 @@
   <div class="actions">
     <ng-content select="[formExtraActions]" />
     <span class="spacer"></span>
-    @if (!creating() && changeCount()) {
+    @if (bulkMode() && changeCount()) {
+      <span class="muted small">{{ changeCount() }} {{ changeCount() === 1 ? 'field' : 'fields' }} → {{ bulkCount() }} items</span>
+      <button mat-button type="button" (click)="reset()">Revert</button>
+    } @else if (!creating() && changeCount()) {
       <span class="muted small">{{ changeCount() }} unsaved {{ changeCount() === 1 ? 'change' : 'changes' }}</span>
       <button mat-button type="button" (click)="reset()">Revert</button>
     } @else {
-      <button mat-button type="button" (click)="closed.emit()">{{ creating() ? 'Cancel' : 'Close' }}</button>
+      <button mat-button type="button" (click)="closed.emit()">{{ creating() || bulkMode() ? 'Cancel' : 'Close' }}</button>
     }
     <button mat-flat-button type="submit" [disabled]="saving() || loading() || !entry() || !changeCount()">
-      {{ creating() ? 'Create' : 'Save' }}
+      {{ creating() ? 'Create' : bulkMode() ? 'Apply to ' + bulkCount() : 'Save' }}
     </button>
   </div>
 </form>

@@ -66,6 +66,7 @@
                   }
                   <!-- shown in the bar above the table while rows are selected -->
                   <ng-container ngProjectAs="[bulkActions]">
+                    <button mat-button (click)="bulkEdit(tab)"><mat-icon>edit</mat-icon> Edit…</button>
                     @if (tab.id === 'networks') {
                       <button mat-button (click)="bulkScan(tab)"><mat-icon>radar</mat-icon> Scan</button>
                     }
@@ -89,15 +90,16 @@
     @if (selection(); as sel) {
       <admin-idnode-form
         [uuid]="sel.uuid"
+        [bulkUuids]="sel.bulkUuids || null"
         [createPath]="sel.createClass ? 'mpegts/network' : null"
         [createClass]="sel.createClass || null"
         [title]="editorTitle()"
         (saved)="onSaved($event)"
         (closed)="close()">
-        @if (sel.uuid && sel.tab !== 'tuners') {
+        @if (sel.uuid && !sel.bulkUuids && sel.tab !== 'tuners') {
           <button formExtraActions mat-button type="button" class="danger-text" (click)="confirmDelete()">Delete</button>
         }
-        @if (sel.uuid && sel.tab === 'networks') {
+        @if (sel.uuid && !sel.bulkUuids && sel.tab === 'networks') {
           <button formExtraActions mat-button type="button" (click)="scan()"
                   matTooltip="Queue every mux on this network for scanning">
             <mat-icon>radar</mat-icon> Scan

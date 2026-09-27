@@ -40,6 +40,17 @@ h3 { font: var(--mat-sys-title-small); color: var(--mat-sys-on-surface-variant);
   }
 }
 
+.field.bulk {
+  display: grid; grid-template-columns: 32px minmax(0, 1fr); align-items: start; column-gap: 4px;
+  .apply { margin-top: 8px; margin-left: -10px; }
+  &.changed::before { left: -14px; }
+}
+.control { min-width: 0; }
+.bulk-note {
+  margin: 8px 0 4px; padding: 10px 12px; border-radius: 8px; font: var(--mat-sys-body-small);
+  background: var(--mat-sys-tertiary-container); color: var(--mat-sys-on-tertiary-container);
+}
+
 .toggle-row { display: flex; align-items: center; gap: 6px; min-height: 40px; margin-bottom: 8px; }
 
 .info {
