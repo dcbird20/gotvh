@@ -46,6 +46,7 @@ h3 { font: var(--mat-sys-title-small); color: var(--mat-sys-on-surface-variant);
   &.changed::before { left: -14px; }
 }
 .control { min-width: 0; }
+.list-mode { margin: 2px 0 8px; --mat-standard-button-toggle-height: 30px; font: var(--mat-sys-label-medium); }
 .bulk-note {
   margin: 8px 0 4px; padding: 10px 12px; border-radius: 8px; font: var(--mat-sys-body-small);
   background: var(--mat-sys-tertiary-container); color: var(--mat-sys-on-tertiary-container);

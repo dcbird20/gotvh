@@ -114,8 +114,9 @@ the bar says when some selected rows aren't on screen. Shared pieces: `RowSelect
 Select rows, then **Edit…** in the selection bar (networks, muxes, services, channels).
 The editor opens in bulk mode showing the first item's values. Changing a field ticks
 its checkbox; you can also tick a field to push the shown value as-is. Only ticked
-fields are written, to every selected item. List fields such as channel tags are
-replaced, not merged.
+fields are written, to every selected item. List fields such as channel tags have an
+**Add / Remove / Replace** switch (default Add): Add and Remove merge into each item's own
+list, so other tags are kept; Replace sets the same list on all.
 
 ### Generic config editor
 

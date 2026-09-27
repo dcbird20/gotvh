@@ -62,8 +62,16 @@
                 </mat-form-field>
               }
               @case ('multiselect') {
+                @if (listMode(f.prop.id); as mode) {
+                  <mat-button-toggle-group class="list-mode" [value]="mode" (change)="setListMode(f.prop.id, $event.value)"
+                                           hideSingleSelectionIndicator [attr.aria-label]="'How to change ' + f.label">
+                    <mat-button-toggle value="add">Add</mat-button-toggle>
+                    <mat-button-toggle value="remove">Remove</mat-button-toggle>
+                    <mat-button-toggle value="replace">Replace</mat-button-toggle>
+                  </mat-button-toggle-group>
+                }
                 <mat-form-field appearance="outline">
-                  <mat-label>{{ f.label }}</mat-label>
+                  <mat-label>{{ listLabel(f) }}</mat-label>
                   <mat-select [formControlName]="f.prop.id" multiple>
                     @for (o of f.options || []; track o.value) { <mat-option [value]="o.value">{{ o.label }}</mat-option> }
                   </mat-select>

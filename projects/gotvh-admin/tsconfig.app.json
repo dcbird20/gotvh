@@ -2,7 +2,11 @@
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "outDir": "../../out-tsc/admin",
-    "types": []
+    "types": [],
+    "lib": [
+      "es2022",
+      "dom"
+    ]
   },
   "files": [
     "src/main.ts"

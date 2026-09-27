@@ -2,7 +2,7 @@ import { Component, DestroyRef, OnChanges, computed, inject, input, output, sign
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
 import { Observable, forkJoin, of } from 'rxjs';
-import { catchError, map } from 'rxjs/operators';
+import { catchError, map, switchMap } from 'rxjs/operators';
 import { MatButtonModule } from '@angular/material/button';
 import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { MatCheckboxModule } from '@angular/material/checkbox';
@@ -18,6 +18,9 @@ import {
   isVisibleAtLevel, normalizeEnum, propLevel, truthy,
 } from '@gotvh/tvh-api';
 import { BulkResult, describeBulk, runBulk } from '../bulk';
+
+/** How a bulk edit changes a multi-value field on each item. */
+export type ListMode = 'add' | 'remove' | 'replace';
 
 type FieldKind = 'toggle' | 'select' | 'multiselect' | 'number' | 'text' | 'password' | 'textarea' | 'readonly';
 
@@ -71,6 +74,8 @@ export function overlayIsOpen(): boolean {
  * Bulk mode shows the first object's values. Each field has an "apply"
  * checkbox that ticks itself when the field is changed (or can be ticked to
  * push the shown value as-is); only ticked fields are saved, to every object.
+ * Multi-value fields (e.g. channel tags) default to "Add": the chosen values
+ * are merged into each object's own list rather than replacing it.
  */
 @Component({
   selector: 'admin-idnode-form',
@@ -113,6 +118,10 @@ export class IdnodeFormComponent implements OnChanges {
   readonly changeCount = signal(0);
   /** Bulk mode: fields that will be written to every object. */
   readonly applied = signal<Set<string>>(new Set());
+  /** Bulk mode: add/remove/replace per multi-value field. */
+  readonly listModes = signal<Record<string, ListMode>>({});
+  /** Bulk mode: the first object's list values, used when switching to Replace. */
+  private firstValues: Record<string, unknown> = {};
 
   form = new FormGroup<Record<string, FormControl>>({});
   private initial: Record<string, unknown> = {};
@@ -198,7 +207,11 @@ export class IdnodeFormComponent implements OnChanges {
       const kind = this.kindFor(prop);
       const editable = kind !== 'readonly' && !truthy(prop.rdonly) && !(truthy(prop.wronce) && !creating);
       const raw = creating ? (prop.id in overrides ? overrides[prop.id] : prop.default) : prop.value;
-      const value = this.toControlValue(prop, kind, raw);
+      let value = this.toControlValue(prop, kind, raw);
+      if (this.bulkMode() && kind === 'multiselect') {
+        this.firstValues[prop.id] = value;
+        value = []; // "Add" starts empty: pick what to add
+      }
       this.initial[prop.id] = value;
       controls[prop.id] = new FormControl({ value, disabled: !editable });
 
@@ -214,6 +227,9 @@ export class IdnodeFormComponent implements OnChanges {
     this.form = new FormGroup(controls);
     this.fields.set(fields);
     this.applied.set(new Set());
+    this.listModes.set(this.bulkMode()
+      ? Object.fromEntries(fields.filter(f => f.kind === 'multiselect' && f.editable).map(f => [f.prop.id, 'add' as ListMode]))
+      : {});
     this.changeCount.set(creating ? 1 : 0); // a new object can always be saved
     if (this.bulkMode()) {
       // Editing a field ticks its "apply to all" box.
@@ -308,9 +324,35 @@ export class IdnodeFormComponent implements OnChanges {
     const values = this.form.getRawValue();
     const out: Record<string, unknown> = {};
     for (const f of this.fields()) {
-      if (f.editable && this.applied().has(f.prop.id)) out[f.prop.id] = this.fromControlValue(f, values[f.prop.id]);
+      if (!f.editable || !this.applied().has(f.prop.id)) continue;
+      const mode = this.listModes()[f.prop.id];
+      const v = values[f.prop.id];
+      if ((mode === 'add' || mode === 'remove') && (!Array.isArray(v) || !v.length)) continue; // nothing picked
+      out[f.prop.id] = this.fromControlValue(f, v);
     }
     return out;
+  }
+
+  listMode(id: string): ListMode | null {
+    return this.listModes()[id] ?? null;
+  }
+
+  /** Switch a list field between add/remove/replace. Resets its value and tick so nothing surprising is applied. */
+  setListMode(id: string, mode: ListMode): void {
+    this.listModes.update(m => ({ ...m, [id]: mode }));
+    const control = this.form.controls[id];
+    const value = mode === 'replace' ? this.firstValues[id] ?? [] : [];
+    control?.setValue(Array.isArray(value) ? [...value] : value, { emitEvent: false });
+    this.initial[id] = control?.getRawValue();
+    this.setApplied(id, false);
+  }
+
+  listLabel(field: Field): string {
+    switch (this.listMode(field.prop.id)) {
+      case 'add': return `${field.label} to add`;
+      case 'remove': return `${field.label} to remove`;
+      default: return field.label;
+    }
   }
 
   setApplied(id: string, on: boolean): void {
@@ -319,7 +361,8 @@ export class IdnodeFormComponent implements OnChanges {
       if (on) next.add(id); else next.delete(id);
       return next;
     });
-    this.changeCount.set(this.applied().size);
+    // Count what would actually be written (an "Add" with nothing picked writes nothing).
+    this.changeCount.set(Object.keys(this.collectApplied()).length);
   }
 
   /** On create, send every editable value so class defaults are explicit. */
@@ -384,9 +427,30 @@ export class IdnodeFormComponent implements OnChanges {
     }
     if (!Object.keys(payload).length || !uuids.length) return;
 
+    // Add/remove fields depend on each item's own list, so load it first and merge.
+    const modes = this.listModes();
+    const merged = Object.keys(payload).filter(id => modes[id] === 'add' || modes[id] === 'remove');
+    const plain = { ...payload };
+    merged.forEach(id => delete plain[id]);
+    const perItem = (uuid: string): Observable<unknown> => {
+      if (!merged.length) return this.tvh.idnodeSave(uuid, plain);
+      return this.tvh.idnodeLoad(uuid).pipe(switchMap(entry => {
+        const changes: Record<string, unknown> = { ...plain };
+        for (const id of merged) {
+          const current = entry.params.find(p => p.id === id)?.value;
+          const have = Array.isArray(current) ? current : (current === undefined || current === null || current === '' ? [] : [current]);
+          const picked = (payload[id] as unknown[]) || [];
+          changes[id] = modes[id] === 'add'
+            ? [...have, ...picked.filter(v => !have.includes(v))]
+            : have.filter(v => !picked.includes(v));
+        }
+        return this.tvh.idnodeSave(uuid, changes);
+      }));
+    };
+
     this.error.set('');
     this.saving.set(true);
-    runBulk(uuids, uuid => this.tvh.idnodeSave(uuid, payload)).subscribe(result => {
+    runBulk(uuids, perItem).subscribe(result => {
       this.saving.set(false);
       if (result.failed) {
         // Keep the form open so the change can be retried.
