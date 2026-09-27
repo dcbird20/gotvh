@@ -60,6 +60,7 @@
       *ngFor="let ch of filteredChannels"
       class="channel-card"
       [class.channel-card--focused]="ch === focusedChannel"
+      [class.channel-card--selected]="isSelectedChannel(ch)"
       [class.channel-card--favorite]="isFavorite(ch)"
       [attr.data-channel-uuid]="ch.uuid"
       role="button"

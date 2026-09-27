@@ -20,10 +20,12 @@ import { ViewStateCacheService } from '../../services/view-state-cache.service';
 export class ChannelsComponent implements OnInit, OnDestroy {
   private readonly viewCacheKey = 'channels';
   private readonly favoritesStorageKey = 'gotvh_fav_channels';
+  private readonly pointerActivationWindowMs = 500;
   channels: any[] = [];
   filteredChannels: any[] = [];
   epgEvents: any[] = [];
   focusedChannel: any = null;
+  selectedChannelUuid = '';
   focusedChannelProgram: any = null;
   focusedNextProgram: any = null;
   searchQuery = '';
@@ -38,6 +40,8 @@ export class ChannelsComponent implements OnInit, OnDestroy {
   brokenChannelIcons = new Set<string>();
   private favoriteTagUuid: string | null = null;
   private favoriteSaveInFlight = new Set<string>();
+  private lastPointerDownChannelUuid = '';
+  private lastPointerDownAt = 0;
   private pendingReturnContext: ReturnNavigationContext | null = null;
   private activationInProgress = false;
 
@@ -181,6 +185,7 @@ export class ChannelsComponent implements OnInit, OnDestroy {
       this.selectChannel(this.filteredChannels[0]);
     } else {
       this.focusedChannel = null;
+      this.selectedChannelUuid = '';
       this.focusedChannelProgram = null;
       this.focusedNextProgram = null;
     }
@@ -223,6 +228,7 @@ export class ChannelsComponent implements OnInit, OnDestroy {
 
   selectChannel(channel: any): void {
     this.focusedChannel = channel;
+    this.selectedChannelUuid = String(channel?.uuid || '').trim();
     this.focusedChannelProgram = this.getCurrentProgram(channel);
     this.focusedNextProgram = this.getNextProgram(channel);
     this.persistViewState();
@@ -234,6 +240,8 @@ export class ChannelsComponent implements OnInit, OnDestroy {
     }
 
     this.selectChannel(channel);
+    this.lastPointerDownChannelUuid = String(channel?.uuid || '').trim();
+    this.lastPointerDownAt = Date.now();
 
     const target = event.currentTarget as HTMLElement | null;
     target?.focus({ preventScroll: true });
@@ -245,11 +253,14 @@ export class ChannelsComponent implements OnInit, OnDestroy {
     const target = event.currentTarget as HTMLElement | null;
     target?.focus({ preventScroll: true });
 
-    // Remote/select activation arrives here as a synthetic click from the
-    // focus directive, so route it into the detail actions explicitly.
-    if (event.detail === 0) {
+    // Route non-pointer activations (keyboard/remote) directly to Watch.
+    if (!this.wasRecentPointerActivation(channel)) {
       this.focusDetailActionButton();
     }
+  }
+
+  isSelectedChannel(channel: any): boolean {
+    return String(channel?.uuid || '').trim() === this.selectedChannelUuid;
   }
 
   activateChannel(channel: any): void {
@@ -405,6 +416,7 @@ export class ChannelsComponent implements OnInit, OnDestroy {
     this.filterChannels();
 
     const focusedUuid = String(cached.focusedChannelUuid || '').trim();
+    this.selectedChannelUuid = focusedUuid;
     const match = this.filteredChannels.find(channel => String(channel?.uuid || '').trim() === focusedUuid);
     if (match) {
       this.selectChannel(match);
@@ -427,8 +439,17 @@ export class ChannelsComponent implements OnInit, OnDestroy {
       searchVisible: this.searchVisible,
       favoritesOnly: this.favoritesOnly,
       sortMode: this.sortMode,
-      focusedChannelUuid: String(this.focusedChannel?.uuid || '').trim()
+      focusedChannelUuid: this.selectedChannelUuid || String(this.focusedChannel?.uuid || '').trim()
     });
+  }
+
+  private wasRecentPointerActivation(channel: any): boolean {
+    const channelUuid = String(channel?.uuid || '').trim();
+    if (!channelUuid || channelUuid !== this.lastPointerDownChannelUuid) {
+      return false;
+    }
+
+    return (Date.now() - this.lastPointerDownAt) <= this.pointerActivationWindowMs;
   }
 
   private sortVisibleChannels(channels: any[]): any[] {
@@ -767,9 +788,11 @@ export class ChannelsComponent implements OnInit, OnDestroy {
       return false;
     }
 
+    const activeElement = document.activeElement as HTMLElement | null;
+    const activeChannelCard = activeElement?.closest('.channel-card') as HTMLElement | null;
+
     if (this.isDirectionalKey(event, 'down')) {
-      const activeElement = document.activeElement as HTMLElement | null;
-      const channelCard = activeElement?.closest('.channel-card') as HTMLElement | null;
+      const channelCard = activeChannelCard;
       if (channelCard && this.isLastChannelRow(channelCard)) {
         return this.focusDetailActionButton();
       }

@@ -217,6 +217,7 @@
           >
             {{ selectedProgram.category }}
           </span>
+          <span *ngIf="selectedProgram.episodeCode" class="epg-modal-method-badge">{{ selectedProgram.episodeCode }}</span>
           <span *ngIf="isProgramScheduled(selectedProgram)" class="epg-modal-scheduled-tag">Scheduled</span>
         </div>
       </div>

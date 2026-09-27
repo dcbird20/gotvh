@@ -49,6 +49,8 @@ export class TvheadendService {
   private readonly nativeBufferedPlayback = this.resolveNativeBufferedPlayback();
   private readonly nativeAllowLiveFallback = this.resolveNativeAllowLiveFallback();
   private readonly nativePlaybackBackend = this.resolveNativePlaybackBackend();
+  private readonly epgPrimaryLimit = 12000;
+  private readonly epgFallbackLimit = 20000;
   private authHeader: string | null = null;
   private authCredentials: { username: string; password: string } | null = null;
   private channelGrid$: Observable<any[]> | null = null;
@@ -852,8 +854,8 @@ export class TvheadendService {
 
   getEpg(): Observable<any[]> {
     if (!this.epg$) {
-      const primary = this.buildUrl('epg/events/grid?start=0&limit=2000');
-      const fallback = this.buildUrl('epg/events/grid?start=0&limit=5000');
+      const primary = this.buildUrl(`epg/events/grid?start=0&limit=${this.epgPrimaryLimit}`);
+      const fallback = this.buildUrl(`epg/events/grid?start=0&limit=${this.epgFallbackLimit}`);
 
       this.epg$ = this.http.get<any>(primary, this.getRequestOptions()).pipe(
         map(data => Array.isArray(data) ? data : data?.entries || []),
@@ -941,6 +943,7 @@ export class TvheadendService {
           programmeNodes.forEach(node => {
             const categories = getAllTagText(node, 'category');
             const extraText = getFirstTagText(node, 'sub-title') || '';
+            const episodeCode = this.normalizeEpisodeCode(getFirstTagText(node, 'episode-num'));
             programmes.push({
               channel: node.getAttribute('channel') || '',
               start: node.getAttribute('start') || '',
@@ -948,6 +951,7 @@ export class TvheadendService {
               title: getFirstTagText(node, 'title') || 'Untitled',
               desc: getFirstTagText(node, 'desc') || '',
               extraText,
+              episodeCode,
               category: categories.length > 0 ? categories : ''
             });
           });
@@ -986,6 +990,8 @@ export class TvheadendService {
       endTime: this.parseGuideXmltvDate(program.stop),
       title: program.title || 'Untitled',
       extraText: String(program?.extraText || '').trim(),
+      episodeCode: this.normalizeEpisodeCode(program?.episodeCode),
+      episodeUri: String(program?.episodeUri || '').trim(),
       desc: this.mergeGuideDescriptions(program.desc, program.extraText),
       category: this.mergeGuideCategorySources(program.category, program.desc),
     }));
@@ -1083,6 +1089,8 @@ export class TvheadendService {
       const title = String(entry?.title || entry?.disp_title || 'Untitled').trim() || 'Untitled';
       const extraText = this.getEpgExtraText(entry);
       const desc = this.mergeGuideDescriptions(this.getEpgPrimaryDescription(entry), extraText);
+      const episodeCode = this.getEpgEpisodeCode(entry);
+      const episodeUri = this.getEpgEpisodeUri(entry);
       return {
         channel: channelId,
         startTime: this.parseGuideTime(entry?.start),
@@ -1090,6 +1098,8 @@ export class TvheadendService {
         title,
         desc,
         extraText,
+        episodeCode,
+        episodeUri,
         category: this.mergeGuideCategorySources(entry?.category || entry?.genre || '', desc),
         eventId: entry?.eventId != null ? Number(entry.eventId) : 0,
         dvrUuid: entry?.dvrUuid || '',
@@ -1146,6 +1156,8 @@ export class TvheadendService {
         ...program,
         desc: this.mergeGuideDescriptions(program?.desc, this.getEpgExtraText(nearMatch)),
         extraText: this.mergeGuideDescriptions(program?.extraText, this.getEpgExtraText(nearMatch)),
+        episodeCode: this.normalizeEpisodeCode(program?.episodeCode || this.getEpgEpisodeCode(nearMatch)),
+        episodeUri: String(program?.episodeUri || this.getEpgEpisodeUri(nearMatch) || '').trim(),
         eventId: nearMatch?.eventId != null ? Number(nearMatch.eventId) : program.eventId,
         dvrUuid: nearMatch?.dvrUuid || program.dvrUuid || '',
         dvrState: nearMatch?.dvrState || program.dvrState || '',
@@ -1270,6 +1282,54 @@ export class TvheadendService {
     );
   }
 
+  getEpgEpisodeCode(entry: any): string {
+    const directCode = this.normalizeEpisodeCode(this.firstGuideText(
+      entry?.episodeCode,
+      entry?.episode_code,
+      entry?.episode,
+      entry?.epnum,
+      entry?.episode_num,
+      entry?.episodeNum,
+      entry?.ep_num,
+      entry?.disp_episode,
+      entry?.episode_onscreen,
+      entry?.episodeOnscreen,
+      entry?.episode_number,
+      entry?.episodeNumber,
+      entry?.numbering,
+      entry?.subtitle,
+      entry?.sub_title
+    ));
+    if (directCode) {
+      return directCode;
+    }
+
+    const season = this.parseEpisodeInteger(
+      entry?.season,
+      entry?.seasonNumber,
+      entry?.season_number,
+      entry?.s_num,
+      entry?.snum
+    );
+    const episode = this.parseEpisodeInteger(
+      entry?.episode,
+      entry?.episodeNumber,
+      entry?.episode_number,
+      entry?.e_num,
+      entry?.enum
+    );
+
+    if (season !== null && episode !== null) {
+      return `S${String(season).padStart(2, '0')}E${String(episode).padStart(2, '0')}`;
+    }
+
+    return '';
+  }
+
+  getEpgEpisodeUri(entry: any): string {
+    return this.firstGuideText(entry?.episodeUri, entry?.episode_uri, entry?.uri, entry?.serieslinkUri);
+  }
+
   mergeGuideDescriptions(primary: any, extra: any): string {
     const primaryText = this.firstGuideText(primary);
     const extraText = this.firstGuideText(extra);
@@ -1314,6 +1374,71 @@ export class TvheadendService {
 
     const text = String(value).trim();
     return text ? [text] : [];
+  }
+
+  private normalizeEpisodeCode(value: any): string {
+    const raw = String(value || '').trim();
+    if (!raw) {
+      return '';
+    }
+
+    const normalizedWhitespace = raw.replace(/\s+/g, '');
+    const already = /^S\d{1,3}E\d{1,4}$/i.exec(normalizedWhitespace);
+    if (already) {
+      const season = Number(already[0].match(/S(\d+)/i)?.[1] || 0);
+      const episode = Number(already[0].match(/E(\d+)/i)?.[1] || 0);
+      if (season > 0 && episode > 0) {
+        return `S${String(season).padStart(2, '0')}E${String(episode).padStart(2, '0')}`;
+      }
+    }
+
+    const xFormat = /^(\d{1,3})x(\d{1,4})$/i.exec(normalizedWhitespace);
+    if (xFormat) {
+      return `S${String(Number(xFormat[1])).padStart(2, '0')}E${String(Number(xFormat[2])).padStart(2, '0')}`;
+    }
+
+    const seasonEpisode = /season\s*(\d{1,3}).*episode\s*(\d{1,4})/i.exec(raw);
+    if (seasonEpisode) {
+      return `S${String(Number(seasonEpisode[1])).padStart(2, '0')}E${String(Number(seasonEpisode[2])).padStart(2, '0')}`;
+    }
+
+    // XMLTV `episode-num` often uses xmltv_ns form: <season>.<episode>. (zero-based).
+    const xmltvNs = /^(\d{1,3})\.(\d{1,4})(?:\.|$)/.exec(normalizedWhitespace);
+    if (xmltvNs) {
+      const season = Number(xmltvNs[1]) + 1;
+      const episode = Number(xmltvNs[2]) + 1;
+      if (season > 0 && episode > 0) {
+        return `S${String(season).padStart(2, '0')}E${String(episode).padStart(2, '0')}`;
+      }
+    }
+
+    const seasonOnly = /^S?(\d{1,3})$/i.exec(normalizedWhitespace);
+    if (seasonOnly) {
+      return `S${String(Number(seasonOnly[1])).padStart(2, '0')}`;
+    }
+
+    return '';
+  }
+
+  private parseEpisodeInteger(...values: any[]): number | null {
+    for (const value of values) {
+      const text = String(value ?? '').trim();
+      if (!text) {
+        continue;
+      }
+
+      const match = text.match(/\d+/);
+      if (!match) {
+        continue;
+      }
+
+      const numeric = Number.parseInt(match[0], 10);
+      if (Number.isFinite(numeric) && numeric > 0) {
+        return numeric;
+      }
+    }
+
+    return null;
   }
 
   private mergeGuideCategorySources(rawCategory: any, description: any): any {

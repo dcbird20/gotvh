@@ -1898,6 +1898,7 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
         programStart: this.parseEpgTime(program.startTime),
         programEnd: this.parseEpgTime(program.endTime),
         programDesc: String(program?.desc || '').trim(),
+        programEpisode: String(program?.episodeCode || '').trim(),
         programCategory: this.flattenToText(program?.category),
         returnTo: this.router.url,
         returnToken
@@ -2093,8 +2094,13 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     const title = this.normalizeLookupText(program.title || '');
     const channelId = this.normalizeLookupText(program.channel || '');
     const channelName = this.normalizeLookupText(this.getChannelName(program.channel || ''));
+    const episodeToken = this.normalizeLookupText(this.resolveProgramEpisodeToken(program));
 
     const keys = [
+      this.makeRecordingKey(channelId, startMs, endMs, title, episodeToken),
+      this.makeRecordingKey(channelName, startMs, endMs, title, episodeToken),
+      this.makeRecordingLooseKey(channelId, startMs, title, episodeToken),
+      this.makeRecordingLooseKey(channelName, startMs, title, episodeToken),
       this.makeRecordingKey(channelId, startMs, endMs, title),
       this.makeRecordingKey(channelName, startMs, endMs, title),
       this.makeRecordingLooseKey(channelId, startMs, title),
@@ -2119,7 +2125,12 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     const title = this.normalizeLookupText(program?.title || '');
     const channelId = this.normalizeLookupText(program?.channel || '');
     const channelName = this.normalizeLookupText(this.getChannelName(program?.channel || ''));
+    const episodeToken = this.normalizeLookupText(this.resolveProgramEpisodeToken(program));
     const next = new Set(this.scheduledRecordingKeys);
+    next.add(this.makeRecordingKey(channelId, startMs, endMs, title, episodeToken));
+    next.add(this.makeRecordingKey(channelName, startMs, endMs, title, episodeToken));
+    next.add(this.makeRecordingLooseKey(channelId, startMs, title, episodeToken));
+    next.add(this.makeRecordingLooseKey(channelName, startMs, title, episodeToken));
     next.add(this.makeRecordingKey(channelId, startMs, endMs, title));
     next.add(this.makeRecordingKey(channelName, startMs, endMs, title));
     next.add(this.makeRecordingLooseKey(channelId, startMs, title));
@@ -2153,7 +2164,10 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
       const title = this.normalizeLookupText(entry?.disp_title || entry?.title || entry?.name || '');
       const startMs = this.normalizeRecordingTimestamp(entry?.start_real ?? entry?.start ?? entry?.startTime);
       const endMs = this.normalizeRecordingTimestamp(entry?.stop_real ?? entry?.stop ?? entry?.stopTime);
+      const episodeToken = this.normalizeLookupText(this.resolveProgramEpisodeToken(entry));
       if (!channelRaw || !title || !startMs) { return; }
+      index.add(this.makeRecordingKey(channelRaw, startMs, endMs, title, episodeToken));
+      index.add(this.makeRecordingLooseKey(channelRaw, startMs, title, episodeToken));
       index.add(this.makeRecordingKey(channelRaw, startMs, endMs, title));
       index.add(this.makeRecordingLooseKey(channelRaw, startMs, title));
     });
@@ -2376,6 +2390,8 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
       String(program?.title || '').trim(),
       String(program?.desc || '').trim(),
       String(program?.extraText || program?.extra_text || '').trim(),
+      String(program?.episodeCode || program?.episode || '').trim(),
+      String(program?.episodeUri || program?.episode_uri || '').trim(),
       String(program?.category || '').trim(),
     ].join(' ').toLowerCase();
   }
@@ -2407,9 +2423,10 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     const startLabel = startDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
     const endLabel = endDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
     const desc = String(program?.desc || '').trim();
+    const episodeCode = String(program?.episodeCode || '').trim();
     const tooltip = desc
-      ? `${program.title}\n${startLabel} - ${endLabel}\n${desc}`
-      : `${program.title}\n${startLabel} - ${endLabel}`;
+    ? `${program.title}${episodeCode ? ` (${episodeCode})` : ''}\n${startLabel} - ${endLabel}\n${desc}`
+    : `${program.title}${episodeCode ? ` (${episodeCode})` : ''}\n${startLabel} - ${endLabel}`;
 
     return {
       ...program,
@@ -2488,6 +2505,8 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
       if (!nearMatch) { return program; }
       return {
         ...program,
+        episodeCode: String(program?.episodeCode || this.tvheadendService.getEpgEpisodeCode(nearMatch) || '').trim(),
+        episodeUri: String(program?.episodeUri || this.tvheadendService.getEpgEpisodeUri(nearMatch) || '').trim(),
         eventId: nearMatch?.eventId != null ? Number(nearMatch.eventId) : program.eventId,
         dvrUuid: nearMatch?.dvrUuid || program.dvrUuid || '',
         dvrState: nearMatch?.dvrState || program.dvrState || '',
@@ -2594,12 +2613,26 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     return Number.isFinite(parsed) ? parsed : 0;
   }
 
-  private makeRecordingKey(channel: string, startMs: number, endMs: number, title: string): string {
-    return `${channel}|${Math.floor(startMs / 1000)}|${Math.floor(endMs / 1000)}|${title}`;
+  private makeRecordingKey(channel: string, startMs: number, endMs: number, title: string, episodeToken = ''): string {
+    return `${channel}|${Math.floor(startMs / 1000)}|${Math.floor(endMs / 1000)}|${title}|${episodeToken}`;
   }
 
-  private makeRecordingLooseKey(channel: string, startMs: number, title: string): string {
-    return `${channel}|${Math.floor(startMs / 1000)}|${title}`;
+  private makeRecordingLooseKey(channel: string, startMs: number, title: string, episodeToken = ''): string {
+    return `${channel}|${Math.floor(startMs / 1000)}|${title}|${episodeToken}`;
+  }
+
+  private resolveProgramEpisodeToken(program: any): string {
+    const explicit = String(program?.episodeCode || program?.episode || '').trim();
+    if (explicit) {
+      return explicit;
+    }
+
+    const fromService = this.tvheadendService.getEpgEpisodeCode(program);
+    if (fromService) {
+      return fromService;
+    }
+
+    return String(program?.episodeUri || program?.episode_uri || '').trim();
   }
 
   // ── Preferences ───────────────────────────────────────────────

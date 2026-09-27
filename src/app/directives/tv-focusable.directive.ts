@@ -65,6 +65,12 @@ export class TvFocusableDirective implements FocusableItem, OnInit, OnDestroy {
       return;
     }
 
+    if (this.isImmediateSelectKey(event)) {
+      this.resetSelectPressState();
+      this.triggerSelect();
+      return;
+    }
+
     this.selectKeyActive = true;
     this.longPressTriggered = false;
     this.clearLongPressTimer();
@@ -77,6 +83,18 @@ export class TvFocusableDirective implements FocusableItem, OnInit, OnDestroy {
       this.triggerLongPress();
     }, this.longPressDurationMs);
   };
+
+  private isImmediateSelectKey(event: KeyboardEvent): boolean {
+    const key = String(event.key || '');
+    const code = String((event as any).code || '');
+    const keyCode = Number((event as any).keyCode || (event as any).which || 0);
+
+    return key === 'BrowserSelect'
+      || key === 'Select'
+      || key === 'OK'
+      || code === 'BrowserSelect'
+      || keyCode === 23;
+  }
 
   private onKeyup = (event: KeyboardEvent): void => {
     if (this.isEditableElement()) {

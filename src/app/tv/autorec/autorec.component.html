@@ -54,6 +54,12 @@
         <input type="text" tvFocusable data-tv-linear-anchor="true" [(ngModel)]="form.title" (ngModelChange)="queueGuidePreview()" placeholder="Formula 1" />
       </label>
 
+      <label class="composer-field">
+        <span>Episode Match</span>
+        <input type="text" tvFocusable data-tv-linear-anchor="true" [(ngModel)]="form.episodeMatch" (ngModelChange)="queueGuidePreview()" placeholder="S01E03 or ep token" />
+        <small class="composer-field__help">Optional. Narrows matches by episode code or episode text.</small>
+      </label>
+
       <div class="composer-field">
         <span>Match Mode</span>
         <div class="composer-segmented" data-tv-nav-scope="autorec-create-match-mode" data-tv-nav-mode="linear-horizontal">
@@ -216,6 +222,7 @@
           <div class="preview-card__meta">
             <span class="preview-card__meta-pill">{{ match.channelName }}</span>
             <span class="preview-card__meta-pill">{{ match.startTime | date:'EEE M/d, h:mm a' }}</span>
+            <span class="preview-card__meta-pill" *ngIf="match.episodeCode">{{ match.episodeCode }}</span>
             <span class="preview-card__meta-pill" *ngIf="match.category">{{ match.category }}</span>
           </div>
 
@@ -283,6 +290,7 @@
           <div class="stack-card__meta">
             <span class="stack-card__meta-pill">{{ formatChannel(rule) }}</span>
             <span class="stack-card__meta-pill">{{ describeMatchMode(rule) }}</span>
+            <span class="stack-card__meta-pill" *ngIf="rule.episode_match">Episode {{ rule.episode_match }}</span>
             <span class="stack-card__meta-pill" *ngIf="rule.time_label">{{ rule.time_label }}</span>
             <span class="stack-card__meta-pill" *ngIf="rule.config_label">{{ rule.config_label }}</span>
             <span class="stack-card__meta-pill" *ngIf="rule.maxsched">Max {{ rule.maxsched }} scheduled</span>
@@ -328,6 +336,12 @@
                 >Title + details</button>
               </div>
             </div>
+
+            <label class="composer-field">
+              <span>Episode Match</span>
+              <input type="text" tvFocusable data-tv-linear-anchor="true" [(ngModel)]="editForm.episodeMatch" placeholder="S01E03 or ep token" />
+              <small class="composer-field__help">Optional. Narrows episode targeting for this rule.</small>
+            </label>
 
             <label class="composer-field composer-field--full composer-field--channel-picker">
               <span class="composer-field__label-row">

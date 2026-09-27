@@ -13,6 +13,7 @@ type QuickPreset = 'news' | 'series' | 'sports' | 'movies';
 
 interface GuidePreviewQuery {
   title: string;
+  episodeMatch: string;
   channel: string;
   matchMode: MatchMode;
   startsWith: boolean;
@@ -73,6 +74,7 @@ export class AutorecComponent implements OnInit, OnDestroy {
     startWindow: '',
     startExtra: '',
     stopExtra: '',
+    episodeMatch: '',
     config: '',
     comment: ''
   };
@@ -86,6 +88,7 @@ export class AutorecComponent implements OnInit, OnDestroy {
     startWindow: '',
     startExtra: '',
     stopExtra: '',
+    episodeMatch: '',
     customRegex: false,
     rawPattern: '',
     config: '',
@@ -163,13 +166,14 @@ export class AutorecComponent implements OnInit, OnDestroy {
 
     this.saving = true;
     this.error = '';
+    const episodeMatch = String(this.form.episodeMatch || '').trim();
     const conf: any = {
       enabled: 1,
       title,
       name,
       fulltext: this.form.matchMode === 'fulltext' ? 1 : 0,
       mergetext: this.form.matchMode === 'fulltext' ? 1 : 0,
-      comment: String(this.form.comment || '').trim(),
+      comment: this.composeCommentWithEpisodeMatch(String(this.form.comment || '').trim(), episodeMatch),
     };
 
     if (startMinutes !== null) {
@@ -209,6 +213,7 @@ export class AutorecComponent implements OnInit, OnDestroy {
           startWindow: '',
           startExtra: '',
           stopExtra: '',
+          episodeMatch: '',
           config: '',
           comment: ''
         };
@@ -374,6 +379,7 @@ export class AutorecComponent implements OnInit, OnDestroy {
       startWindow: this.formatOptionalInteger(rule?.start_window),
       startExtra: this.formatOptionalInteger(rule?.start_extra),
       stopExtra: this.formatOptionalInteger(rule?.stop_extra),
+      episodeMatch: String(rule?.episode_match || '').trim(),
       customRegex: parsedPattern.customRegex,
       rawPattern: parsedPattern.rawPattern,
       config: this.normalizeConfigSelection(String(rule?.config_name || rule?.config || '').trim()),
@@ -396,6 +402,7 @@ export class AutorecComponent implements OnInit, OnDestroy {
       startWindow: '',
       startExtra: '',
       stopExtra: '',
+      episodeMatch: '',
       customRegex: false,
       rawPattern: '',
       config: '',
@@ -449,7 +456,7 @@ export class AutorecComponent implements OnInit, OnDestroy {
       name: this.editForm.customRegex ? String(rule?.name || '').trim() : String(this.editForm.title || '').trim(),
       fulltext: this.editForm.matchMode === 'fulltext' ? 1 : 0,
       mergetext: this.editForm.matchMode === 'fulltext' ? 1 : 0,
-      comment: String(this.editForm.comment || '').trim(),
+      comment: this.composeCommentWithEpisodeMatch(String(this.editForm.comment || '').trim(), this.editForm.episodeMatch),
       channel: String(this.editForm.channel || '').trim(),
       config_name: String(this.editForm.config || '').trim(),
       start: startMinutes ?? 0,
@@ -530,10 +537,12 @@ export class AutorecComponent implements OnInit, OnDestroy {
       const title = String(rule?.display_title || rule?.name || rule?.title || '').trim().toLowerCase();
       const channel = String(rule?.channelname || rule?.channel || '').trim().toLowerCase();
       const comment = String(rule?.comment || '').trim().toLowerCase();
+      const episodeMatch = String(rule?.episode_match || '').trim().toLowerCase();
       const config = String(rule?.config_label || '').trim().toLowerCase();
       return title.includes(query)
         || channel.includes(query)
         || comment.includes(query)
+        || episodeMatch.includes(query)
         || config.includes(query);
     });
   }
@@ -575,6 +584,7 @@ export class AutorecComponent implements OnInit, OnDestroy {
       this.form.matchMode = 'title';
       this.form.startsWith = false;
       this.form.endsWith = false;
+      this.form.episodeMatch = '';
       this.form.startTime = '';
       this.form.startWindow = '';
       this.form.startExtra = '2';
@@ -590,6 +600,7 @@ export class AutorecComponent implements OnInit, OnDestroy {
       this.form.matchMode = 'title';
       this.form.startsWith = false;
       this.form.endsWith = false;
+      this.form.episodeMatch = '';
       this.form.startTime = '';
       this.form.startWindow = '';
       this.form.startExtra = '';
@@ -605,6 +616,7 @@ export class AutorecComponent implements OnInit, OnDestroy {
       this.form.matchMode = 'fulltext';
       this.form.startsWith = false;
       this.form.endsWith = false;
+      this.form.episodeMatch = '';
       this.form.startTime = '';
       this.form.startWindow = '';
       this.form.startExtra = '3';
@@ -619,6 +631,7 @@ export class AutorecComponent implements OnInit, OnDestroy {
     this.form.matchMode = 'fulltext';
     this.form.startsWith = false;
     this.form.endsWith = false;
+    this.form.episodeMatch = '';
     this.form.startTime = '';
     this.form.startWindow = '30';
     this.form.startExtra = '8';
@@ -743,17 +756,19 @@ export class AutorecComponent implements OnInit, OnDestroy {
 
   queueGuidePreview(): void {
     const title = String(this.form.title || '').trim();
+    const episodeMatch = String(this.form.episodeMatch || '').trim();
     const channel = String(this.form.channel || '').trim();
     const matchMode = this.form.matchMode;
     const startsWith = matchMode === 'title' ? this.form.startsWith : false;
     const endsWith = matchMode === 'title' ? this.form.endsWith : false;
+    const hasConstraint = !!title || !!episodeMatch;
 
     this.guidePreviewError = '';
-    this.guidePreviewSearched = !!title;
-    this.guidePreviewLoading = !!title;
-    this.guidePreviewQuery$.next({ title, channel, matchMode, startsWith, endsWith });
+    this.guidePreviewSearched = hasConstraint;
+    this.guidePreviewLoading = hasConstraint;
+    this.guidePreviewQuery$.next({ title, episodeMatch, channel, matchMode, startsWith, endsWith });
 
-    if (!title) {
+    if (!hasConstraint) {
       this.clearGuidePreview();
       return;
     }
@@ -936,6 +951,7 @@ export class AutorecComponent implements OnInit, OnDestroy {
     }
 
     return (rules || []).map(rule => {
+      const commentMetadata = this.extractCommentMetadata(String(rule?.comment || '').trim());
       const channelUuid = String(rule?.channel || '').trim();
       const configValue = String(rule?.config_name || rule?.config || '').trim();
       const channelName = String(rule?.channelname || channelNameByUuid.get(channelUuid) || channelUuid || '').trim();
@@ -945,6 +961,8 @@ export class AutorecComponent implements OnInit, OnDestroy {
 
       return {
         ...rule,
+        comment: commentMetadata.comment,
+        episode_match: commentMetadata.episodeMatch,
         channelname: channelName,
         config_label: configLabel,
         display_title: displayTitle,
@@ -1004,19 +1022,20 @@ export class AutorecComponent implements OnInit, OnDestroy {
       debounceTime(this.previewDebounceMs),
       distinctUntilChanged((left, right) =>
         left.title === right.title
+        && left.episodeMatch === right.episodeMatch
         && left.channel === right.channel
         && left.matchMode === right.matchMode
         && left.startsWith === right.startsWith
         && left.endsWith === right.endsWith
       ),
-      switchMap(({ title, channel, matchMode, startsWith, endsWith }) => {
-        if (!title) {
+      switchMap(({ title, episodeMatch, channel, matchMode, startsWith, endsWith }) => {
+        if (!title && !episodeMatch) {
           return of({ total: 0, results: [], error: '', searched: false });
         }
 
-        if (matchMode === 'title' && (startsWith || endsWith)) {
+        if (matchMode === 'title' && (startsWith || endsWith || !!episodeMatch || !title)) {
           return this.tvh.getGuideData().pipe(
-            map(snapshot => this.buildAnchoredGuidePreview(snapshot, title, channel, startsWith, endsWith)),
+            map(snapshot => this.buildAnchoredGuidePreview(snapshot, title, episodeMatch, channel, startsWith, endsWith)),
             map(result => ({ ...result, searched: true })),
             catchError(() => of({ total: 0, results: [], error: 'Guide preview is unavailable right now. Check TVHeadend and try again.', searched: true }))
           );
@@ -1024,17 +1043,17 @@ export class AutorecComponent implements OnInit, OnDestroy {
 
         if (matchMode === 'fulltext') {
           return this.tvh.getGuideData().pipe(
-            map(snapshot => this.buildFulltextGuidePreview(snapshot, title, channel)),
+            map(snapshot => this.buildFulltextGuidePreview(snapshot, title, episodeMatch, channel)),
             map(result => ({ ...result, searched: true })),
             catchError(() => this.tvh.searchAutorecPreview(title, channel, true, this.previewSearchLimit).pipe(
-              map(entries => ({ ...this.decorateGuidePreview(entries, title), searched: true })),
+              map(entries => ({ ...this.decorateGuidePreview(entries, title, episodeMatch), searched: true })),
               catchError(() => of({ total: 0, results: [], error: 'Guide preview is unavailable right now. Check TVHeadend and try again.', searched: true }))
             ))
           );
         }
 
         return this.tvh.searchAutorecPreview(title, channel, false, this.previewSearchLimit).pipe(
-          map(entries => ({ ...this.decorateGuidePreview(entries, title), searched: true })),
+          map(entries => ({ ...this.decorateGuidePreview(entries, title, episodeMatch), searched: true })),
           catchError(() => of({ total: 0, results: [], error: 'Guide preview is unavailable right now. Check TVHeadend and try again.', searched: true }))
         );
       })
@@ -1047,11 +1066,13 @@ export class AutorecComponent implements OnInit, OnDestroy {
     });
   }
 
-  private decorateGuidePreview(entries: any[], title: string): { total: number; results: any[]; error?: string } {
+  private decorateGuidePreview(entries: any[], title: string, episodeMatch = ''): { total: number; results: any[]; error?: string } {
     const nowSeconds = Math.floor(Date.now() / 1000);
     const query = String(title || '').trim().toLowerCase();
 
-    const filtered = (entries || []).filter(entry => Number(entry?.stop || 0) > nowSeconds);
+    const filtered = (entries || []).filter(entry =>
+      Number(entry?.stop || 0) > nowSeconds && this.matchesEpisodeMatch(entry, episodeMatch)
+    );
     const results = filtered
       .map(entry => {
         const entryTitle = String(entry?.title || entry?.disp_title || 'Untitled').trim() || 'Untitled';
@@ -1062,6 +1083,7 @@ export class AutorecComponent implements OnInit, OnDestroy {
           channelName: String(entry?.channelName || entry?.channelname || 'Unknown Channel').trim() || 'Unknown Channel',
           startTime,
           endTime,
+          episodeCode: String(entry?.episodeCode || this.tvh.getEpgEpisodeCode(entry) || '').trim(),
           desc: this.extractPreviewDescription(entry),
           extraText: this.extractPreviewExtraText(entry),
           category: this.formatPreviewCategory(entry?.category || entry?.genre || ''),
@@ -1096,11 +1118,13 @@ export class AutorecComponent implements OnInit, OnDestroy {
   private buildAnchoredGuidePreview(
     snapshot: GuideDataSnapshot,
     title: string,
+    episodeMatch: string,
     channelUuid: string,
     startsWith: boolean,
     endsWith: boolean
   ): { total: number; results: any[]; error?: string } {
     const regex = this.buildAnchoredRegex(title, startsWith, endsWith);
+    const hasTitleConstraint = !!String(title || '').trim();
     const channelNameById = new Map<string, string>();
     for (const channel of snapshot.channels || []) {
       const channelId = String(channel?.id || '').trim();
@@ -1127,7 +1151,15 @@ export class AutorecComponent implements OnInit, OnDestroy {
           return false;
         }
 
+        if (!this.matchesEpisodeMatch(program, episodeMatch)) {
+          return false;
+        }
+
         const programTitle = String(program?.title || '').trim();
+        if (!hasTitleConstraint) {
+          return true;
+        }
+
         return !!programTitle && regex.test(programTitle);
       })
       .map(program => ({
@@ -1137,18 +1169,20 @@ export class AutorecComponent implements OnInit, OnDestroy {
         stop: Math.floor(Number(program?.endTime || 0) / 1000),
         summary: String(program?.desc || '').trim(),
         extraText: String(program?.extraText || '').trim(),
+        episodeCode: String(program?.episodeCode || '').trim(),
         category: program?.category || '',
       }));
 
-    return this.decorateGuidePreview(entries, title);
+    return this.decorateGuidePreview(entries, title, episodeMatch);
   }
 
   private buildFulltextGuidePreview(
     snapshot: GuideDataSnapshot,
     queryText: string,
+    episodeMatch: string,
     channelUuid: string
   ): { total: number; results: any[]; error?: string } {
-    const queryTokens = this.splitSearchTokens(queryText);
+    const queryTokens = this.splitSearchTokens(`${queryText} ${episodeMatch}`);
     if (queryTokens.length === 0) {
       return { total: 0, results: [] };
     }
@@ -1187,10 +1221,11 @@ export class AutorecComponent implements OnInit, OnDestroy {
         start: Math.floor(Number(program?.startTime || 0) / 1000),
         stop: Math.floor(Number(program?.endTime || 0) / 1000),
         summary: String(program?.desc || '').trim(),
+        episodeCode: String(program?.episodeCode || '').trim(),
         category: program?.category || '',
       }));
 
-    return this.decorateGuidePreview(entries, queryText);
+    return this.decorateGuidePreview(entries, queryText, episodeMatch);
   }
 
   private buildProgramSearchText(program: any): string {
@@ -1199,6 +1234,8 @@ export class AutorecComponent implements OnInit, OnDestroy {
       String(program?.desc || '').trim(),
       String(program?.extraText || program?.extra_text || '').trim(),
       String(program?.subtitle || '').trim(),
+      String(program?.episodeCode || program?.episode || '').trim(),
+      String(program?.episodeUri || program?.episode_uri || '').trim(),
     ].join(' ').toLowerCase();
   }
 
@@ -1219,6 +1256,36 @@ export class AutorecComponent implements OnInit, OnDestroy {
     return tokens.every(token => text.includes(token));
   }
 
+  private matchesEpisodeMatch(entry: any, episodeMatch: string): boolean {
+    const tokens = this.splitSearchTokens(episodeMatch);
+    if (tokens.length === 0) {
+      return true;
+    }
+
+    const resolvedCode = String(entry?.episodeCode || this.tvh.getEpgEpisodeCode(entry) || '').trim();
+    const compactCode = resolvedCode.replace(/\bS0+(\d+)/gi, 'S$1').replace(/\bE0+(\d+)/gi, 'E$1');
+    const seasonOnly = /^S(\d{1,3})E\d{1,4}$/i.exec(resolvedCode)?.[1] || '';
+
+    const episodeSearchText = [
+      resolvedCode,
+      compactCode,
+      seasonOnly ? `S${String(Number(seasonOnly)).padStart(2, '0')}` : '',
+      seasonOnly ? `S${Number(seasonOnly)}` : '',
+      String(entry?.episodeUri || entry?.episode_uri || '').trim(),
+      String(entry?.subtitle || '').trim(),
+      String(entry?.extraText || entry?.extra_text || '').trim(),
+      String(entry?.desc || '').trim(),
+      String(entry?.title || '').trim(),
+    ].join(' ').toLowerCase();
+
+    return tokens.every(token => {
+      const normalizedToken = token
+        .replace(/^s0+(\d+)/i, 's$1')
+        .replace(/^e0+(\d+)/i, 'e$1');
+      return episodeSearchText.includes(token) || episodeSearchText.includes(normalizedToken);
+    });
+  }
+
   private extractPreviewDescription(entry: any): string {
     const primary = this.tvh.getEpgPrimaryDescription(entry);
     const extra = this.tvh.getEpgExtraText(entry);
@@ -1232,6 +1299,38 @@ export class AutorecComponent implements OnInit, OnDestroy {
       extra_text: entry?.extra_text,
       subtitle: entry?.subtitle,
     });
+  }
+
+  private extractCommentMetadata(rawComment: string): { comment: string; episodeMatch: string } {
+    const lines = String(rawComment || '').split(/\r?\n/);
+    const cleanedLines: string[] = [];
+    let episodeMatch = '';
+
+    for (const line of lines) {
+      const trimmed = String(line || '').trim();
+      const match = /^\[epmatch:(.+)\]$/i.exec(trimmed);
+      if (match && !episodeMatch) {
+        episodeMatch = String(match[1] || '').trim();
+        continue;
+      }
+
+      cleanedLines.push(line);
+    }
+
+    return {
+      comment: cleanedLines.join('\n').trim(),
+      episodeMatch,
+    };
+  }
+
+  private composeCommentWithEpisodeMatch(comment: string, episodeMatch: string): string {
+    const cleanComment = this.extractCommentMetadata(String(comment || '').trim()).comment;
+    const cleanEpisodeMatch = String(episodeMatch || '').trim();
+    if (!cleanEpisodeMatch) {
+      return cleanComment;
+    }
+
+    return [`[epmatch:${cleanEpisodeMatch}]`, cleanComment].filter(Boolean).join('\n').trim();
   }
 
   private buildRuleTitlePattern(title: string, matchMode: MatchMode, startsWith: boolean, endsWith: boolean): string {

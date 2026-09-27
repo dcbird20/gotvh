@@ -169,6 +169,10 @@ All authentication & error handling is baked in.
 
 ## Next Phases (Roadmap)
 
+### TODO (Backlog)
+- Add a manual "Refresh EPG" action (Guide first, optionally Auto-Rec) that clears client-side EPG/XMLTV/guide cache and reloads data without a full page refresh.
+- Revisit Channels D-pad horizontal wrap behavior; current baseline should remain dead-end until a deterministic one-step implementation is added and validated on simulator + device.
+
 ### **Phase 4: EPG/Guide Screen**
 - Horizontal timeline view (48-hour default)
 - Hour grid with programs
