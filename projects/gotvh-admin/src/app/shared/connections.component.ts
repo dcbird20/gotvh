@@ -34,6 +34,8 @@ const on = (v: unknown) => v === undefined || truthy(v) || v === 'true';
 const list = (v: unknown): string[] => (Array.isArray(v) ? v : v ? [v] : []).map(String).filter(Boolean);
 const plural = (n: number, one: string, many = one + 's') => `${n} ${n === 1 ? one : many}`;
 
+interface Tuner { uuid: string; name: string; enabled: boolean; networks: string[]; iptv: boolean }
+
 export const openLink = {
   channel: (uuid: string, label: string, extra: Partial<Link> = {}): Link => ({ label, route: '/channels', query: { open: uuid }, ...extra }),
   service: (uuid: string, label: string, extra: Partial<Link> = {}): Link => ({ label, route: '/inputs', query: { tab: 'services', open: uuid }, ...extra }),
@@ -114,7 +116,7 @@ export class ConnectionsComponent implements OnChanges {
   readonly rows = signal<Row[]>([]);
 
   /** Tuners and the networks they use; the same for every panel on the page. */
-  private static tuners$: Observable<Array<{ uuid: string; name: string; enabled: boolean; networks: string[] }>> | null = null;
+  private static tuners$: Observable<Tuner[]> | null = null;
   private static tunersAt = 0;
 
   ngOnChanges(): void {
@@ -144,7 +146,9 @@ export class ConnectionsComponent implements OnChanges {
         map(entries => entries.map(e => {
           const v: Record<string, any> = {};
           for (const p of e.params || []) v[p.id] = p.value;
-          return { uuid: String(e.uuid || e.id), name: String(v['displayname'] || e.text || 'Tuner'), enabled: on(v['enabled']), networks: list(v['networks']) };
+          const name = String(v['displayname'] || e.text || 'Tuner');
+          return { uuid: String(e.uuid || e.id), name, enabled: on(v['enabled']), networks: list(v['networks']),
+            iptv: /iptv/i.test(String(e.class || '')) || /^iptv/i.test(name) };
         })),
         catchError(() => of([])),
         shareReplay(1),
@@ -153,9 +157,26 @@ export class ConnectionsComponent implements OnChanges {
     return ConnectionsComponent.tuners$;
   }
 
-  /** Tuner links for a network, or a warning row when none uses it. */
-  private tunerRow(networkUuid: string, tuners: Array<{ uuid: string; name: string; enabled: boolean; networks: string[] }>): Row {
+  /** Which of these networks are IPTV (only IPTV networks have max_streams). */
+  private iptvNetworks(ids: string[]): Observable<Set<string>> {
+    return this.tvh.idnodeValues(ids, ['networkname', 'max_streams']).pipe(
+      map(rows => new Set(rows.filter((r: any) => 'max_streams' in r).map((r: any) => String(r.uuid)))),
+      catchError(() => of(new Set<string>())),
+    );
+  }
+
+  /** Tuner links for a network, or a warning row when none uses it. IPTV networks are served by the IPTV threads. */
+  private tunerRow(networkUuid: string, tuners: Tuner[], iptv = false): Row {
     const using = tuners.filter(t => t.networks.includes(networkUuid));
+    if (iptv) {
+      const threads = using.length ? using : tuners.filter(t => t.iptv);
+      return {
+        heading: 'Tuners',
+        links: threads.slice(0, 3).map(t => openLink.tuner(t.uuid, t.name)),
+        empty: 'The IPTV input (automatic)',
+        children: threads.length > 3 ? [{ heading: '', links: [], empty: `and ${threads.length - 3} more IPTV threads — Tvheadend spreads streams over them automatically` }] : undefined,
+      };
+    }
     return {
       heading: 'Tuners',
       links: using.map(t => openLink.tuner(t.uuid, t.name, { off: !t.enabled, note: t.enabled ? '' : '(disabled)' })),
@@ -179,7 +200,9 @@ export class ConnectionsComponent implements OnChanges {
         const muxIds = [...new Set(svcs.map((s: any) => String(s.multiplex_uuid || '')).filter(Boolean))];
         return this.tvh.idnodeValues(muxIds, ['name', 'network', 'network_uuid', 'enabled']).pipe(
           catchError(() => of([])),
-          map(muxes => {
+          switchMap(muxes => this.iptvNetworks([...new Set(muxes.map((m: any) => String(m.network_uuid || '')).filter(Boolean))])
+            .pipe(map(iptv => ({ muxes, iptv })))),
+          map(({ muxes, iptv }) => {
             const muxById = new Map(muxes.map((m: any) => [String(m.uuid), m]));
             const tagName = new Map(tags.map((t: any) => [String(t.uuid), String(t.name)]));
             const serviceRows: Row[] = svcs.map((s: any) => {
@@ -191,7 +214,7 @@ export class ConnectionsComponent implements OnChanges {
                 children: [
                   { heading: 'Mux', links: mux ? [openLink.mux(String(mux.uuid), String(mux.name || s.multiplex), { off: !on(mux.enabled) })] : [], empty: String(s.multiplex || '—') },
                   { heading: 'Network', links: netId ? [openLink.network(netId, String(mux?.network || s.network))] : [], empty: String(s.network || '—') },
-                  ...(netId ? [this.tunerRow(netId, tuners)] : []),
+                  ...(netId ? [this.tunerRow(netId, tuners, iptv.has(netId))] : []),
                 ],
               } as Row;
             });
@@ -223,7 +246,8 @@ export class ConnectionsComponent implements OnChanges {
         mux: this.tvh.idnodeValues([String(s?.multiplex_uuid || '')], ['name', 'network', 'network_uuid', 'enabled']).pipe(catchError(() => of([]))),
         tuners: this.tuners(),
       })),
-      map(({ s, chans, mux, tuners }) => {
+      switchMap(x => this.iptvNetworks([String((x.mux[0] as any)?.network_uuid || '')]).pipe(map(iptv => ({ ...x, iptv })))),
+      map(({ s, chans, mux, tuners, iptv }) => {
         const m: any = mux[0];
         const netId = String(m?.network_uuid || '');
         return [
@@ -234,7 +258,7 @@ export class ConnectionsComponent implements OnChanges {
           },
           { heading: 'Mux', links: m ? [openLink.mux(String(m.uuid), String(m.name || s?.multiplex), { off: !on(m.enabled), note: on(m.enabled) ? '' : '(disabled)' })] : [], empty: String(s?.multiplex || '—') },
           { heading: 'Network', links: netId ? [openLink.network(netId, String(m?.network || s?.network))] : [], empty: String(s?.network || '—') },
-          ...(netId ? [this.tunerRow(netId, tuners)] : []),
+          ...(netId ? [this.tunerRow(netId, tuners, iptv.has(netId))] : []),
         ] as Row[];
       }),
     );
@@ -246,14 +270,16 @@ export class ConnectionsComponent implements OnChanges {
       mux: this.tvh.idnodeValues([uuid], ['name', 'network', 'network_uuid', 'num_svc', 'num_chn']),
       svcs: this.tvh.getGrid('mpegts/service/grid', { filter }).pipe(catchError(() => of([]))),
       tuners: this.tuners(),
-    }).pipe(map(({ mux, svcs, tuners }) => {
+    }).pipe(
+      switchMap(x => this.iptvNetworks([String((x.mux[0] as any)?.network_uuid || '')]).pipe(map(iptv => ({ ...x, iptv })))),
+      map(({ mux, svcs, tuners, iptv }) => {
       const m: any = mux[0];
       const netId = String(m?.network_uuid || '');
       const mine = svcs.filter((s: any) => !s.multiplex_uuid || String(s.multiplex_uuid) === uuid);
       const unmapped = mine.filter((s: any) => !list(s.channel).length);
       return [
         { heading: 'Network', links: netId ? [openLink.network(netId, String(m?.network))] : [], empty: String(m?.network || '—') },
-        ...(netId ? [this.tunerRow(netId, tuners)] : []),
+        ...(netId ? [this.tunerRow(netId, tuners, iptv.has(netId))] : []),
         {
           heading: 'Services',
           links: mine.slice(0, 12).map((s: any) => openLink.service(String(s.uuid), String(s.svcname || 'service'),
@@ -269,13 +295,14 @@ export class ConnectionsComponent implements OnChanges {
 
   private forNetwork(uuid: string): Observable<Row[]> {
     return forkJoin({
-      net: this.tvh.idnodeValues([uuid], ['networkname', 'num_mux', 'num_svc', 'num_chn']),
+      net: this.tvh.idnodeValues([uuid], ['networkname', 'num_mux', 'num_svc', 'num_chn', 'max_streams']),
       tuners: this.tuners(),
     }).pipe(map(({ net, tuners }) => {
       const n: any = net[0] || {};
+      const iptv = 'max_streams' in n;
       const svc = Number(n.num_svc) || 0, chn = Number(n.num_chn) || 0, mux = Number(n.num_mux) || 0;
       return [
-        this.tunerRow(uuid, tuners),
+        this.tunerRow(uuid, tuners, iptv),
         { heading: 'Muxes', links: mux ? [{ label: plural(mux, 'mux', 'muxes'), route: '/inputs', query: { tab: 'muxes' } }] : [],
           empty: 'None yet — scan the network, or Add mux', warn: true },
         { heading: 'Services', links: svc ? [{ label: `${plural(svc, 'service')}, ${chn} mapped`, route: '/inputs', query: { tab: 'services' } }] : [],
@@ -287,19 +314,28 @@ export class ConnectionsComponent implements OnChanges {
   }
 
   private forTuner(uuid: string): Observable<Row[]> {
-    return this.tuners().pipe(
-      switchMap(tuners => {
-        const t = tuners.find(x => x.uuid === uuid);
-        if (!t) return of([] as Row[]); // an adapter, not a tuner
-        return this.tvh.idnodeValues(t.networks, ['networkname']).pipe(
+    return forkJoin({
+      self: this.tvh.idnodeValues([uuid], ['displayname', 'enabled', 'networks']).pipe(catchError(() => of([]))),
+      tuners: this.tuners(),
+    }).pipe(
+      switchMap(({ self, tuners }) => {
+        const known = tuners.find(x => x.uuid === uuid);
+        const v: any = self[0];
+        if (!known && !v) return of([] as Row[]); // an adapter, not a tuner
+        const networks = list(v?.networks ?? known?.networks);
+        const iptv = !!known?.iptv || /^iptv/i.test(String(v?.displayname || ''));
+        const enabled = v ? on(v.enabled) : !!known?.enabled;
+        return this.tvh.idnodeValues(networks, ['networkname']).pipe(
           catchError(() => of([])),
           map(nets => [
             {
-              heading: t.networks.length === 1 ? 'Network' : 'Networks',
+              heading: networks.length === 1 ? 'Network' : 'Networks',
               links: nets.map((n: any) => openLink.network(String(n.uuid), String(n.networkname || 'network'))),
-              empty: 'No network assigned — this tuner won’t be used', warn: true,
+              empty: iptv ? 'Every IPTV network — Tvheadend spreads IPTV streams over its IPTV threads automatically'
+                : 'No network assigned — this tuner won’t be used',
+              warn: !iptv,
             },
-            ...(t.enabled ? [] : [{ heading: '', links: [], empty: 'This tuner is disabled', warn: true }]),
+            ...(enabled ? [] : [{ heading: '', links: [], empty: 'This tuner is disabled', warn: true }]),
           ] as Row[]),
         );
       }),
