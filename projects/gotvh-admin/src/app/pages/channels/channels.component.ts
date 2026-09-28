@@ -16,6 +16,8 @@ import { IdnodeFormComponent, formatIntsplit } from '../../shared/idnode-form/id
 import { GridColumn, IdnodeGridComponent } from '../../shared/idnode-grid.component';
 import { SplitHandleDirective } from '../../shared/split-handle.directive';
 import { ConnectionsComponent } from '../../shared/connections.component';
+import { NameFix, findNameFixes } from '../../shared/channel-naming';
+import { FixNamesDialogComponent, FixNamesResult } from './fix-names-dialog.component';
 
 type YesNo = 'all' | 'yes' | 'no';
 type ServiceCount = 'all' | 'none' | 'one' | 'many';
@@ -45,6 +47,18 @@ interface EditorState {
     <div class="admin-page wide">
       <h1>Channels</h1>
       <p class="subtitle">Channel numbers, names, tags and which services feed them. Select several to change a setting on all of them.</p>
+
+      @if (nameFixes().length) {
+        <div class="fix-banner">
+          <mat-icon>drive_file_rename_outline</mat-icon>
+          <span>
+            @if (placeholderCount()) { {{ placeholderCount() }} {{ placeholderCount() === 1 ? 'channel is' : 'channels are' }} named after the encoder (“Service01”). }
+            @if (longCount()) { {{ longCount() }} {{ longCount() === 1 ? 'has' : 'have' }} a long playlist name. }
+            Better names are in their playlist entries.
+          </span>
+          <button mat-flat-button (click)="fixNames()">Fix names…</button>
+        </div>
+      }
 
       <div class="filters" role="group" aria-label="Filter channels">
         <mat-form-field appearance="outline" class="f-small">
@@ -129,6 +143,9 @@ interface EditorState {
     </div>
   `,
   styles: [`
+    .fix-banner { display: flex; align-items: center; gap: 12px; padding: 8px 12px; margin: 0 0 12px; border-radius: 8px;
+      background: var(--mat-sys-secondary-container); color: var(--mat-sys-on-secondary-container); }
+    .fix-banner span { flex: 1; }
     .wide { max-width: none; }
     .filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 8px; }
     .f-small { width: 150px; }
@@ -269,7 +286,30 @@ export class ChannelsComponent implements OnInit {
     ]);
   });
 
+  /** Channels with placeholder or long playlist names, and better names for them. */
+  readonly nameFixes = signal<NameFix[]>([]);
+  readonly placeholderCount = computed(() => this.nameFixes().filter(f => f.kind === 'placeholder').length);
+  readonly longCount = computed(() => this.nameFixes().filter(f => f.kind === 'long').length);
+
+  private loadNameFixes(): void {
+    findNameFixes(this.tvh).subscribe(f => this.nameFixes.set(f));
+  }
+
+  fixNames(): void {
+    this.dialog.open<FixNamesDialogComponent, NameFix[], FixNamesResult>(FixNamesDialogComponent, { data: this.nameFixes(), width: '720px', maxHeight: '85vh' })
+      .afterClosed().subscribe(res => {
+        if (!res?.renames.length) return;
+        const byUuid = new Map(res.renames.map(r => [r.uuid, r.name]));
+        runBulk(res.renames.map(r => r.uuid), uuid => this.tvh.idnodeSave(uuid, { name: byUuid.get(uuid) })).subscribe(result => {
+          this.snack.open(describeBulk('Renamed', result, 'channel'), undefined, { duration: 4000 });
+          this.grid?.refresh();
+          this.loadNameFixes();
+        });
+      });
+  }
+
   ngOnInit(): void {
+    this.loadNameFixes();
     // Linked from elsewhere, e.g. Channel tags → /channels?tag=<uuid> (or ?tag=none).
     const tag = this.route.snapshot.queryParamMap.get('tag');
     if (tag) this.fTags.set([tag === 'none' ? NO_TAGS : tag]);

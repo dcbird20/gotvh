@@ -190,6 +190,22 @@ channel, a network no tuner uses, a tuner with no network, services not yet mapp
 Links are plain URLs (`/inputs?tab=muxes&open=<uuid>`, `/channels?open=<uuid>`,
 `/channel-tags?open=<uuid>`), so they can be bookmarked or shared.
 
+### IPTV channel names
+
+Streams that pass through FFmpeg (a `pipe://ffmpeg …` playlist entry, or an IPTV proxy that
+re-muxes) all identify themselves as **"Service01"** from provider **"FFmpeg"** — FFmpeg's
+default. Tvheadend takes a service's name from the stream, so every such channel ends up
+called Service01. The admin app works around it: Map services names channels from the
+playlist entry (and can shorten "PA | Johnstown | ABC WATM" to "ABC WATM"), and Channels
+offers **Fix names…** for channels that already have placeholder or long names.
+
+To fix it at the source, give FFmpeg the name:
+
+```
+pipe:///usr/bin/ffmpeg -loglevel fatal -i https://example/stream.m3u8 -c copy \
+  -metadata service_provider="My IPTV" -metadata service_name="ABC WATM" -f mpegts pipe:1
+```
+
 ### Side panel
 
 Every screen with an editor beside the table shares one panel width: drag the line between

@@ -1,3 +1,4 @@
+import { canShorten, commonPrefix, isPlaceholder, nameKey, shorten, tidy } from '../../shared/channel-naming';
 import { Broadcast, OtaGuideResult, enableOtaGuide } from '../../shared/ota-guide';
 import { PriorityChange, broadcastFirst, describeChanges } from '../../shared/source-priority';
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
@@ -36,23 +37,6 @@ function kindOf(s: any): Kind {
 const on = (v: unknown) => v === undefined || truthy(v) || v === 'true';
 const list = (v: unknown): string[] => (Array.isArray(v) ? v : v ? [v] : []).map(String).filter(Boolean);
 const plural = (n: number, one: string, many = one + 's') => `${n} ${n === 1 ? one : many}`;
-/** Names compare without case, spaces or punctuation: "WPSU-HD" ~ "wpsu hd". */
-const nameKey = (n: string) => n.toLowerCase().replace(/[^a-z0-9]+/g, '');
-/** Shared leading text of all names, cut back to a " - " / " | " / ": " separator (e.g. a playlist id "vYSe42W83QyE - "). */
-function commonPrefix(names: string[]): string {
-  if (names.length < 2) return '';
-  let p = names[0];
-  for (const n of names) { while (p && !n.startsWith(p)) p = p.slice(0, -1); }
-  let cut = 0;
-  for (const sep of [' - ', ' | ', ': ']) {
-    const at = p.lastIndexOf(sep);
-    if (at >= 0) cut = Math.max(cut, at + sep.length);
-  }
-  return p.slice(0, cut);
-}
-/** Names that say nothing: "Service01", "Service 1", "Program 3" (FFmpeg and some encoders' defaults). */
-const isPlaceholder = (n: string) => /^(service|program|programme|channel)\s*0*\d+$/i.test(n.trim());
-const tidy = (n: string) => n.replace(/[\s-]*(hd|sd|uhd|4k)$/i, '').trim() || n;
 
 interface Candidate {
   uuid: string;
@@ -126,6 +110,9 @@ export class MapServicesComponent implements OnInit {
   readonly mergeSameName = signal(true);
   readonly addToExisting = signal(true);
   readonly tidyNames = signal(false);
+  /** "PA | Johnstown | ABC WATM" → "ABC WATM". On by default when such names are present. */
+  readonly shortenNames = signal(false);
+  readonly anyLongNames = computed(() => this.all().some(c => canShorten(c.name)));
   tagUuids: string[] = [];
   readonly query = signal('');
   /** Bumped whenever a row changes, so the plan recomputes. */
@@ -257,6 +244,7 @@ export class MapServicesComponent implements OnInit {
           })
           .sort((a, b) => a.network.localeCompare(b.network)));
         this.version.update(v => v + 1);
+        this.shortenNames.set(this.anyLongNames());
         this.loading.set(false);
       },
       error: err => {
@@ -270,7 +258,8 @@ export class MapServicesComponent implements OnInit {
   // ---------------------------------------------------------------- rows
 
   finalName(c: Candidate): string {
-    const n = c.name.trim() || c.service;
+    let n = c.name.trim() || c.service;
+    if (this.shortenNames()) n = shorten(n);
     return this.tidyNames() ? tidy(n) : n;
   }
 

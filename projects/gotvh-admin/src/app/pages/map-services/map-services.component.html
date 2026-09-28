@@ -108,7 +108,7 @@
                       <td>
                         <input class="cell" [(ngModel)]="c.name" (ngModelChange)="touch()" [disabled]="!c.selected"
                                [attr.aria-label]="'Channel name for ' + c.service">
-                        @if (c.selected && tidyNames() && finalName(c) !== c.name.trim()) {
+                        @if (c.selected && finalName(c) !== c.name.trim()) {
                           <div class="muted small">→ {{ finalName(c) }}</div>
                         }
                       </td>
@@ -145,6 +145,11 @@
             Add to existing channels with the same name
             <span class="hint">Instead of making a duplicate.</span>
           </mat-checkbox>
+          @if (anyLongNames()) {
+            <mat-checkbox [checked]="shortenNames()" (change)="shortenNames.set($event.checked)">
+              Shorten names <span class="hint">Keep the last part of names like “PA | Johnstown | ABC WATM” → “ABC WATM”.</span>
+            </mat-checkbox>
+          }
           <mat-checkbox [checked]="tidyNames()" (change)="tidyNames.set($event.checked)">
             Tidy names <span class="hint">Drop a trailing “HD”, “SD”, “4K”.</span>
           </mat-checkbox>
