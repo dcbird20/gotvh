@@ -244,6 +244,12 @@
           </p>
         }
       }
+      @if (priority().length) {
+        <p class="small muted">
+          Antenna first: {{ describeChanges(priority()) }} now {{ priority().length === 1 ? 'has' : 'have' }} priority {{ priority()[0].to }},
+          above your IPTV networks, so a channel fed by both uses the antenna and falls back to IPTV.
+        </p>
+      }
       @if (waitingForTuner()) {
         <mat-progress-bar mode="indeterminate" />
         <p>All the tuners are in use by other apps right now. The scan starts as soon as one is free.</p>

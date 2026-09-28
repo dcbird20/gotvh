@@ -34,7 +34,7 @@ const on = (v: unknown) => v === undefined || truthy(v) || v === 'true';
 const list = (v: unknown): string[] => (Array.isArray(v) ? v : v ? [v] : []).map(String).filter(Boolean);
 const plural = (n: number, one: string, many = one + 's') => `${n} ${n === 1 ? one : many}`;
 
-interface Tuner { uuid: string; name: string; enabled: boolean; networks: string[]; iptv: boolean }
+interface Tuner { uuid: string; name: string; enabled: boolean; networks: string[]; iptv: boolean; priority: number }
 
 export const openLink = {
   channel: (uuid: string, label: string, extra: Partial<Link> = {}): Link => ({ label, route: '/channels', query: { open: uuid }, ...extra }),
@@ -148,7 +148,8 @@ export class ConnectionsComponent implements OnChanges {
           for (const p of e.params || []) v[p.id] = p.value;
           const name = String(v['displayname'] || e.text || 'Tuner');
           return { uuid: String(e.uuid || e.id), name, enabled: on(v['enabled']), networks: list(v['networks']),
-            iptv: /iptv/i.test(String(e.class || '')) || /^iptv/i.test(name) };
+            iptv: /iptv/i.test(String(e.class || '')) || /^iptv/i.test(name),
+            priority: v['priority'] === undefined ? 1 : Number(v['priority']) || 0 };
         })),
         catchError(() => of([])),
         shareReplay(1),
@@ -185,13 +186,39 @@ export class ConnectionsComponent implements OnChanges {
     };
   }
 
+  /**
+   * Which service Tvheadend tries first: source priority (best enabled tuner on the network, or the
+   * IPTV network's own) + the service's Priority (−10..10); the next one is the fallback.
+   */
+  private orderRow(svcs: any[], muxById: Map<string, any>, iptv: Set<string>, netPrio: Map<string, number>, tuners: Tuner[]): Row {
+    const ranked = svcs.filter((s: any) => on(s.enabled)).map((s: any) => {
+      const netId = String(muxById.get(String(s.multiplex_uuid))?.network_uuid || '');
+      const isIptv = iptv.has(netId);
+      const source = isIptv
+        ? (netPrio.get(netId) ?? 1)
+        : Math.max(0, ...tuners.filter(t => t.enabled && t.networks.includes(netId)).map(t => t.priority));
+      return { s, isIptv, score: source + Math.max(-10, Math.min(10, Number(s.priority) || 0)) };
+    }).sort((a, b) => b.score - a.score);
+    const tie = ranked.length > 1 && ranked[0].score === ranked[1].score && ranked[0].isIptv !== ranked[1].isIptv;
+    return {
+      heading: 'Used first',
+      links: ranked.map((r, i) => openLink.service(String(r.s.uuid), `${i + 1}. ${r.s.svcname || 'service'}`,
+        { note: `(${r.isIptv ? 'IPTV' : 'antenna/cable'}, priority ${r.score})` })),
+      empty: 'No enabled service',
+      warn: tie,
+      children: tie ? [{ heading: '', links: [], warn: true,
+        empty: 'Antenna and IPTV are tied, so Tvheadend may pick either. Raise the tuners’ Priority (e.g. 10) to use the antenna first.',
+        action: { label: 'Use the antenna first', route: '/inputs', query: { tab: 'tuners', prefer: 'antenna' } } }] : undefined,
+    };
+  }
+
   private forChannel(uuid: string): Observable<Row[]> {
     return this.tvh.idnodeValues([uuid], ['name', 'services', 'tags', 'epggrab']).pipe(
       switchMap(([ch]) => {
         const svcIds = list(ch?.services);
         return forkJoin({
           ch: of(ch),
-          svcs: this.tvh.idnodeValues(svcIds, ['svcname', 'multiplex', 'multiplex_uuid', 'network', 'enabled']).pipe(catchError(() => of([]))),
+          svcs: this.tvh.idnodeValues(svcIds, ['svcname', 'multiplex', 'multiplex_uuid', 'network', 'enabled', 'priority']).pipe(catchError(() => of([]))),
           tags: this.tvh.getGrid('channeltag/grid', { all: 1 }).pipe(catchError(() => of([]))),
           tuners: this.tuners(),
         });
@@ -200,9 +227,15 @@ export class ConnectionsComponent implements OnChanges {
         const muxIds = [...new Set(svcs.map((s: any) => String(s.multiplex_uuid || '')).filter(Boolean))];
         return this.tvh.idnodeValues(muxIds, ['name', 'network', 'network_uuid', 'enabled']).pipe(
           catchError(() => of([])),
-          switchMap(muxes => this.iptvNetworks([...new Set(muxes.map((m: any) => String(m.network_uuid || '')).filter(Boolean))])
-            .pipe(map(iptv => ({ muxes, iptv })))),
-          map(({ muxes, iptv }) => {
+          switchMap(muxes => {
+            const netIds = [...new Set(muxes.map((m: any) => String(m.network_uuid || '')).filter(Boolean))];
+            return forkJoin({
+              iptv: this.iptvNetworks(netIds),
+              nets: this.tvh.idnodeValues(netIds, ['networkname', 'priority']).pipe(catchError(() => of([]))),
+            }).pipe(map(({ iptv, nets }) => ({ muxes, iptv, nets })));
+          }),
+          map(({ muxes, iptv, nets }) => {
+            const netPrio = new Map(nets.map((n: any) => [String(n.uuid), n.priority === undefined ? 1 : Number(n.priority) || 0]));
             const muxById = new Map(muxes.map((m: any) => [String(m.uuid), m]));
             const tagName = new Map(tags.map((t: any) => [String(t.uuid), String(t.name)]));
             const serviceRows: Row[] = svcs.map((s: any) => {
@@ -218,8 +251,9 @@ export class ConnectionsComponent implements OnChanges {
                 ],
               } as Row;
             });
+            const order = svcs.length > 1 ? this.orderRow(svcs, muxById, iptv, netPrio, tuners) : null;
             const services: Row = svcs.length
-              ? { heading: 'Fed by', links: [], children: serviceRows }
+              ? { heading: 'Fed by', links: [], children: order ? [order, ...serviceRows] : serviceRows }
               : { heading: 'Service', links: [], empty: 'No service — this channel has nothing to play', warn: true,
                   action: { label: 'Map a service', route: '/inputs', query: { tab: 'services' } } };
             const epg = list(ch?.epggrab);

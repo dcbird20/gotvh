@@ -1,4 +1,5 @@
 import { Broadcast, OtaGuideResult, enableOtaGuide } from '../../shared/ota-guide';
+import { PriorityChange, broadcastFirst, describeChanges } from '../../shared/source-priority';
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
@@ -112,6 +113,9 @@ export class MapServicesComponent implements OnInit {
   readonly result = signal<{ created: number; merged: number; failed: number } | null>(null);
   /** Over-the-air guide switched on / started after mapping broadcast channels. */
   readonly guide = signal<OtaGuideResult | 'working' | null>(null);
+  /** Broadcast tuners raised above IPTV so antenna feeds are used first. */
+  readonly priority = signal<PriorityChange[]>([]);
+  readonly describeChanges = describeChanges;
 
   readonly groups = signal<NetworkGroup[]>([]);
   private readonly channels = signal<any[]>([]);
@@ -183,7 +187,7 @@ export class MapServicesComponent implements OnInit {
   load(keepResult = false): void {
     this.loading.set(true);
     this.error.set('');
-    if (!keepResult) { this.result.set(null); this.guide.set(null); }
+    if (!keepResult) { this.result.set(null); this.guide.set(null); this.priority.set([]); }
     forkJoin({
       services: this.tvh.getGrid('mpegts/service/grid'),
       channels: this.tvh.getGrid('channel/grid', { all: 1 }).pipe(catchError(() => of([]))),
@@ -365,6 +369,8 @@ export class MapServicesComponent implements OnInit {
         const kinds = new Set(plans.flatMap(p => p.services).map(sv => sv.broadcast).filter((b): b is Broadcast => !!b));
         if (kinds.size && created + merged > 0) {
           this.guide.set('working');
+          // Antenna first, IPTV as backup (only changes anything when there are IPTV networks).
+          broadcastFirst(this.tvh).subscribe(ch => this.priority.set(ch));
           enableOtaGuide(this.tvh, kinds, plans.flatMap(p => p.services).filter(sv => sv.broadcast && sv.muxUuid).map(sv => sv.muxUuid)).subscribe(g => this.guide.set(g));
         } else {
           this.guide.set(null);

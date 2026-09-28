@@ -13,6 +13,7 @@ import { MatRadioModule } from '@angular/material/radio';
 import { MatSelectModule } from '@angular/material/select';
 import { IdnodeOption, TvheadendService, isDeferredEnum, normalizeEnum, truthy } from '@gotvh/tvh-api';
 import { GuardReport, HdhrGuard } from '../../shared/hdhomerun';
+import { PriorityChange, broadcastFirst, describeChanges } from '../../shared/source-priority';
 
 type Step = 'kind' | 'tuner' | 'iptv' | 'hdhr' | 'scan' | 'done';
 type Kind = 'tuner' | 'iptv';
@@ -310,6 +311,8 @@ export class AddSourceComponent implements OnInit {
       // Enable each chosen tuner and add the network to it (keeping networks it already has).
       switchMap(net => concat(...this.selectedTuners().map(t =>
         this.tvh.idnodeSave(t.uuid, { enabled: true, networks: [...new Set([...t.networks, net])] }))).pipe(last(null, null), map(() => net))),
+      // Antenna first: keep broadcast tuners above any IPTV network.
+      switchMap(net => broadcastFirst(this.tvh).pipe(tap(ch => this.priority.set(ch)), map(() => net))),
       // Shared HDHomeRun: switch off the tuners someone else is using before scanning.
       switchMap(net => this.guard.prepare(this.selectedTuners()).pipe(tap(r => this.sharing.set(r)), map(() => net))),
     ).subscribe({
@@ -354,6 +357,7 @@ export class AddSourceComponent implements OnInit {
         if (!res?.uuid) { this.error.set('Tvheadend didn’t create the network.'); return; }
         const net = String(res.uuid);
         this.tvh.scanNetwork(net).pipe(catchError(() => of(null))).subscribe();
+        broadcastFirst(this.tvh).subscribe(ch => this.priority.set(ch));
         this.beginScan(net, this.iptvName.trim() || 'IPTV');
       },
       error: err => { this.busy.set(false); this.error.set(`Couldn’t create the IPTV network (${err?.status || 'network error'}).`); },
@@ -471,6 +475,10 @@ export class AddSourceComponent implements OnInit {
   heldNames(r: GuardReport): string {
     return r.held.map(t => `#${/#(\d+)/.exec(t.name)?.[1] ?? '?'} (used by ${t.by})`).join(', ');
   }
+
+  /** Broadcast tuners raised above IPTV (antenna first, IPTV as backup). */
+  readonly priority = signal<PriorityChange[]>([]);
+  readonly describeChanges = describeChanges;
 
   readonly retrying = signal(false);
   readonly retries = signal(0);

@@ -37,6 +37,16 @@
         <a mat-button routerLink="/epg">EPG sources</a>
       </div>
     }
+    @if (priority().length) {
+      <div class="banner ok guide">
+        <mat-icon>low_priority</mat-icon>
+        <span>
+          <strong>Antenna first:</strong> raised the priority of {{ describeChanges(priority()) }} to {{ priority()[0].to }},
+          above your IPTV networks. Channels fed by both now use the antenna and fall back to IPTV if it fails.
+        </span>
+        <a mat-button routerLink="/inputs" [queryParams]="{ tab: 'tuners' }">Tuners</a>
+      </div>
+    }
   }
 
   @if (!loading() && !error() && !groups().length) {

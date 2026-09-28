@@ -1,3 +1,4 @@
+import { broadcastFirst, describeChanges } from '../../shared/source-priority';
 import { Component, DestroyRef, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
 import { Observable, of } from 'rxjs';
 import { MatButtonModule } from '@angular/material/button';
@@ -167,10 +168,21 @@ export class InputsComponent implements OnInit {
     // Deep links, e.g. from a Connected to panel: /inputs?tab=muxes&open=<uuid>
     this.route.queryParamMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(q => {
       const tab = q.get('tab') as TabId | null, open = q.get('open');
-      if (open || tab) this.clearDeepLink();
+      if (open || tab || q.get('prefer')) this.clearDeepLink();
+      if (q.get('prefer') === 'antenna') this.preferAntenna();
       const index = tab === 'tuners' ? 0 : GRID_TABS.findIndex(t => t.id === tab) + 1;
       if (tab && index >= 0) this.tabIndex.set(index);
       if (open && tab) this.open({ tab, uuid: open, label: '' });
+    });
+  }
+
+  /** Raise broadcast tuners above IPTV networks (antenna first, IPTV as backup). */
+  preferAntenna(): void {
+    broadcastFirst(this.tvh).subscribe(ch => {
+      this.snack.open(ch.length
+        ? `Antenna first: ${describeChanges(ch)} now priority ${ch[0].to}; IPTV is the backup.`
+        : 'Your tuners already come before IPTV.', undefined, { duration: 6000 });
+      if (ch.length) this.refreshActive();
     });
   }
 
@@ -480,6 +492,6 @@ export class InputsComponent implements OnInit {
 
   /** Drop ?open= once handled, so following the same link again still works. */
   private clearDeepLink(): void {
-    this.router.navigate([], { relativeTo: this.route, queryParams: { open: null, tab: null }, queryParamsHandling: 'merge', replaceUrl: true });
+    this.router.navigate([], { relativeTo: this.route, queryParams: { open: null, tab: null, prefer: null }, queryParamsHandling: 'merge', replaceUrl: true });
   }
 }

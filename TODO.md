@@ -33,8 +33,8 @@ The stock UI needs you to know the chain
 
 ## Antenna / HDHomeRun
 
-- [ ] **Priority for fallback channels** — when Map services merges antenna + IPTV, set the antenna
-      tuners' priority higher (Tvheadend input `priority`) so IPTV is only the fallback.
+- [x] **Antenna first, IPTV as backup** — broadcast tuners raised above IPTV networks (Add a source,
+      Map services, or "Use the antenna first" from a channel's Connected to card, which shows the order).
 - [ ] **Local IP / Local port** for HDHomeRun behind Docker or a VPN — expose these hidden settings in
       Add a source (they fixed omv-dell behind NordLynx: UDP base port + one per tuner).
 - [x] **Over-the-air guide** — Map services switches on the ATSC PSIP / DVB EIT grabber and starts a grab
