@@ -1,4 +1,5 @@
 import { consumeOpenParam } from '../../shared/deep-link';
+import { GuideFinderData, GuideFinderDialogComponent } from '../../shared/guide-finder-dialog.component';
 import { ConnectionsComponent } from '../../shared/connections.component';
 import { broadcastMuxesWithChannels, primeAndGrab } from '../../shared/ota-guide';
 import { Component, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
@@ -37,6 +38,23 @@ interface EditorState {
 function splitModuleTitle(title: string): { type: string; name: string } {
   const m = /^(Internal|External|Over-the-air)\s*:\s*(.*)$/i.exec(String(title || '').trim());
   return m ? { type: m[1][0].toUpperCase() + m[1].slice(1), name: m[2] } : { type: 'Other', name: String(title || '') };
+}
+
+// Cron → words, first line only: "4 */12 * * *" → "Every 12 hours (at :04)", "2 12,0 * * *" → "Daily at 00:02 and 12:02".
+function describeCron(cron: string): string {
+  const line = cron.split('\n').map(l => l.trim()).find(l => l && !l.startsWith('#'));
+  if (!line) return 'Not scheduled';
+  const [m, h, dom, mon, dow] = line.split(/\s+/);
+  if (dom !== '*' || mon !== '*' || dow !== '*' || !/^\d+$/.test(m || '')) return `Schedule: ${line}`;
+  const mm = m.padStart(2, '0');
+  const step = /^\*\/(\d+)$/.exec(h || '');
+  if (step) return `Every ${step[1]} hours (at :${mm})`;
+  if (h === '*') return `Every hour (at :${mm})`;
+  if (/^[\d,]+$/.test(h || '')) {
+    const times = h.split(',').map(Number).sort((a, b) => a - b).map(x => `${String(x).padStart(2, '0')}:${mm}`);
+    return `Daily at ${times.join(times.length === 2 ? ' and ' : ', ')}`;
+  }
+  return `Schedule: ${line}`;
 }
 
 /** The module list reports status as e.g. "epggrabmodEnabled" / "epggrabmodNone". */
@@ -126,6 +144,28 @@ function moduleEnabled(row: any): boolean {
           <ng-template matTabContent>
             <div class="tab-body layout" adminSplit [class.with-editor]="editor()?.tab === 'channels'">
               <div class="main">
+                @if (sourceSummary().length) {
+                  <section class="sources" aria-label="Where guide channels come from">
+                    @for (g of sourceSummary(); track g.module) {
+                      <button class="src" type="button" [class.on]="chModule() === g.module" (click)="chModule.set(chModule() === g.module ? '' : g.module)"
+                              [matTooltip]="'Show only guide channels from ' + g.module">
+                        <span class="src-name">{{ g.module }}</span>
+                        <span class="src-kind">{{ g.kind }}{{ g.enabled === false ? ' · switched off' : '' }}</span>
+                        <span class="src-counts"><strong>{{ g.inUse }}</strong> in use of {{ g.total.toLocaleString() }}</span>
+                        <span class="src-when">{{ g.when }}</span>
+                        @if (g.last) { <span class="src-when">Last data {{ g.last }}</span> }
+                      </button>
+                    }
+                  </section>
+                }
+                @if (unusedCount() > 50) {
+                  <p class="unused muted small">
+                    {{ unusedCount().toLocaleString() }} guide channels don’t feed any of your channels — normal for big guide
+                    sources, and Tvheadend ignores their programmes.
+                    @if (chMapped() === 'yes') { <a href="" (click)="$event.preventDefault(); chMapped.set('all')">Show them</a> }
+                    @else { <a href="" (click)="$event.preventDefault(); chMapped.set('yes')">Show only the ones in use</a> }
+                  </p>
+                }
                 <div class="filters">
                   <mat-form-field appearance="outline" class="f-small">
                     <mat-label>Mapped</mat-label>
@@ -159,9 +199,9 @@ function moduleEnabled(row: any): boolean {
                   emptyText="No guide channels yet. They appear after a grabber has run."
                   (rowsLoaded)="onEpgChannelsLoaded($event)"
                   (rowClick)="open({ tab: 'channels', uuid: $event.uuid, title: $event.name || $event.id || 'EPG channel' })">
-                  <button mat-flat-button (click)="mapUnmapped()" [disabled]="!unmappedCount() || !allChannels().length"
-                          [matTooltip]="unmappedCount() ? 'Propose a channel for each unmapped guide channel, then review' : 'Every guide channel is mapped'">
-                    <mat-icon>link</mat-icon> Map {{ unmappedCount() }} unmapped by name…
+                  <button mat-flat-button (click)="findGuides()" [disabled]="!channelsWithoutGuide().length || !epgRows().length"
+                          [matTooltip]="channelsWithoutGuide().length ? 'Suggest guide channels for your channels that have none, then review' : 'Every channel has guide data'">
+                    <mat-icon>manage_search</mat-icon> Find guide data for {{ channelsWithoutGuide().length }} {{ channelsWithoutGuide().length === 1 ? 'channel' : 'channels' }}…
                   </button>
                   <ng-container ngProjectAs="[bulkActions]">
                     <button mat-button (click)="mapSelected()"><mat-icon>link</mat-icon> Map by name…</button>
@@ -192,6 +232,14 @@ function moduleEnabled(row: any): boolean {
   `,
   styles: [`
     .wide { max-width: none; }
+    .sources { display: flex; flex-wrap: wrap; gap: 10px; margin: 0 0 10px; }
+    .src { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; text-align: left; cursor: pointer; font: inherit; color: inherit;
+           padding: 8px 12px; border-radius: 10px; border: 1px solid var(--mat-sys-outline-variant); background: var(--mat-sys-surface-container-lowest); min-width: 200px; }
+    .src.on { border-color: var(--mat-sys-primary); background: var(--mat-sys-primary-container); }
+    .src-name { font: var(--mat-sys-title-small); }
+    .src-kind, .src-when { font: var(--mat-sys-body-small); color: var(--mat-sys-on-surface-variant); }
+    .src-counts { font: var(--mat-sys-body-medium); }
+    .unused { margin: 0 0 8px; a { color: var(--mat-sys-primary); } }
     .tab-body { padding-top: 16px; }
     .layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-items: start; }
     .layout.with-editor { grid-template-columns: minmax(0, 1fr) var(--admin-side-width, 460px); }
@@ -248,7 +296,44 @@ export class EpgComponent implements OnInit {
   /** Your channels, for proposing matches. */
   readonly allChannels = signal<MatchChannel[]>([]);
   /** Every guide channel from the last load of the EPG channels tab. */
-  private readonly epgRows = signal<any[]>([]);
+  readonly epgRows = signal<any[]>([]);
+  /** Channels that already get data from a guide channel (uuid). */
+  private readonly channelsWithGuide = signal(new Set<string>());
+  readonly channelsWithoutGuide = computed(() => this.allChannels().filter(c => !this.channelsWithGuide().has(c.uuid)));
+  readonly unusedCount = computed(() => this.epgRows().filter(r => !(Array.isArray(r?.channels) && r.channels.length)).length);
+  private readonly moduleList = signal<any[]>([]);
+  private readonly epgConfig = signal<Record<string, unknown>>({});
+  private defaultFilterSet = false;
+
+  /**
+   * One card per grabber the guide channels come from: how many it lists, how many feed your
+   * channels, when it runs, and when data last arrived — to see at a glance where clutter comes from.
+   */
+  readonly sourceSummary = computed(() => {
+    const rows = this.epgRows(), mods = this.moduleList(), cfg = this.epgConfig();
+    const by = new Map<string, { total: number; inUse: number; last: number }>();
+    for (const r of rows) {
+      const m = String(r?.module || 'Unknown');
+      const cur = by.get(m) || { total: 0, inUse: 0, last: 0 };
+      cur.total++;
+      if (Array.isArray(r?.channels) && r.channels.length) cur.inUse++;
+      cur.last = Math.max(cur.last, Number(r?.updated) || 0);
+      by.set(m, cur);
+    }
+    return [...by.entries()].map(([module, c]) => {
+      // A module's title is "<Type>: <name>"; guide channels carry just the name.
+      const mod = mods.find((x: any) => splitModuleTitle(x?.title).name === module)
+        || mods.find((x: any) => splitModuleTitle(x?.title).name.endsWith(module));
+      const type = mod ? splitModuleTitle(mod.title).type : /sock|external/i.test(module) ? 'External' : /eit|psip|opentv|freesat|freeview/i.test(module) ? 'Over-the-air' : 'Other';
+      const kind = type === 'Internal' ? 'Internal grabber' : type === 'External' ? 'External — another program sends the data'
+        : type === 'Over-the-air' ? 'Over the air' : type;
+      const when = type === 'Internal' ? describeCron(String(cfg['cron'] || ''))
+        : type === 'Over-the-air' ? describeCron(String(cfg['ota_cron'] || ''))
+        : type === 'External' ? 'Whenever that program runs' : '';
+      return { module, kind, when, enabled: mod ? moduleEnabled(mod) : undefined, total: c.total, inUse: c.inUse,
+        last: c.last ? new Date(c.last * 1000).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '' };
+    }).sort((a, b) => b.total - a.total);
+  });
   readonly unmappedCount = computed(() => this.unmappedGuides().length);
 
   readonly channelColumns = computed<GridColumn[]>(() => {
@@ -283,11 +368,17 @@ export class EpgComponent implements OnInit {
     if (tab === 'channels') this.tabIndex.set(2);
     if (tab === 'grabbers') this.tabIndex.set(0);
     if (open) this.editor.set({ tab: tab === 'grabbers' ? 'grabbers' : 'channels', uuid: open, title: '' });
+    this.tvh.getGrid('epggrab/module/list').subscribe({ next: m => this.moduleList.set(m), error: () => {} });
+    this.tvh.idnodeLoadSimple('epggrab/config').subscribe({
+      next: e => this.epgConfig.set(Object.fromEntries((e?.params || []).map((p: any) => [p.id, p.value]))),
+      error: () => {},
+    });
     // For showing which of your channels each guide channel feeds.
     this.tvh.getGrid('channel/grid', { limit: 100000, all: 1 }).subscribe({
       next: chans => {
         this.channelNames.set(new Map(chans.map((c: any) =>
           [String(c?.uuid || ''), [c?.number && c.number !== 0 ? String(c.number) : '', String(c?.name || '')].filter(Boolean).join(' ')])));
+        this.channelsWithGuide.set(new Set(chans.filter((c: any) => Array.isArray(c?.epggrab) && c.epggrab.length).map((c: any) => String(c.uuid))));
         this.allChannels.set(chans
           .map((c: any) => ({ uuid: String(c?.uuid || ''), name: String(c?.name || ''), number: c?.number && c.number !== 0 ? String(c.number) : '' }))
           .filter((c: MatchChannel) => c.uuid)
@@ -304,6 +395,12 @@ export class EpgComponent implements OnInit {
 
   onEpgChannelsLoaded(rows: any[]): void {
     this.epgRows.set(rows);
+    // Big guide sources list thousands of stations; open on the ones actually in use.
+    if (!this.defaultFilterSet) {
+      this.defaultFilterSet = true;
+      const inUse = rows.filter(r => Array.isArray(r?.channels) && r.channels.length).length;
+      if (inUse && rows.length - inUse > 50 && this.chMapped() === 'all') this.chMapped.set('yes');
+    }
     this.epgModules.set([...new Set(rows.map(r => String(r?.module || '')).filter(Boolean))].sort());
   }
 
@@ -368,6 +465,24 @@ export class EpgComponent implements OnInit {
     this.openMapDialog(this.unmappedGuides());
   }
 
+  /** Start from your channels without guide data and suggest guide channels for them. */
+  findGuides(): void {
+    const guides: MatchGuide[] = this.epgRows()
+      .filter(r => r?.enabled === undefined || truthy(r.enabled) || r.enabled === 'true')
+      .map(r => ({
+        uuid: String(r.uuid), name: String(r?.name || ''),
+        names: Array.isArray(r?.names) ? r.names.map(String) : String(r?.names || '').split(/[,\n]/).map((n: string) => n.trim()).filter(Boolean),
+        number: r?.number && r.number !== 0 ? String(r.number) : '', id: String(r?.id || ''),
+      }));
+    const data: GuideFinderData = { channels: this.channelsWithoutGuide(), guides };
+    this.dialog.open(GuideFinderDialogComponent, { data, maxWidth: '95vw', autoFocus: 'dialog' })
+      .afterClosed().subscribe((pairs?: EpgMapPair[]) => {
+        if (!pairs?.length) return;
+        this.applyMapping(pairs, this.epgRows());
+        this.channelsWithGuide.update(s => new Set([...s, ...pairs.map(p => p.channelUuid)]));
+      });
+  }
+
   mapSelected(): void {
     this.openMapDialog(this.chGrid?.selection.rows() || []);
   }
@@ -391,9 +506,12 @@ export class EpgComponent implements OnInit {
     const byUuid = new Map(rows.map(r => [String(r.uuid), r]));
     const grid = this.chGrid;
     grid?.bulkBusy.set(true);
-    runBulk(pairs, p => {
-      const existing: string[] = (byUuid.get(p.guideUuid)?.channels || []).map(String);
-      return this.tvh.idnodeSave(p.guideUuid, { channels: [...new Set([...existing, p.channelUuid])] });
+    // One save per guide channel, so a guide feeding two channels (HD and SD) keeps both.
+    const byGuide = new Map<string, string[]>();
+    for (const p of pairs) byGuide.set(p.guideUuid, [...(byGuide.get(p.guideUuid) || []), p.channelUuid]);
+    runBulk([...byGuide.keys()], guideUuid => {
+      const existing: string[] = (byUuid.get(guideUuid)?.channels || []).map(String);
+      return this.tvh.idnodeSave(guideUuid, { channels: [...new Set([...existing, ...byGuide.get(guideUuid)!])] });
     }).subscribe(result => {
       grid?.bulkBusy.set(false);
       this.snack.open(describeBulk('Mapped', result, 'guide channel'), undefined, { duration: 5000 });
