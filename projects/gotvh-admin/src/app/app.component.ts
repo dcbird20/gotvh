@@ -1,4 +1,4 @@
-import { Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
+import { Component, DestroyRef, HostListener, OnInit, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
@@ -13,6 +13,11 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { TvheadendService } from '@gotvh/tvh-api';
 import { AdminNavItem, NAV_ITEMS } from './app.routes';
 
+const NAV_KEY = 'gotvh_admin_nav_collapsed';
+function readCollapsed(): boolean {
+  try { return localStorage.getItem(NAV_KEY) === '1'; } catch { return false; }
+}
+
 @Component({
   selector: 'admin-root',
   standalone: true,
@@ -22,19 +27,20 @@ import { AdminNavItem, NAV_ITEMS } from './app.routes';
     MatButtonModule, MatFormFieldModule, MatInputModule, MatTooltipModule,
   ],
   template: `
-    <mat-sidenav-container class="shell">
-      <mat-sidenav mode="side" opened class="nav">
+    <mat-sidenav-container class="shell" autosize>
+      <mat-sidenav mode="side" opened class="nav" [class.rail]="collapsed()">
         <div class="brand">
           <mat-icon>settings_remote</mat-icon>
-          <span>GoTVH Admin</span>
+          @if (!collapsed()) { <span>GoTVH Admin</span> }
         </div>
         @for (section of sections; track section) {
-          <div class="section-label">{{ section }}</div>
+          @if (collapsed()) { <div class="section-rule"></div> } @else { <div class="section-label">{{ section }}</div> }
           <mat-nav-list>
             @for (item of itemsIn(section); track item.path) {
-              <a mat-list-item [routerLink]="item.path" routerLinkActive #rla="routerLinkActive" [activated]="rla.isActive">
+              <a mat-list-item [routerLink]="item.path" routerLinkActive #rla="routerLinkActive" [activated]="rla.isActive"
+                 [matTooltip]="collapsed() ? item.label : ''" matTooltipPosition="right" [attr.aria-label]="item.label">
                 <mat-icon matListItemIcon>{{ item.icon }}</mat-icon>
-                <span matListItemTitle>{{ item.label }}</span>
+                @if (!collapsed()) { <span matListItemTitle>{{ item.label }}</span> }
               </a>
             }
           </mat-nav-list>
@@ -43,6 +49,10 @@ import { AdminNavItem, NAV_ITEMS } from './app.routes';
 
       <mat-sidenav-content>
         <mat-toolbar class="topbar">
+          <button mat-icon-button (click)="toggleNav()" [attr.aria-label]="collapsed() ? 'Show menu labels' : 'Collapse the menu'"
+                  [matTooltip]="collapsed() ? 'Expand the menu' : 'Collapse the menu'" aria-keyshortcuts="Alt+M">
+            <mat-icon>{{ collapsed() ? 'menu' : 'menu_open' }}</mat-icon>
+          </button>
           <span class="spacer"></span>
           @if (auth().authenticated) {
             <span class="muted user"><mat-icon inline>person</mat-icon> {{ auth().username }}</span>
@@ -78,6 +88,11 @@ import { AdminNavItem, NAV_ITEMS } from './app.routes';
   styles: [`
     .shell { height: 100vh; }
     .nav { width: 248px; border-right: 1px solid var(--mat-sys-outline-variant); }
+    .nav.rail { width: 72px; }
+    .nav.rail .brand { justify-content: center; padding: 18px 0 8px; }
+    .nav.rail a { justify-content: center; }
+    .nav.rail .mat-mdc-list-item { padding-left: 24px; padding-right: 0; }
+    .section-rule { margin: 10px 16px; border-top: 1px solid var(--mat-sys-outline-variant); }
     .brand { display: flex; align-items: center; gap: 10px; padding: 18px 20px 8px; font: var(--mat-sys-title-medium); }
     .section-label { padding: 16px 20px 4px; font: var(--mat-sys-label-small); text-transform: uppercase;
                      letter-spacing: .06em; color: var(--mat-sys-on-surface-variant); }
@@ -97,6 +112,17 @@ export class AdminAppComponent implements OnInit {
   readonly sections: AdminNavItem['section'][] = ['Overview', 'DVR', 'Configuration'];
   readonly auth = signal(this.tvh.authState$.value);
   readonly signIn = signal(this.tvh.authDialogState$.value);
+
+  /** Menu shown as icons only; remembered in this browser. */
+  readonly collapsed = signal(readCollapsed());
+
+  toggleNav(): void {
+    this.collapsed.update(c => !c);
+    try { localStorage.setItem(NAV_KEY, this.collapsed() ? '1' : '0'); } catch { /* ignore */ }
+  }
+
+  @HostListener('document:keydown.alt.m', ['$event'])
+  onAltM(e: Event): void { e.preventDefault(); this.toggleNav(); }
 
   username = '';
   password = '';
