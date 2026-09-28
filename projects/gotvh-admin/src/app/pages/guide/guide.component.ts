@@ -259,9 +259,10 @@ function recState(s: string): '' | 'scheduled' | 'recording' | 'recorded' | 'fai
                   </button>
                 }
               </div>
-              @if (!rec(e) && e.stop > nowSec() && recOptions()) {
-                <details class="rec-opts" [open]="optionsChanged()">
-                  <summary class="small">Recording options{{ optionsChanged() ? ' — ' + optionsSummary() : '' }}</summary>
+              @if (!rec(e) && e.stop > nowSec()) {
+                @if (recOptions()) {
+                <div class="rec-opts">
+                  <div class="opts-title small">Record with</div>
                   <div class="opts-grid">
                     <label>Start early
                       <select (change)="setOpt('start', $any($event.target).value)">
@@ -279,8 +280,11 @@ function recState(s: string): '' | 'scheduled' | 'recording' | 'recorded' | 'fai
                       </select>
                     </label>
                   </div>
-                  <p class="muted small">Used for Record, and remembered in this browser.</p>
-                </details>
+                  <p class="muted small">Remembered in this browser. “Not set” uses the DVR profile.</p>
+                </div>
+                } @else if (recOptionsError()) {
+                  <p class="muted small">Padding and keep-for options aren’t available: {{ recOptionsError() }}</p>
+                }
               }
               <div class="links small">
                 <a routerLink="/channels" [queryParams]="{ open: e.channelUuid }">Channel settings</a>
@@ -363,7 +367,8 @@ function recState(s: string): '' | 'scheduled' | 'recording' | 'recorded' | 'fai
     .actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 8px; }
     .links { display: flex; gap: 14px; a { color: var(--mat-sys-primary); } }
     .hint { margin: 0 4px; }
-    .rec-opts { margin: 0 0 10px; summary { cursor: pointer; color: var(--mat-sys-primary); } }
+    .rec-opts { margin: 0 0 10px; padding: 8px 10px; border-radius: 8px; background: var(--mat-sys-surface-container-low); }
+    .opts-title { color: var(--mat-sys-on-surface-variant); }
     .opts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin: 8px 0 4px; }
     .opts-grid label { display: flex; flex-direction: column; gap: 3px; font: var(--mat-sys-body-small); color: var(--mat-sys-on-surface-variant); }
     .opts-grid select { padding: 5px 6px; border-radius: 6px; border: 1px solid var(--mat-sys-outline); background: var(--mat-sys-surface);
@@ -569,15 +574,21 @@ export class GuideComponent implements OnInit {
     ].filter(Boolean).join(', ');
   });
 
+  readonly recOptionsError = signal('');
+
   private loadRecOptions(): void {
-    this.tvh.idnodeClass('dvr/entry').pipe(catchError(() => of(null))).subscribe(cls => {
+    this.tvh.idnodeClass('dvr/entry').pipe(catchError(err => { this.recOptionsError.set(`Tvheadend said ${err?.status || err?.message || 'no'}`); return of(null); })).subscribe(cls => {
       if (!cls) return;
       const pick = (id: string) => {
         const p = cls.params.find(x => x.id === id);
         return p?.enum && !isDeferredEnum(p.enum) ? normalizeEnum(p.enum as any).map(o => ({ value: String(o.value), label: String(o.label) })) : [];
       };
-      const start = pick('start_extra'), stop = pick('stop_extra'), removal = pick('removal');
+      // Tvheadend lists every minute up to 2 hours; keep the useful steps (and whatever is saved).
+      const STEPS = new Set(['0', '1', '2', '3', '5', '10', '15', '20', '30', '45', '60', '90', '120', '150', '180', '240']);
+      const trim = (l: Opt[], keep: string) => l.filter(o => STEPS.has(o.value) || o.value === keep);
+      const start = trim(pick('start_extra'), this.startExtra()), stop = trim(pick('stop_extra'), this.stopExtra()), removal = pick('removal');
       if (start.length || stop.length || removal.length) this.recOptions.set({ start, stop, removal });
+      else this.recOptionsError.set('the DVR entry settings came without choices');
     });
   }
 
