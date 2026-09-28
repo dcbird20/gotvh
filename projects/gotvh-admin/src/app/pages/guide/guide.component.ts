@@ -238,9 +238,9 @@ function recState(s: string): '' | 'scheduled' | 'recording' | 'recorded' | 'fai
                   </button>
                 }
                 @if (isAiring(e)) {
-                  <a mat-stroked-button [href]="vlcUrl(e)" download matTooltip="Downloads a playlist (.m3u) — open it with VLC">
+                  <button mat-stroked-button (click)="watchInVlc(e)" [disabled]="busy()" matTooltip="Downloads a playlist (.m3u) — open it with VLC">
                     <mat-icon>play_circle</mat-icon> Watch in VLC
-                  </a>
+                  </button>
                 }
               </div>
               <div class="links small">
@@ -482,7 +482,27 @@ export class GuideComponent implements OnInit {
   isAiring(e: GuideEvent): boolean { const n = this.nowSec(); return e.start <= n && e.stop > n; }
   rec(e: GuideEvent) { return recState(e.dvrState); }
   minutes(e: GuideEvent): number { return Math.round((e.stop - e.start) / 60); }
-  vlcUrl(e: GuideEvent): string { return this.tvh.channelPlaylistUrl(e.channelUuid, e.channelName); }
+  /** Fetch the channel's ticketed playlist (needs our sign-in) and hand it to the browser as a file. */
+  watchInVlc(e: GuideEvent): void {
+    this.busy.set(true);
+    this.tvh.fetchChannelPlaylist(e.channelUuid, e.channelName).subscribe({
+      next: text => {
+        this.busy.set(false);
+        const url = URL.createObjectURL(new Blob([text], { type: 'audio/x-mpegurl' }));
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${(e.channelName || 'channel').replace(/[^\w .-]+/g, '_')}.m3u`;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+      },
+      error: err => {
+        this.busy.set(false);
+        this.snack.open(Number(err?.status) === 403 || Number(err?.status) === 401
+          ? 'Your Tvheadend account isn’t allowed to stream (Users & access → streaming).'
+          : `Couldn’t get the stream (${err?.status || 'network error'})`, 'Dismiss', { duration: 6000 });
+      },
+    });
+  }
 
   record(e: GuideEvent): void {
     this.busy.set(true);

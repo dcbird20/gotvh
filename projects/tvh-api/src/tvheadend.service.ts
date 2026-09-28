@@ -1635,6 +1635,15 @@ export class TvheadendService {
     );
   }
 
+  /**
+   * The ticketed playlist for a channel, fetched with our credentials. A plain link can't be used:
+   * the browser wouldn't send the Authorization header, and Tvheadend answers 401. The playlist's
+   * stream URL carries a one-off ticket, so the player itself needs no password.
+   */
+  fetchChannelPlaylist(channelUuid: string, title = ''): Observable<string> {
+    return this.http.get(this.channelPlaylistUrl(channelUuid, title), { ...this.getRequestOptions(), responseType: 'text' });
+  }
+
   /** Record every episode of the event's series (Tvheadend's series link → an auto-record rule). */
   recordSeriesByEvent(eventId: number): Observable<any> {
     return this.getDefaultDvrConfigUuid().pipe(
