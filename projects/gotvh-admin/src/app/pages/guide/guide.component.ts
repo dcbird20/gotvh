@@ -308,7 +308,14 @@ function recState(s: string): '' | 'scheduled' | 'recording' | 'recorded' | 'fai
                       </select>
                     </label>
                   </div>
-                  <p class="muted small">Changes are saved straight away.</p>
+                  <p class="muted small">
+                    @if (eo.autorec) {
+                      These came from the auto-record rule
+                      <a [routerLink]="'/autorec'" [queryParams]="{ open: eo.autorec }">{{ eo.autorecName || 'that made it' }}</a>
+                      — change them there for future episodes.
+                    }
+                    Changes here apply to this recording only, and are saved straight away.
+                  </p>
                 </div>
               }
               <div class="links small">
@@ -602,14 +609,15 @@ export class GuideComponent implements OnInit {
   readonly recOptionsError = signal('');
 
   /** Padding / keep-for of the selected programme's scheduled or running recording. */
-  readonly entryOpts = signal<{ uuid: string; start: string; stop: string; removal: string } | null>(null);
+  readonly entryOpts = signal<{ uuid: string; start: string; stop: string; removal: string; autorec: string; autorecName: string } | null>(null);
   private readonly loadEntryOpts = effect(() => {
     const e = this.selected(), uuid = e?.dvrUuid || '';
     if (!uuid) { this.entryOpts.set(null); return; }
     if (this.entryOpts()?.uuid === uuid) return;
-    this.tvh.idnodeValues([uuid], ['start_extra', 'stop_extra', 'removal']).pipe(catchError(() => of([]))).subscribe(([v]) => {
+    this.tvh.idnodeValues([uuid], ['start_extra', 'stop_extra', 'removal', 'autorec', 'autorec_caption']).pipe(catchError(() => of([]))).subscribe(([v]) => {
       if (this.selected()?.dvrUuid !== uuid || !v) return;
-      this.entryOpts.set({ uuid, start: String(v.start_extra ?? 0), stop: String(v.stop_extra ?? 0), removal: String(v.removal ?? 0) });
+      this.entryOpts.set({ uuid, start: String(v.start_extra ?? 0), stop: String(v.stop_extra ?? 0), removal: String(v.removal ?? 0),
+        autorec: String(v.autorec || ''), autorecName: String(v.autorec_caption || '') });
     });
   }, { allowSignalWrites: true });
 
