@@ -16,6 +16,7 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { TvheadendService, truthy } from '@gotvh/tvh-api';
 import { SplitHandleDirective } from '../../shared/split-handle.directive';
+import { IdnodeFormComponent } from '../../shared/idnode-form/idnode-form.component';
 
 interface GuideChannel { uuid: string; name: string; number: string; icon: string; tags: string[] }
 
@@ -88,7 +89,7 @@ function recState(s: string): '' | 'scheduled' | 'recording' | 'recorded' | 'fai
   selector: 'admin-guide',
   standalone: true,
   imports: [
-    DatePipe, FormsModule, RouterLink, SplitHandleDirective, MatButtonModule, MatButtonToggleModule, MatFormFieldModule,
+    DatePipe, FormsModule, RouterLink, SplitHandleDirective, IdnodeFormComponent, MatButtonModule, MatButtonToggleModule, MatFormFieldModule,
     MatIconModule, MatInputModule, MatProgressBarModule, MatSelectModule, MatSlideToggleModule, MatSnackBarModule, MatTooltipModule,
   ],
   template: `
@@ -194,6 +195,18 @@ function recState(s: string): '' | 'scheduled' | 'recording' | 'recorded' | 'fai
         <!-- ===================== details -->
         @if (selected(); as e) {
           <aside class="admin-side">
+            @if (autorecFor(); as a) {
+              <!-- Auto-record rule, prefilled from the programme; every option Tvheadend has. -->
+              <admin-idnode-form createPath="dvr/autorec" [createDefaults]="autorecDefaults()"
+                                 [title]="(a.serieslink ? 'Record series: ' : 'Auto-record: ') + a.title"
+                                 (saved)="onAutorecSaved(a)" (closed)="autorecFor.set(null)" />
+              <p class="muted small hint">
+                @if (a.serieslink) { Matches this programme’s series link from the guide, so every episode is recorded
+                  whatever its title. }
+                @else { Matches the title “{{ a.title }}” on {{ a.channelName }}. Clear the channel to record it anywhere. }
+                Padding, retention and the DVR profile are under the form’s sections.
+              </p>
+            } @else {
             <section class="card detail">
               <div class="d-head">
                 <div>
@@ -232,9 +245,9 @@ function recState(s: string): '' | 'scheduled' | 'recording' | 'recorded' | 'fai
                   }
                 }
                 @if (e.stop > nowSec()) {
-                  <button mat-stroked-button (click)="recordSeries(e)" [disabled]="busy()"
-                          [matTooltip]="e.serieslink ? 'Every episode of this series, from the guide’s series link' : 'Every showing with this title on this channel'">
-                    <mat-icon>event_repeat</mat-icon> {{ e.serieslink ? 'Record series' : 'Record every showing' }}
+                  <button mat-stroked-button (click)="openAutorec(e)" [disabled]="busy()"
+                          [matTooltip]="e.serieslink ? 'An auto-record rule for every episode — check its options, then save' : 'An auto-record rule for this title — check its options, then save'">
+                    <mat-icon>event_repeat</mat-icon> {{ e.serieslink ? 'Record series…' : 'Auto-record…' }}
                   </button>
                 }
                 @if (isAiring(e)) {
@@ -249,6 +262,7 @@ function recState(s: string): '' | 'scheduled' | 'recording' | 'recorded' | 'fai
                 <a routerLink="/autorec">Auto-record rules</a>
               </div>
             </section>
+            }
           </aside>
         }
       </div>
@@ -322,6 +336,7 @@ function recState(s: string): '' | 'scheduled' | 'recording' | 'recorded' | 'fai
     .desc { white-space: pre-line; }
     .actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 8px; }
     .links { display: flex; gap: 14px; a { color: var(--mat-sys-primary); } }
+    .hint { margin: 0 4px; }
     .muted { color: var(--mat-sys-on-surface-variant); }
     .small { font: var(--mat-sys-body-small); }
   `],
@@ -478,7 +493,7 @@ export class GuideComponent implements OnInit {
 
   // ---------------------------------------------------------------- details & actions
 
-  select(e: GuideEvent): void { this.selected.set(e); }
+  select(e: GuideEvent): void { this.selected.set(e); this.autorecFor.set(null); }
   isAiring(e: GuideEvent): boolean { const n = this.nowSec(); return e.start <= n && e.stop > n; }
   rec(e: GuideEvent) { return recState(e.dvrState); }
   minutes(e: GuideEvent): number { return Math.round((e.stop - e.start) / 60); }
@@ -512,20 +527,33 @@ export class GuideComponent implements OnInit {
     });
   }
 
-  recordSeries(e: GuideEvent): void {
-    this.busy.set(true);
-    const req = e.serieslink
-      ? this.tvh.recordSeriesByEvent(e.eventId)
-      : this.tvh.createAutorec({ enabled: 1, name: e.title, title: `^${e.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, fulltext: 0, channel: e.channelUuid,
-          comment: 'Added from the Guide' });
-    req.subscribe({
-      next: () => {
-        this.busy.set(false);
-        this.snack.open(e.serieslink ? `Recording every episode of “${e.title}”` : `Recording every showing of “${e.title}” on ${e.channelName}`, undefined, { duration: 4000 });
-        this.refreshAfterChange();
-      },
-      error: err => { this.busy.set(false); this.snack.open(`Couldn’t add the rule (${err?.status || err?.message || 'error'})`, 'Dismiss', { duration: 6000 }); },
-    });
+  /** Programme whose auto-record rule is being set up in the side panel. */
+  readonly autorecFor = signal<GuideEvent | null>(null);
+
+  /** Prefill for the open form — computed once, so the form isn't rebuilt on every change check. */
+  readonly autorecDefaults = signal<Record<string, unknown>>({});
+
+  openAutorec(e: GuideEvent): void {
+    this.autorecDefaults.set(this.defaultsFor(e));
+    this.autorecFor.set(e);
+  }
+
+  /** A new rule prefilled from the programme: series link if the guide has one, else the exact title. */
+  private defaultsFor(e: GuideEvent): Record<string, unknown> {
+    const exact = `^${e.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`;
+    return {
+      enabled: true,
+      name: e.title,
+      ...(e.serieslink ? { serieslink: e.serieslink } : { title: exact, fulltext: false }),
+      channel: e.channelUuid,
+      comment: 'Added from the Guide',
+    };
+  }
+
+  onAutorecSaved(e: GuideEvent): void {
+    this.autorecFor.set(null);
+    this.snack.open(`Auto-record rule for “${e.title}” saved`, undefined, { duration: 4000 });
+    this.refreshAfterChange();
   }
 
   cancel(e: GuideEvent): void {
