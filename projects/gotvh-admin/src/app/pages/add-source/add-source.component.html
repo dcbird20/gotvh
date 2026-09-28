@@ -92,7 +92,7 @@
       }
       <mat-radio-group [(ngModel)]="networkMode" class="modes">
         <mat-radio-button value="new">A new network</mat-radio-button>
-        <mat-radio-button value="existing" [disabled]="!networks().length">One that already exists</mat-radio-button>
+        <mat-radio-button value="existing" [disabled]="!compatibleNetworks().length">One that already exists</mat-radio-button>
       </mat-radio-group>
 
       @if (networkMode === 'new') {
@@ -124,7 +124,7 @@
         <mat-form-field appearance="outline" class="full">
           <mat-label>Network</mat-label>
           <mat-select [(ngModel)]="existingNetwork">
-            @for (n of networks(); track n.uuid) {
+            @for (n of compatibleNetworks(); track n.uuid) {
               <mat-option [value]="n.uuid">{{ n.name }} — {{ plural(n.muxes, 'frequency', 'frequencies') }}, {{ plural(n.services, 'service') }}</mat-option>
             }
           </mat-select>

@@ -77,7 +77,7 @@ export class AddSourceComponent implements OnInit {
   // ---- data
   readonly tuners = signal<TunerChoice[]>([]);
   readonly builders = signal<Array<{ class: string; caption: string; system: string }>>([]);
-  readonly networks = signal<Array<{ uuid: string; name: string; muxes: number; services: number; channels: number }>>([]);
+  readonly networks = signal<Array<{ uuid: string; name: string; muxes: number; services: number; channels: number; iptv: boolean }>>([]);
   readonly loaded = signal(false);
 
   // ---- tuner path
@@ -147,7 +147,9 @@ export class AddSourceComponent implements OnInit {
       this.applyInputs(inputs);
       this.builders.set(builders.map(b => ({ ...b, system: systemOf(b.caption) })));
       this.networks.set(networks.map((n: any) => ({ uuid: String(n.uuid), name: String(n.networkname || n.uuid),
-          muxes: Number(n.num_mux) || 0, services: Number(n.num_svc) || 0, channels: Number(n.num_chn) || 0 }))
+          muxes: Number(n.num_mux) || 0, services: Number(n.num_svc) || 0, channels: Number(n.num_chn) || 0,
+          // Only IPTV networks have a stream limit; tuners can't receive them.
+          iptv: 'max_streams' in n }))
         .sort((a: any, b: any) => a.name.localeCompare(b.name)));
       this.loaded.set(true);
     });
@@ -271,8 +273,10 @@ export class AddSourceComponent implements OnInit {
     this.kind.set(kind);
     this.error.set('');
     if (kind === 'tuner') {
-      // Preselect tuners that aren't used yet.
-      for (const t of this.hardwareTuners()) t.selected = !t.networks.length;
+      // Preselect tuners that aren't used yet — or, when every tuner already has a network, all of
+      // them (then the choice is usually "rescan what they have").
+      const free = this.hardwareTuners().filter(t => !t.networks.length);
+      for (const t of this.hardwareTuners()) t.selected = free.length ? !t.networks.length : true;
       this.version.update(v => v + 1);
       this.onTunersChanged();
       this.step.set('tuner');
@@ -295,7 +299,22 @@ export class AddSourceComponent implements OnInit {
    */
   readonly tunerNetworks = computed(() => {
     const ids = new Set(this.selectedTuners().flatMap(t => t.networks));
-    return this.networks().filter(n => ids.has(n.uuid)).sort((a, b) => b.services - a.services || b.muxes - a.muxes);
+    return this.networks().filter(n => ids.has(n.uuid) && !n.iptv).sort((a, b) => b.services - a.services || b.muxes - a.muxes);
+  });
+
+  /**
+   * Networks these tuners could rescan: never IPTV, and — when the tuners' type is known — not
+   * networks only tuners of another type receive. The tuners' own networks come first.
+   */
+  readonly compatibleNetworks = computed(() => {
+    this.version();
+    const system = this.tunerSystem();
+    const own = new Set(this.selectedTuners().flatMap(t => t.networks));
+    const otherType = new Set(this.hardwareTuners().filter(t => system && t.system && t.system !== system).flatMap(t => t.networks));
+    const sameType = new Set(this.hardwareTuners().filter(t => !system || !t.system || t.system === system).flatMap(t => t.networks));
+    return this.networks()
+      .filter(n => !n.iptv && (own.has(n.uuid) || sameType.has(n.uuid) || !otherType.has(n.uuid)))
+      .sort((a, b) => Number(own.has(b.uuid)) - Number(own.has(a.uuid)) || b.services - a.services || a.name.localeCompare(b.name));
   });
 
   /** Pick the network type matching the tuners, and a default name; prefer a network they already have. */
@@ -308,10 +327,15 @@ export class AddSourceComponent implements OnInit {
       this.networkName = this.defaultName();
       this.loadRegions();
     }
-    const have = this.tunerNetworks();
+    const have = this.tunerNetworks().filter(n => !n.iptv);
+    const compatible = this.compatibleNetworks();
     if (have.length) {
       this.networkMode = 'existing';
       if (!have.some(n => n.uuid === this.existingNetwork)) this.existingNetwork = have[0].uuid;
+    } else if (!compatible.some(n => n.uuid === this.existingNetwork)) {
+      // Never leave an IPTV (or other-type) network selected for tuners.
+      this.existingNetwork = compatible[0]?.uuid || '';
+      if (!compatible.length) this.networkMode = 'new';
     }
   }
 
