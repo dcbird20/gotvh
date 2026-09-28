@@ -1,3 +1,5 @@
+import { consumeOpenParam } from '../../shared/deep-link';
+import { ConnectionsComponent } from '../../shared/connections.component';
 import { broadcastMuxesWithChannels, primeAndGrab } from '../../shared/ota-guide';
 import { Component, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
@@ -52,7 +54,7 @@ function moduleEnabled(row: any): boolean {
   standalone: true,
   imports: [SplitHandleDirective, 
     MatTabsModule, MatButtonModule, MatButtonToggleModule, MatIconModule, MatFormFieldModule, MatSelectModule,
-    MatTooltipModule, MatDialogModule, MatSnackBarModule, NgTemplateOutlet, IdnodeGridComponent, IdnodeFormComponent,
+    MatTooltipModule, MatDialogModule, MatSnackBarModule, NgTemplateOutlet, IdnodeGridComponent, IdnodeFormComponent, ConnectionsComponent,
   ],
   template: `
     <div class="admin-page wide">
@@ -178,8 +180,13 @@ function moduleEnabled(row: any): boolean {
 
     <ng-template #editorTpl>
       @if (editor(); as e) {
-        <admin-idnode-form #editorForm [uuid]="e.uuid" [bulkUuids]="e.bulkUuids || null" [title]="e.title"
-                           (saved)="onSaved($event)" (closed)="close()" />
+        <div class="admin-side">
+          <admin-idnode-form #editorForm [uuid]="e.uuid" [bulkUuids]="e.bulkUuids || null" [title]="e.title"
+                             (saved)="onSaved($event)" (closed)="close()" />
+          @if (e.tab === 'channels' && e.uuid && !e.bulkUuids) {
+            <admin-connections kind="epgchannel" [uuid]="e.uuid" />
+          }
+        </div>
       }
     </ng-template>
   `,
@@ -268,7 +275,14 @@ export class EpgComponent implements OnInit {
     };
   });
 
+  private readonly deepLink = consumeOpenParam();
+
   ngOnInit(): void {
+    // Deep links: /epg?tab=channels&open=<guide channel uuid> (from a Connected to card).
+    const { tab, open } = this.deepLink;
+    if (tab === 'channels') this.tabIndex.set(2);
+    if (tab === 'grabbers') this.tabIndex.set(0);
+    if (open) this.editor.set({ tab: tab === 'grabbers' ? 'grabbers' : 'channels', uuid: open, title: '' });
     // For showing which of your channels each guide channel feeds.
     this.tvh.getGrid('channel/grid', { limit: 100000, all: 1 }).subscribe({
       next: chans => {

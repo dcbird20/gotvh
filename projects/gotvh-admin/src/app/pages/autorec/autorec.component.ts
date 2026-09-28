@@ -1,3 +1,4 @@
+import { consumeOpenParam } from '../../shared/deep-link';
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule } from '@angular/forms';
@@ -172,6 +173,9 @@ export class AutorecComponent implements OnInit {
     });
   }
 
+  /** ?open=<uuid> from a Connected to link. */
+  private readonly deepLink = consumeOpenParam();
+
   ngOnInit(): void {
     this.load();
   }
@@ -200,6 +204,8 @@ export class AutorecComponent implements OnInit {
         this.profiles.set(profileOptions);
         this.rows.set(rules.map(r => this.toRow(r, channelOptions, profileOptions)));
         this.loading.set(false);
+        const want = this.deepLink.open;
+        if (want) { this.deepLink.open = null; const row = this.rows().find(r => r.uuid === want); if (row) this.openEdit(row); }
       },
       error: err => {
         this.error.set(this.describeError(err));

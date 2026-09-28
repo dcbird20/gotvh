@@ -1,3 +1,4 @@
+import { consumeOpenParam } from '../../shared/deep-link';
 import { Component, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
 import { Observable, forkJoin, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
@@ -123,7 +124,10 @@ export class TimersComponent implements OnInit {
   readonly columns = computed(() => this.editor()
     ? this.allColumns.filter(c => ['name', 'enabled', 'daysText', 'timeText'].includes(c.id)) : this.allColumns);
 
+  private readonly deepLink = consumeOpenParam();
+
   ngOnInit(): void {
+    if (this.deepLink.open) this.editor.set({ uuid: this.deepLink.open });
     forkJoin({
       channels: this.tvh.getGrid('channel/grid', { all: 1 }).pipe(catchError(() => of([]))),
       profiles: this.tvh.getGrid('dvr/config/grid').pipe(catchError(() => of([]))),

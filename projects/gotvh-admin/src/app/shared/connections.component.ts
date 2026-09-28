@@ -7,7 +7,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { TvheadendService, truthy } from '@gotvh/tvh-api';
 
-export type ConnectionKind = 'channel' | 'service' | 'mux' | 'network' | 'tuner';
+export type ConnectionKind = 'channel' | 'service' | 'mux' | 'network' | 'tuner' | 'recording' | 'epgchannel' | 'tag';
 
 /** A clickable item in the chain. */
 interface Link {
@@ -43,6 +43,10 @@ export const openLink = {
   network: (uuid: string, label: string, extra: Partial<Link> = {}): Link => ({ label, route: '/inputs', query: { tab: 'networks', open: uuid }, ...extra }),
   tuner: (uuid: string, label: string, extra: Partial<Link> = {}): Link => ({ label, route: '/inputs', query: { tab: 'tuners', open: uuid }, ...extra }),
   tag: (uuid: string, label: string): Link => ({ label, route: '/channel-tags', query: { open: uuid } }),
+  epgChannel: (uuid: string, label: string, extra: Partial<Link> = {}): Link => ({ label, route: '/epg', query: { tab: 'channels', open: uuid }, ...extra }),
+  autorec: (uuid: string, label: string): Link => ({ label, route: '/autorec', query: { open: uuid } }),
+  timer: (uuid: string, label: string): Link => ({ label, route: '/timers', query: { open: uuid } }),
+  dvrProfile: (uuid: string, label: string): Link => ({ label, route: '/dvr-profiles', query: { open: uuid } }),
 };
 
 /**
@@ -130,6 +134,9 @@ export class ConnectionsComponent implements OnChanges {
       mux: u => this.forMux(u),
       network: u => this.forNetwork(u),
       tuner: u => this.forTuner(u),
+      recording: u => this.forRecording(u),
+      epgchannel: u => this.forEpgChannel(u),
+      tag: u => this.forTag(u),
     };
     build[kind](uuid).subscribe({
       next: rows => { this.rows.set(rows); this.loading.set(false); },
@@ -186,6 +193,95 @@ export class ConnectionsComponent implements OnChanges {
     };
   }
 
+  // ---------------------------------------------------------------- recording, guide channel, tag
+
+  /** A recording: its channel (and what feeds it), what created it, and its DVR profile. */
+  private forRecording(uuid: string): Observable<Row[]> {
+    return this.tvh.idnodeValues([uuid], ['channel', 'channelname', 'autorec', 'autorec_caption', 'timerec', 'timerec_caption', 'config_name']).pipe(
+      switchMap(([r]) => {
+        const chUuid = String(r?.channel || '');
+        return forkJoin({
+          r: of(r),
+          chain: chUuid ? this.forChannel(chUuid).pipe(catchError(() => of([] as Row[]))) : of([] as Row[]),
+          ch: chUuid ? this.tvh.idnodeValues([chUuid], ['name', 'number', 'enabled']).pipe(catchError(() => of([]))) : of([] as any[]),
+          profiles: this.tvh.getGrid('dvr/config/grid').pipe(catchError(() => of([]))),
+        });
+      }),
+      map(({ r, chain, ch, profiles }) => {
+        const c: any = ch[0];
+        const cfg = String(r?.config_name || '');
+        const prof: any = profiles.find((p: any) => String(p.uuid) === cfg);
+        const fedBy = chain.find(x => x.heading === 'Fed by' || x.heading === 'Service');
+        const rows: Row[] = [
+          {
+            heading: 'Channel',
+            links: c ? [openLink.channel(String(c.uuid), `${c.number ? c.number + ' ' : ''}${c.name}`, { off: !on(c.enabled) })] : [],
+            empty: r?.channelname ? `${r.channelname} (channel no longer exists)` : 'No channel', warn: !c,
+            children: fedBy ? [fedBy] : undefined,
+          },
+        ];
+        if (r?.autorec) rows.push({ heading: 'Made by', links: [openLink.autorec(String(r.autorec), `Auto-record rule${r.autorec_caption ? ': ' + r.autorec_caption : ''}`)] });
+        else if (r?.timerec) rows.push({ heading: 'Made by', links: [openLink.timer(String(r.timerec), `Timer${r.timerec_caption ? ': ' + r.timerec_caption : ''}`)] });
+        else rows.push({ heading: 'Made by', links: [], empty: 'Scheduled by hand' });
+        rows.push({ heading: 'DVR profile', links: cfg ? [openLink.dvrProfile(cfg, String(prof?.name || '').trim() || 'Default profile')] : [], empty: 'Default profile' });
+        return rows;
+      }),
+    );
+  }
+
+  /** A guide (EPG) channel: which of your channels it feeds, and where its data comes from. */
+  private forEpgChannel(uuid: string): Observable<Row[]> {
+    return this.tvh.idnodeValues([uuid], ['name', 'id', 'channels', 'module', 'enabled']).pipe(
+      switchMap(([g]) => {
+        const ids = list(g?.channels);
+        return (ids.length ? this.tvh.idnodeValues(ids, ['name', 'number', 'enabled']).pipe(catchError(() => of([]))) : of([] as any[]))
+          .pipe(map(chans => ({ g, chans })));
+      }),
+      map(({ g, chans }) => [
+        {
+          heading: 'Feeds',
+          links: chans.map((c: any) => openLink.channel(String(c.uuid), `${c.number ? c.number + ' ' : ''}${c.name}`, { off: !on(c.enabled) })),
+          empty: 'None of your channels — its guide data isn’t shown anywhere', warn: true,
+          action: chans.length ? undefined : { label: 'Match by name', route: '/epg', query: { tab: 'channels' } },
+        },
+        { heading: 'From', links: [{ label: String(g?.module || 'grabber').replace(/^.*?:\s*/, ''), route: '/epg', query: { tab: 'grabbers' } }] },
+      ] as Row[]),
+    );
+  }
+
+  /** A channel tag: its channels, and the rules and users it limits. */
+  private forTag(uuid: string): Observable<Row[]> {
+    return forkJoin({
+      channels: this.tvh.getGrid('channel/grid', { all: 1, limit: 100000 }).pipe(catchError(() => of([]))),
+      rules: this.tvh.getGrid('dvr/autorec/grid', { limit: 100000 }).pipe(catchError(() => of([]))),
+      access: this.tvh.getGrid('access/entry/grid', { limit: 100000 }).pipe(catchError(() => of([]))),
+    }).pipe(map(({ channels, rules, access }) => {
+      const mine = channels.filter((c: any) => list(c.tags).includes(uuid))
+        .sort((a: any, b: any) => (parseFloat(a.number) || 1e9) - (parseFloat(b.number) || 1e9));
+      const shown = mine.slice(0, 12);
+      const byRule = rules.filter((r: any) => String(r.tag || '') === uuid);
+      const byUser = access.filter((a: any) => list(a.channel_tag).includes(uuid));
+      return [
+        {
+          heading: 'Channels',
+          links: shown.map((c: any) => openLink.channel(String(c.uuid), `${c.number ? c.number + ' ' : ''}${c.name}`, { off: !on(c.enabled) })),
+          empty: 'No channels have this tag',
+          action: mine.length > shown.length ? { label: `All ${mine.length}`, route: '/channels', query: { tag: uuid } } : undefined,
+        },
+        {
+          heading: 'Auto-record',
+          links: byRule.map((r: any) => openLink.autorec(String(r.uuid), String(r.name || r.title || 'rule'))),
+          empty: 'No rules limited to this tag',
+        },
+        {
+          heading: 'Users',
+          links: byUser.map((a: any) => ({ label: String(a.username || a.prefix || 'entry'), route: '/users' })),
+          empty: 'Doesn’t limit anyone',
+        },
+      ] as Row[];
+    }));
+  }
+
   /**
    * Which service Tvheadend tries first: source priority (best enabled tuner on the network, or the
    * IPTV network's own) + the service's Priority (−10..10); the next one is the fallback.
@@ -221,9 +317,12 @@ export class ConnectionsComponent implements OnChanges {
           svcs: this.tvh.idnodeValues(svcIds, ['svcname', 'multiplex', 'multiplex_uuid', 'network', 'enabled', 'priority']).pipe(catchError(() => of([]))),
           tags: this.tvh.getGrid('channeltag/grid', { all: 1 }).pipe(catchError(() => of([]))),
           tuners: this.tuners(),
+          guides: list(ch?.epggrab).length
+            ? this.tvh.idnodeValues(list(ch?.epggrab), ['name', 'id', 'module', 'enabled']).pipe(catchError(() => of([])))
+            : of([] as any[]),
         });
       }),
-      switchMap(({ ch, svcs, tags, tuners }) => {
+      switchMap(({ ch, svcs, tags, tuners, guides }) => {
         const muxIds = [...new Set(svcs.map((s: any) => String(s.multiplex_uuid || '')).filter(Boolean))];
         return this.tvh.idnodeValues(muxIds, ['name', 'network', 'network_uuid', 'enabled']).pipe(
           catchError(() => of([])),
@@ -260,7 +359,11 @@ export class ConnectionsComponent implements OnChanges {
             return [
               services,
               {
-                heading: 'Guide data', links: epg.length ? [{ label: plural(epg.length, 'guide source'), route: '/epg', query: { tab: 'channels' } }] : [],
+                heading: 'Guide data',
+                links: guides.length
+                  ? guides.map((g: any) => openLink.epgChannel(String(g.uuid), String(g.name || g.id || 'guide channel'),
+                      { note: g.module ? `(${String(g.module).replace(/^.*?:\s*/, '')})` : '', off: !on(g.enabled) }))
+                  : epg.map(id => openLink.epgChannel(id, 'guide channel')),
                 empty: 'None from a grabber (over-the-air guide data may still arrive)', warn: false,
                 action: epg.length ? undefined : { label: 'Match on EPG sources', route: '/epg', query: { tab: 'channels' } },
               },

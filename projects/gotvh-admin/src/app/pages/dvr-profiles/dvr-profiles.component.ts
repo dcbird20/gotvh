@@ -1,3 +1,4 @@
+import { consumeOpenParam } from '../../shared/deep-link';
 import { Component, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
 import { Observable, of } from 'rxjs';
 import { MatButtonModule } from '@angular/material/button';
@@ -161,7 +162,10 @@ export class DvrProfilesComponent implements OnInit {
     ? 'New DVR profile'
     : (this.selectedRow()?.isDefault ? 'Default profile' : this.selectedRow()?.name || 'DVR profile'));
 
+  private readonly deepLink = consumeOpenParam();
+
   ngOnInit(): void {
+    if (this.deepLink.open) this.selected.set(this.deepLink.open);
     this.load();
   }
 

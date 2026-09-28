@@ -1,3 +1,4 @@
+import { ConnectionsComponent } from '../../shared/connections.component';
 import { Component, DestroyRef, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -48,7 +49,7 @@ const userLabel = (a: any) => { const u = String(a?.username ?? '').trim(); retu
 @Component({
   selector: 'admin-channel-tags',
   standalone: true,
-  imports: [SplitHandleDirective, 
+  imports: [SplitHandleDirective, ConnectionsComponent, 
     RouterLink, MatButtonModule, MatIconModule, MatTooltipModule, MatProgressBarModule, MatDialogModule, MatSnackBarModule,
     MatFormFieldModule, MatSelectModule, IdnodeGridComponent, IdnodeFormComponent,
   ],

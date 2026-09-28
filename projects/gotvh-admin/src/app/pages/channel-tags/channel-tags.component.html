@@ -54,6 +54,7 @@
         </admin-idnode-form>
 
         @if (selected(); as t) {
+          <admin-connections kind="tag" [uuid]="t.uuid" />
           <section class="card">
             <h3>Channels</h3>
             @if (t.channels) {

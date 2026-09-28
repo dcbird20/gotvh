@@ -20,8 +20,9 @@ The stock UI needs you to know the chain
 - [x] **IPTV channel names** — Map services names streams from the playlist and can shorten
       "PA | Johnstown | ABC WATM" → "ABC WATM"; Channels offers "Fix names…" for existing
       "Service01" channels and long names; README explains the FFmpeg fix at the source.
-- [ ] **More Connected to links** — recordings (→ channel → … → tuner), EPG channels
-      (→ channels they feed), channel tags (→ their channels).
+- [x] **More Connected to links** — recordings (channel chain, rule/timer, DVR profile), guide channels
+      (channels they feed), channel tags (channels, rules, users); ?open= deep links on Auto-record,
+      Timers, DVR profiles and EPG channels.
 - [x] **Guided "Add a source"** — antenna/cable/satellite (tuners → new or existing network
       with region frequencies → scan with progress) or IPTV playlist (automatic network,
       stream limit) → Map services → guide data.

@@ -1,3 +1,4 @@
+import { ConnectionsComponent } from '../../shared/connections.component';
 import { AfterViewInit, Component, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { Observable, forkJoin, of } from 'rxjs';
@@ -36,7 +37,7 @@ type RecordingView = 'upcoming' | 'finished' | 'failed';
 @Component({
   selector: 'admin-recordings',
   standalone: true,
-  imports: [SplitHandleDirective, 
+  imports: [SplitHandleDirective, ConnectionsComponent, 
     MatTableModule, MatSortModule, MatPaginatorModule, MatFormFieldModule, MatInputModule,
     MatButtonModule, MatButtonToggleModule, MatIconModule, MatProgressBarModule, MatCheckboxModule,
     MatDialogModule, MatSnackBarModule, MatTooltipModule, MatTabsModule, RouterLink, BulkBarComponent, IdnodeFormComponent,
@@ -166,11 +167,6 @@ type RecordingView = 'upcoming' | 'finished' | 'failed';
                 <dt>Errors</dt><dd [class.bad]="(r.errors || 0) + (r.data_errors || 0) > 0">
                   {{ r.errors || 0 }} stream, {{ r.data_errors || 0 }} data</dd>
               }
-              @if (r.autorec_caption || r.autorec) {
-                <dt>Made by</dt><dd><a routerLink="/autorec">Auto-record rule</a>{{ r.autorec_caption ? ': ' + r.autorec_caption : '' }}</dd>
-              } @else if (r.timerec_caption || r.timerec) {
-                <dt>Made by</dt><dd><a routerLink="/timers">Timer</a>{{ r.timerec_caption ? ': ' + r.timerec_caption : '' }}</dd>
-              }
             </dl>
 
             @if (explanation(); as why) {
@@ -203,6 +199,7 @@ type RecordingView = 'upcoming' | 'finished' | 'failed';
               }
             </div>
           </section>
+          <admin-connections kind="recording" [uuid]="r.uuid" />
           </mat-tab>
           <mat-tab>
             <ng-template mat-tab-label>Edit @if (recForm?.hasUnsavedChanges()) { <span class="dot" aria-label="unsaved changes"></span> }</ng-template>
@@ -218,6 +215,7 @@ type RecordingView = 'upcoming' | 'finished' | 'failed';
     .wide { max-width: none; }
     .layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-items: start; }
     .layout.with-editor { grid-template-columns: minmax(0, 1fr) var(--admin-side-width, 460px); }
+    .panel-tabs admin-connections { display: block; margin-top: 12px; }
     .main { min-width: 0; }
     .side { display: flex; flex-direction: column; gap: 12px; position: sticky; top: 16px;
             max-height: calc(100vh - 96px); overflow-y: auto; }
