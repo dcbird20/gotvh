@@ -1,4 +1,4 @@
-import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, computed, effect, inject, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
@@ -285,6 +285,31 @@ function recState(s: string): '' | 'scheduled' | 'recording' | 'recorded' | 'fai
                 } @else if (recOptionsError()) {
                   <p class="muted small">Padding and keep-for options aren’t available: {{ recOptionsError() }}</p>
                 }
+              }
+              @if ((rec(e) === 'scheduled' || rec(e) === 'recording') && recOptions() && entryOpts(); as eo) {
+                <div class="rec-opts">
+                  <div class="opts-title small">{{ rec(e) === 'recording' ? 'This recording — change it while it runs' : 'This recording' }}</div>
+                  <div class="opts-grid">
+                    @if (rec(e) === 'scheduled') {
+                      <label>Start early
+                        <select (change)="saveEntryOpt('start_extra', $any($event.target).value)" [disabled]="busy()">
+                          @for (o of withValue(recOptions()!.start, eo.start); track o.value) { <option [value]="o.value" [selected]="o.value === eo.start">{{ o.label }}</option> }
+                        </select>
+                      </label>
+                    }
+                    <label>Keep going after
+                      <select (change)="saveEntryOpt('stop_extra', $any($event.target).value)" [disabled]="busy()">
+                        @for (o of withValue(recOptions()!.stop, eo.stop); track o.value) { <option [value]="o.value" [selected]="o.value === eo.stop">{{ o.label }}</option> }
+                      </select>
+                    </label>
+                    <label>Keep the recording
+                      <select (change)="saveEntryOpt('removal', $any($event.target).value)" [disabled]="busy()">
+                        @for (o of withValue(recOptions()!.removal, eo.removal); track o.value) { <option [value]="o.value" [selected]="o.value === eo.removal">{{ o.label }}</option> }
+                      </select>
+                    </label>
+                  </div>
+                  <p class="muted small">Changes are saved straight away.</p>
+                </div>
               }
               <div class="links small">
                 <a routerLink="/channels" [queryParams]="{ open: e.channelUuid }">Channel settings</a>
@@ -575,6 +600,37 @@ export class GuideComponent implements OnInit {
   });
 
   readonly recOptionsError = signal('');
+
+  /** Padding / keep-for of the selected programme's scheduled or running recording. */
+  readonly entryOpts = signal<{ uuid: string; start: string; stop: string; removal: string } | null>(null);
+  private readonly loadEntryOpts = effect(() => {
+    const e = this.selected(), uuid = e?.dvrUuid || '';
+    if (!uuid) { this.entryOpts.set(null); return; }
+    if (this.entryOpts()?.uuid === uuid) return;
+    this.tvh.idnodeValues([uuid], ['start_extra', 'stop_extra', 'removal']).pipe(catchError(() => of([]))).subscribe(([v]) => {
+      if (this.selected()?.dvrUuid !== uuid || !v) return;
+      this.entryOpts.set({ uuid, start: String(v.start_extra ?? 0), stop: String(v.stop_extra ?? 0), removal: String(v.removal ?? 0) });
+    });
+  }, { allowSignalWrites: true });
+
+  /** The option list, plus the saved value if it isn't one of the trimmed steps. */
+  withValue(list: Opt[], v: string): Opt[] {
+    return list.some(o => o.value === v) ? list : [...list, { value: v, label: `${v} min` }];
+  }
+
+  saveEntryOpt(field: 'start_extra' | 'stop_extra' | 'removal', value: string): void {
+    const eo = this.entryOpts(); if (!eo) return;
+    this.busy.set(true);
+    this.tvh.idnodeSave(eo.uuid, { [field]: Number(value) }).subscribe({
+      next: () => {
+        this.busy.set(false);
+        const key = field === 'start_extra' ? 'start' : field === 'stop_extra' ? 'stop' : 'removal';
+        this.entryOpts.set({ ...eo, [key]: value });
+        this.snack.open('Recording updated', undefined, { duration: 2500 });
+      },
+      error: err => { this.busy.set(false); this.snack.open(`Couldn’t change it (${err?.status || 'error'})`, 'Dismiss', { duration: 6000 }); },
+    });
+  }
 
   private loadRecOptions(): void {
     this.tvh.idnodeClass('dvr/entry').pipe(catchError(err => { this.recOptionsError.set(`Tvheadend said ${err?.status || err?.message || 'no'}`); return of(null); })).subscribe(cls => {
