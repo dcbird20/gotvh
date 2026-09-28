@@ -73,6 +73,23 @@
     <section class="card">
       <h2>Which network?</h2>
       <p class="muted">A network is the set of frequencies the tuners scan — for an antenna, the broadcasts in your area.</p>
+      @if (tunerNetworks().length; as n) {
+        <div class="banner info">
+          <mat-icon>info</mat-icon>
+          <div>
+            @if (n === 1) {
+              These tuners already receive <strong>{{ tunerNetworks()[0].name }}</strong>
+              ({{ plural(tunerNetworks()[0].muxes, 'frequency', 'frequencies') }}, {{ plural(tunerNetworks()[0].services, 'service') }}).
+            } @else {
+              These tuners already receive {{ n }} networks:
+              @for (x of tunerNetworks(); track x.uuid; let last = $last) { <strong>{{ x.name }}</strong> ({{ x.services }} services){{ last ? '.' : ', ' }} }
+            }
+            To look for new stations, rescan an existing one. A second network of the same kind scans the same
+            frequencies again and leaves duplicates behind.
+            @if (n > 1) { You can delete the extras on Tuners &amp; networks. }
+          </div>
+        </div>
+      }
       <mat-radio-group [(ngModel)]="networkMode" class="modes">
         <mat-radio-button value="new">A new network</mat-radio-button>
         <mat-radio-button value="existing" [disabled]="!networks().length">One that already exists</mat-radio-button>
@@ -89,14 +106,14 @@
           </mat-form-field>
           <mat-form-field appearance="outline">
             <mat-label>Name</mat-label>
-            <input matInput [(ngModel)]="networkName">
+            <input matInput [(ngModel)]="networkName" (input)="onNameInput()">
           </mat-form-field>
         </div>
         @if (regionsLoading()) { <mat-progress-bar mode="indeterminate" /> }
         @if (regions(); as rs) {
           <mat-form-field appearance="outline" class="full">
             <mat-label>Your region’s frequencies</mat-label>
-            <mat-select [(ngModel)]="region">
+            <mat-select [(ngModel)]="region" (ngModelChange)="onRegionChange()">
               <mat-option value="">None — I’ll add muxes by hand</mat-option>
               @for (r of rs; track r.value) { <mat-option [value]="r.value">{{ r.label }}</mat-option> }
             </mat-select>
@@ -107,8 +124,11 @@
         <mat-form-field appearance="outline" class="full">
           <mat-label>Network</mat-label>
           <mat-select [(ngModel)]="existingNetwork">
-            @for (n of networks(); track n.uuid) { <mat-option [value]="n.uuid">{{ n.name }}</mat-option> }
+            @for (n of networks(); track n.uuid) {
+              <mat-option [value]="n.uuid">{{ n.name }} — {{ plural(n.muxes, 'frequency', 'frequencies') }}, {{ plural(n.services, 'service') }}</mat-option>
+            }
           </mat-select>
+          <mat-hint>It’s rescanned with the tuners above; stations already found are kept.</mat-hint>
         </mat-form-field>
       }
     </section>
@@ -116,9 +136,13 @@
     <div class="actions">
       <button mat-button (click)="restart()">Back</button>
       <span class="spacer"></span>
-      <span class="muted small">Creates the network, assigns {{ plural(selectedTuners().length, 'tuner') }}, starts a scan.</span>
+      @if (networkMode === 'existing') {
+        <span class="muted small">Makes sure {{ plural(selectedTuners().length, 'tuner') }} receive {{ networkName$(existingNetwork) }}, then rescans it.</span>
+      } @else {
+        <span class="muted small">Creates the network, assigns {{ plural(selectedTuners().length, 'tuner') }}, starts a scan.</span>
+      }
       <button mat-flat-button (click)="startTuner()" [disabled]="busy() || !canStartTuner()">
-        <mat-icon>radar</mat-icon> Set up and scan
+        <mat-icon>radar</mat-icon> {{ networkMode === 'existing' ? 'Rescan' : 'Set up and scan' }}
       </button>
     </div>
   }
@@ -135,6 +159,41 @@
         <p class="gap">Next: give them a network and scan.</p>
         <button mat-flat-button (click)="useHdhrTuners()">Continue with these tuners</button>
       </section>
+      @if (hdhrLocalSupported()) {
+        <details class="card delivery" [open]="!!hdhrLocalIp">
+          <summary><strong>Is Tvheadend in Docker or behind a VPN?</strong> <span class="muted small">— read this, or the scan finds nothing</span></summary>
+          <p class="muted small">
+            The HDHomeRun sends each tuner’s video by UDP to the address Tvheadend gives it. Inside Docker (without host
+            networking) or behind a VPN container, that’s an internal address the HDHomeRun can’t reach — every frequency
+            then comes back empty. Give Tvheadend the server’s real LAN address and a fixed port, and forward the ports.
+            On a normal install or with host networking, leave both empty.
+          </p>
+          <div class="row2">
+            <mat-form-field appearance="outline">
+              <mat-label>Server’s LAN IP (Local IP)</mat-label>
+              <input matInput [(ngModel)]="hdhrLocalIp" placeholder="192.168.1.222" autocomplete="off" (input)="hdhrLocalSaved.set(false)">
+              @if (localIpError()) { <mat-hint class="err">{{ localIpError() }}</mat-hint> }
+              @else { <mat-hint>The machine running Tvheadend, not the container.</mat-hint> }
+            </mat-form-field>
+            <mat-form-field appearance="outline">
+              <mat-label>First UDP port (Local port)</mat-label>
+              <input matInput type="number" [(ngModel)]="hdhrLocalPort" placeholder="65010" (input)="hdhrLocalSaved.set(false)">
+              <mat-hint>Tuner #0 uses this port, #1 the next, and so on.</mat-hint>
+            </mat-form-field>
+          </div>
+          @if (hdhrLocalIp.trim() && hdhrPortRange()) {
+            <p class="small">Forward UDP <strong>{{ hdhrPortRange() }}</strong> to Tvheadend — in Docker Compose, on the Tvheadend
+              service (or the VPN container it shares a network with):</p>
+            <pre class="snippet">ports:
+  - "{{ hdhrPortRange() }}:{{ hdhrPortRange() }}/udp"</pre>
+            <p class="muted small">A VPN container’s firewall must also let traffic from your LAN in (e.g. NordLynx’s <code>NET_LOCAL=192.168.1.0/24</code>).</p>
+          }
+          <div class="actions">
+            <button mat-stroked-button (click)="saveLocal()" [disabled]="busy() || !!localIpError()">Save</button>
+            @if (hdhrLocalSaved()) { <span class="small"><mat-icon inline class="ok">check</mat-icon> Saved — used from the next tune.</span> }
+          </div>
+        </details>
+      }
     } @else {
       <section class="card">
         <h2>Tvheadend hasn’t found an HDHomeRun</h2>
@@ -263,7 +322,13 @@
             <div><span class="n">{{ s.services }}</span><span class="l">services found</span></div>
             @if (s.failed) { <div [class.bad]="kind() === 'iptv' || !s.ok"><span class="n">{{ s.failed }}</span><span class="l">{{ kind() === 'iptv' ? 'not responding' : 'nothing received' }}</span></div> }
           </div>
-          @if (kind() === 'tuner' && !s.ok && s.scanned >= 20) {
+          @for (h of health(); track h.tuner) {
+            <div class="banner error">
+              <mat-icon>videocam_off</mat-icon>
+              <div><strong>{{ h.tuner }}:</strong> {{ h.problem }} {{ h.fix }}</div>
+            </div>
+          }
+          @if (kind() === 'tuner' && !s.ok && s.scanned >= 20 && !health().length) {
             <div class="banner error">
               <mat-icon>warning</mat-icon>
               <div>

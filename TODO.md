@@ -35,8 +35,12 @@ The stock UI needs you to know the chain
 
 - [x] **Antenna first, IPTV as backup** — broadcast tuners raised above IPTV networks (Add a source,
       Map services, or "Use the antenna first" from a channel's Connected to card, which shows the order).
-- [ ] **Local IP / Local port** for HDHomeRun behind Docker or a VPN — expose these hidden settings in
-      Add a source (they fixed omv-dell behind NordLynx: UDP base port + one per tuner).
+- [x] **Local IP / Local port** for HDHomeRun behind Docker or a VPN — in Add a source's HDHomeRun step,
+      with the UDP ports to forward.
+- [x] **Tuner health during scans** — a tuner that locks but delivers no video is named, with the cause
+      (e.g. HDHomeRun sending to an unreachable container address).
+- [x] **No duplicate networks** — Add a source suggests rescanning the network the tuners already have;
+      new networks are named after their frequency list.
 - [x] **Over-the-air guide** — Map services switches on the ATSC PSIP / DVB EIT grabber and starts a grab
       when it maps broadcast channels.
 

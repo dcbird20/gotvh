@@ -12,7 +12,7 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatRadioModule } from '@angular/material/radio';
 import { MatSelectModule } from '@angular/material/select';
 import { IdnodeOption, TvheadendService, isDeferredEnum, normalizeEnum, truthy } from '@gotvh/tvh-api';
-import { GuardReport, HdhrGuard } from '../../shared/hdhomerun';
+import { GuardReport, HdhrGuard, parseHdhrTuner } from '../../shared/hdhomerun';
 import { PriorityChange, broadcastFirst, describeChanges } from '../../shared/source-priority';
 
 type Step = 'kind' | 'tuner' | 'iptv' | 'hdhr' | 'scan' | 'done';
@@ -77,7 +77,7 @@ export class AddSourceComponent implements OnInit {
   // ---- data
   readonly tuners = signal<TunerChoice[]>([]);
   readonly builders = signal<Array<{ class: string; caption: string; system: string }>>([]);
-  readonly networks = signal<Array<{ uuid: string; name: string }>>([]);
+  readonly networks = signal<Array<{ uuid: string; name: string; muxes: number; services: number; channels: number }>>([]);
   readonly loaded = signal(false);
 
   // ---- tuner path
@@ -93,6 +93,16 @@ export class AddSourceComponent implements OnInit {
   // ---- HDHomeRun
   hdhrIp = '';
   hdhrTunerCount = 2;
+  /**
+   * Where the HDHomeRun sends video (Tvheadend's "Local IP"/"Local port"). An HDHomeRun pushes each
+   * tuner's stream by UDP to the address Tvheadend gives it; in Docker (bridge) or behind a VPN that
+   * address is the container's, which the device can't reach. Port = Local port + tuner number.
+   */
+  hdhrLocalIp = '';
+  hdhrLocalPort: number | null = null;
+  /** null until loaded; false when this Tvheadend has no such settings. */
+  readonly hdhrLocalSupported = signal<boolean | null>(null);
+  readonly hdhrLocalSaved = signal(false);
   /** null = unknown; false = this Tvheadend has no HDHomeRun support built in. */
   readonly hdhrSupported = signal<boolean | null>(null);
   readonly hdhrSearch = signal<'searching' | 'found' | 'notfound' | null>(null);
@@ -136,7 +146,8 @@ export class AddSourceComponent implements OnInit {
     }))).subscribe(({ inputs, builders, networks }) => {
       this.applyInputs(inputs);
       this.builders.set(builders.map(b => ({ ...b, system: systemOf(b.caption) })));
-      this.networks.set(networks.map((n: any) => ({ uuid: String(n.uuid), name: String(n.networkname || n.uuid) }))
+      this.networks.set(networks.map((n: any) => ({ uuid: String(n.uuid), name: String(n.networkname || n.uuid),
+          muxes: Number(n.num_mux) || 0, services: Number(n.num_svc) || 0, channels: Number(n.num_chn) || 0 }))
         .sort((a: any, b: any) => a.name.localeCompare(b.name)));
       this.loaded.set(true);
     });
@@ -173,6 +184,37 @@ export class AddSourceComponent implements OnInit {
       const ip = cfg?.params.find(p => p.id === 'hdhomerun_ip');
       this.hdhrSupported.set(cfg ? !!ip : null);
       if (ip?.value) this.hdhrIp = String(ip.value);
+      this.readLocal(cfg);
+    });
+  }
+
+  private readLocal(cfg: { params: Array<{ id: string; value?: unknown }> } | null): void {
+    const lip = cfg?.params.find(p => p.id === 'local_ip'), lport = cfg?.params.find(p => p.id === 'local_port');
+    this.hdhrLocalSupported.set(cfg ? !!lip : null);
+    this.hdhrLocalIp = lip?.value ? String(lip.value) : '';
+    this.hdhrLocalPort = Number(lport?.value) || null;
+  }
+
+  /** "65010-65013/udp" for the ports to forward, or '' when no fixed port is set. */
+  hdhrPortRange(): string {
+    const p = Number(this.hdhrLocalPort) || 0, n = Math.max(1, this.hdhrTuners().length || Number(this.hdhrTunerCount) || 1);
+    if (!p) return '';
+    return n > 1 ? `${p}-${p + n - 1}` : String(p);
+  }
+
+  localIpError(): string {
+    const ip = this.hdhrLocalIp.trim();
+    return !ip || /^(\d{1,3}\.){3}\d{1,3}$/.test(ip) ? '' : 'Enter an IP address like 192.168.1.222.';
+  }
+
+  saveLocal(): void {
+    if (this.localIpError()) return;
+    const port = Number(this.hdhrLocalPort) || 0;
+    if (this.hdhrLocalIp.trim() && !port) this.hdhrLocalPort = 65010;
+    this.busy.set(true);
+    this.tvh.idnodeSaveSimple('config', { local_ip: this.hdhrLocalIp.trim(), local_port: Number(this.hdhrLocalPort) || 0 }).subscribe({
+      next: () => { this.busy.set(false); this.hdhrLocalSaved.set(true); },
+      error: err => { this.busy.set(false); this.error.set(`Couldn’t save (${err?.status || 'network error'}).`); },
     });
   }
 
@@ -247,20 +289,58 @@ export class AddSourceComponent implements OnInit {
     this.onTunersChanged();
   }
 
-  /** Pick the network type matching the tuners, and a default name. */
+  /**
+   * Networks the chosen tuners already receive. Making another one of the same kind scans the same
+   * frequencies again and leaves duplicate muxes behind — rescanning the existing one is what's wanted.
+   */
+  readonly tunerNetworks = computed(() => {
+    const ids = new Set(this.selectedTuners().flatMap(t => t.networks));
+    return this.networks().filter(n => ids.has(n.uuid)).sort((a, b) => b.services - a.services || b.muxes - a.muxes);
+  });
+
+  /** Pick the network type matching the tuners, and a default name; prefer a network they already have. */
   private onTunersChanged(): void {
     const system = this.tunerSystem();
     const match = this.builders().find(b => b.system && b.system === system);
     if (match && match.class !== this.networkClass) {
       this.networkClass = match.class;
-      this.networkName = `${system} network`;
+      this.autoName = true;
+      this.networkName = this.defaultName();
       this.loadRegions();
+    }
+    const have = this.tunerNetworks();
+    if (have.length) {
+      this.networkMode = 'existing';
+      if (!have.some(n => n.uuid === this.existingNetwork)) this.existingNetwork = have[0].uuid;
     }
   }
 
+  /** Whether the name is still ours to change (the user hasn't typed one). */
+  private autoName = true;
+
+  /** "ATSC-T – United States ATSC", made unique among existing networks. */
+  private defaultName(): string {
+    const b = this.builders().find(x => x.class === this.networkClass);
+    const system = b?.system || this.tunerSystem() || b?.caption.replace(/ network$/i, '') || 'New';
+    const opt = this.regions()?.find(o => String(o.value) === this.region);
+    let list = '';
+    if (opt) {
+      const [country, rest] = String(opt.label).split(/:\s*/);
+      const flavour = /atsc/i.test(String(opt.value)) ? 'ATSC' : /ntsc/i.test(String(opt.value)) ? 'NTSC' : (rest || '').replace(/-center-frequencies.*/i, '');
+      list = [country, flavour].filter(Boolean).join(' ');
+    }
+    let name = list ? `${system} – ${list}` : `${system} network`;
+    const taken = new Set(this.networks().map(n => n.name.toLowerCase()));
+    for (let i = 2; taken.has(name.toLowerCase()); i++) name = `${name.replace(/ \(\d+\)$/, '')} (${i})`;
+    return name;
+  }
+
+  onNameInput(): void { this.autoName = false; }
+  onRegionChange(): void { if (this.autoName) this.networkName = this.defaultName(); }
+
   onNetworkClassChange(): void {
     const b = this.builders().find(x => x.class === this.networkClass);
-    if (b && (!this.networkName || / network$/.test(this.networkName))) this.networkName = `${b.system || b.caption.replace(/ network$/i, '')} network`;
+    if (b && (this.autoName || !this.networkName)) { this.autoName = true; this.networkName = this.defaultName(); }
     this.loadRegions();
   }
 
@@ -286,6 +366,7 @@ export class AddSourceComponent implements OnInit {
       // list is for old analogue-offset tuning), so pre-pick it.
       const atsc = options?.find(o => /us-ATSC-center-frequencies-8VSB/i.test(String(o.value)));
       if (!this.region && atsc) this.region = String(atsc.value);
+      this.onRegionChange();
     });
   }
 
@@ -371,6 +452,11 @@ export class AddSourceComponent implements OnInit {
     this.networkLabel.set(label);
     this.scan.set(null);
     this.passDoneHandled = false;
+    this.health.set([]);
+    this.noVideo.clear();
+    this.delivered.clear();
+    // Local IP / port, for the health hints.
+    if (this.kind() === 'tuner') this.tvh.idnodeLoadSimple('config').pipe(catchError(() => of(null))).subscribe(cfg => this.readLocal(cfg));
     this.scanStarted.set(Date.now());
     this.step.set('scan');
     this.poll();
@@ -402,6 +488,7 @@ export class AddSourceComponent implements OnInit {
         failedUuids: mine.filter((m: any) => result(m) === 2).map((m: any) => String(m.uuid)),
       });
       if (this.scanDone() && !this.passDoneHandled) { this.passDoneHandled = true; this.afterPass(); }
+      this.checkHealth();
     });
   }
 
@@ -509,6 +596,70 @@ export class AddSourceComponent implements OnInit {
   }
 
   private passDoneHandled = false;
+
+  // ---------------------------------------------------------------- tuner health
+
+  /** Tuners that lock onto a station but deliver no video, with the likely cause. */
+  readonly health = signal<Array<{ tuner: string; problem: string; fix: string }>>([]);
+  /** Consecutive polls each tuner showed signal but 0 bit/s. */
+  private noVideo = new Map<string, number>();
+  /** Tuners that have delivered video during this scan — they work. */
+  private delivered = new Set<string>();
+  private healthBusy = false;
+
+  /**
+   * During a tuner scan, watch every busy tuner. Signal with no bitrate for ~6 s means the tuner
+   * works but its video never reaches Tvheadend — for an HDHomeRun, almost always UDP delivery
+   * (Docker, VPN, firewall). Ask the device where it's sending, and say what to change.
+   */
+  private checkHealth(): void {
+    if (this.healthBusy || this.kind() !== 'tuner' || this.scanDone()) return;
+    this.healthBusy = true;
+    this.tvh.getInputStatus().pipe(catchError(() => of([] as any[]))).subscribe(entries => {
+      const suspects: Array<{ name: string; signal: number }> = [];
+      for (const e of entries) {
+        const name = String(e?.input || '');
+        // "Locked" = a good quality reading (empty frequencies can still show some signal strength):
+        // relative scale over 50 %, or over 15 dB.
+        const snrScale = Number(e?.snr_scale), snrVal = Number(e?.snr) || 0;
+        const locked = (snrScale === 1 && snrVal > 32768) || (snrScale === 2 && snrVal > 15000);
+        const bps = Number(e?.bps) || 0;
+        if (!name) continue;
+        if (bps > 0) { this.noVideo.set(name, 0); this.delivered.add(name); continue; }
+        if (locked && !this.delivered.has(name)) {
+          const n = (this.noVideo.get(name) || 0) + 1;
+          this.noVideo.set(name, n);
+          const pct = Number(e?.signal_scale) === 1 ? Math.round(Number(e.signal) / 655.35) : 0;
+          if (n >= 3) suspects.push({ name, signal: pct });
+        }
+      }
+      if (!suspects.length) { this.healthBusy = false; return; }
+      // For HDHomeRuns, ask the device where it's sending each tuner's video.
+      const ips = [...new Set(suspects.map(s => parseHdhrTuner(s.name)?.ip).filter((x): x is string => !!x))];
+      forkJoin(ips.length ? ips.map(ip => this.guard.device(ip)) : [of(null)]).subscribe(devices => {
+        const known = new Map(this.health().map(h => [h.tuner, h]));
+        for (const s of suspects) known.set(s.name, this.diagnose(s.name, s.signal, devices));
+        this.health.set([...known.values()]);
+        this.healthBusy = false;
+      });
+    });
+  }
+
+  private diagnose(name: string, signal: number, devices: Array<{ ip: string; tuners: Array<{ index: number; target?: string }> } | null>) {
+    const hw = parseHdhrTuner(name);
+    const problem = `Locks onto the station${signal ? ` (signal ${signal}%)` : ''}, but no video reaches Tvheadend.`;
+    if (!hw) return { tuner: name, problem, fix: 'Something between the tuner and Tvheadend drops the stream — check the tuner’s driver and Tvheadend’s log.' };
+    const target = devices.find(d => d?.ip === hw.ip)?.tuners.find(t => t.index === hw.index)?.target;
+    const subnet = (ip: string) => ip.split('.').slice(0, 3).join('.');
+    const port = Number(this.hdhrLocalPort) || 0;
+    if (target && subnet(target) !== subnet(hw.ip)) {
+      return { tuner: name, problem, fix: `Tvheadend told the HDHomeRun to send video to ${target}, an address it can’t reach — Tvheadend is in Docker or behind a VPN. Set Tvheadend’s Local IP to the server’s LAN address and a Local port (Add a source → HDHomeRun → “Is Tvheadend in Docker or behind a VPN?”), forward the UDP ports, then rescan.` };
+    }
+    if (port) {
+      return { tuner: name, problem, fix: `The HDHomeRun sends to ${target || this.hdhrLocalIp || 'the server'} on UDP port ${port + hw.index}. Check that port is forwarded to Tvheadend (Docker “ports: …/udp”) and allowed through any VPN or firewall.` };
+    }
+    return { tuner: name, problem, fix: `The HDHomeRun sends video by UDP${target ? ` to ${target}` : ''}. If Tvheadend runs in Docker or behind a VPN, set its Local IP and Local port and forward those UDP ports; otherwise check the server’s firewall.` };
+  }
 
   private stopPolling(): void {
     if (this.timer) { clearInterval(this.timer); this.timer = null; }
