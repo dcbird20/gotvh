@@ -3,7 +3,7 @@ import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { forkJoin, of } from 'rxjs';
-import { catchError } from 'rxjs/operators';
+import { catchError, map, switchMap } from 'rxjs/operators';
 import { MatButtonModule } from '@angular/material/button';
 import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -14,7 +14,7 @@ import { MatSelectModule } from '@angular/material/select';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatTooltipModule } from '@angular/material/tooltip';
-import { TvheadendService, truthy } from '@gotvh/tvh-api';
+import { TvheadendService, isDeferredEnum, normalizeEnum, truthy } from '@gotvh/tvh-api';
 import { SplitHandleDirective } from '../../shared/split-handle.directive';
 import { IdnodeFormComponent } from '../../shared/idnode-form/idnode-form.component';
 
@@ -43,6 +43,9 @@ interface GuideEvent {
 
 interface Cell { ev: GuideEvent; left: number; width: number; clippedStart: boolean; clippedEnd: boolean }
 interface Row { ch: GuideChannel; cells: Cell[] }
+
+interface Opt { value: string; label: string }
+const readOpt = (k: string) => { try { return localStorage.getItem(`gotvh_guide_rec_${k}`) || '0'; } catch { return '0'; } };
 
 const HALF_HOUR = 1800;
 const now = () => Math.floor(Date.now() / 1000);
@@ -256,6 +259,29 @@ function recState(s: string): '' | 'scheduled' | 'recording' | 'recorded' | 'fai
                   </button>
                 }
               </div>
+              @if (!rec(e) && e.stop > nowSec() && recOptions()) {
+                <details class="rec-opts" [open]="optionsChanged()">
+                  <summary class="small">Recording options{{ optionsChanged() ? ' — ' + optionsSummary() : '' }}</summary>
+                  <div class="opts-grid">
+                    <label>Start early
+                      <select (change)="setOpt('start', $any($event.target).value)">
+                        @for (o of recOptions()!.start; track o.value) { <option [value]="o.value" [selected]="o.value === startExtra()">{{ o.label }}</option> }
+                      </select>
+                    </label>
+                    <label>Keep going after
+                      <select (change)="setOpt('stop', $any($event.target).value)">
+                        @for (o of recOptions()!.stop; track o.value) { <option [value]="o.value" [selected]="o.value === stopExtra()">{{ o.label }}</option> }
+                      </select>
+                    </label>
+                    <label>Keep the recording
+                      <select (change)="setOpt('removal', $any($event.target).value)">
+                        @for (o of recOptions()!.removal; track o.value) { <option [value]="o.value" [selected]="o.value === removal()">{{ o.label }}</option> }
+                      </select>
+                    </label>
+                  </div>
+                  <p class="muted small">Used for Record, and remembered in this browser.</p>
+                </details>
+              }
               <div class="links small">
                 <a routerLink="/channels" [queryParams]="{ open: e.channelUuid }">Channel settings</a>
                 <a routerLink="/recordings">Recordings</a>
@@ -337,6 +363,11 @@ function recState(s: string): '' | 'scheduled' | 'recording' | 'recorded' | 'fai
     .actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 8px; }
     .links { display: flex; gap: 14px; a { color: var(--mat-sys-primary); } }
     .hint { margin: 0 4px; }
+    .rec-opts { margin: 0 0 10px; summary { cursor: pointer; color: var(--mat-sys-primary); } }
+    .opts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin: 8px 0 4px; }
+    .opts-grid label { display: flex; flex-direction: column; gap: 3px; font: var(--mat-sys-body-small); color: var(--mat-sys-on-surface-variant); }
+    .opts-grid select { padding: 5px 6px; border-radius: 6px; border: 1px solid var(--mat-sys-outline); background: var(--mat-sys-surface);
+                        color: var(--mat-sys-on-surface); font: var(--mat-sys-body-medium); }
     .muted { color: var(--mat-sys-on-surface-variant); }
     .small { font: var(--mat-sys-body-small); }
   `],
@@ -426,6 +457,7 @@ export class GuideComponent implements OnInit {
         .map((t: any) => ({ uuid: String(t.uuid), name: String(t.name || '') })).sort((a, b) => a.name.localeCompare(b.name)));
     });
     this.load();
+    this.loadRecOptions();
     // Keep the "now" line moving and recording states fresh.
     const tick = setInterval(() => {
       this.nowSec.set(now());
@@ -519,10 +551,57 @@ export class GuideComponent implements OnInit {
     });
   }
 
+  // ---- one-off recording options (padding and how long to keep it)
+
+  /** Choices from Tvheadend's own DVR entry class, so the values are exactly what it accepts. */
+  readonly recOptions = signal<{ start: Opt[]; stop: Opt[]; removal: Opt[] } | null>(null);
+  readonly startExtra = signal(readOpt('start'));
+  readonly stopExtra = signal(readOpt('stop'));
+  readonly removal = signal(readOpt('removal'));
+  readonly optionsChanged = computed(() => !!(Number(this.startExtra()) || Number(this.stopExtra()) || Number(this.removal())));
+  readonly optionsSummary = computed(() => {
+    const o = this.recOptions(); if (!o) return '';
+    const label = (list: Opt[], v: string) => list.find(x => x.value === v)?.label || v;
+    return [
+      Number(this.startExtra()) ? `start ${label(o.start, this.startExtra())} early` : '',
+      Number(this.stopExtra()) ? `end ${label(o.stop, this.stopExtra())} late` : '',
+      Number(this.removal()) ? `keep ${label(o.removal, this.removal()).toLowerCase()}` : '',
+    ].filter(Boolean).join(', ');
+  });
+
+  private loadRecOptions(): void {
+    this.tvh.idnodeClass('dvr/entry').pipe(catchError(() => of(null))).subscribe(cls => {
+      if (!cls) return;
+      const pick = (id: string) => {
+        const p = cls.params.find(x => x.id === id);
+        return p?.enum && !isDeferredEnum(p.enum) ? normalizeEnum(p.enum as any).map(o => ({ value: String(o.value), label: String(o.label) })) : [];
+      };
+      const start = pick('start_extra'), stop = pick('stop_extra'), removal = pick('removal');
+      if (start.length || stop.length || removal.length) this.recOptions.set({ start, stop, removal });
+    });
+  }
+
+  setOpt(which: 'start' | 'stop' | 'removal', value: string): void {
+    ({ start: this.startExtra, stop: this.stopExtra, removal: this.removal })[which].set(value);
+    try { localStorage.setItem(`gotvh_guide_rec_${which}`, value); } catch { /* ignore */ }
+  }
+
   record(e: GuideEvent): void {
     this.busy.set(true);
-    this.tvh.scheduleRecordingByEvent(e.eventId).subscribe({
-      next: () => { this.busy.set(false); this.snack.open(`“${e.title}” will be recorded`, undefined, { duration: 3000 }); this.refreshAfterChange(); },
+    const conf: Record<string, number> = {};
+    if (Number(this.startExtra())) conf['start_extra'] = Number(this.startExtra());
+    if (Number(this.stopExtra())) conf['stop_extra'] = Number(this.stopExtra());
+    if (Number(this.removal())) conf['removal'] = Number(this.removal());
+    this.tvh.scheduleRecordingByEvent(e.eventId).pipe(
+      // Apply the chosen padding / keep-for to the new entry.
+      switchMap(r => r.dvrUuid && Object.keys(conf).length ? this.tvh.idnodeSave(r.dvrUuid, conf).pipe(map(() => r)) : of(r)),
+    ).subscribe({
+      next: () => {
+        this.busy.set(false);
+        const extra = this.optionsChanged() ? ` (${this.optionsSummary()})` : '';
+        this.snack.open(`“${e.title}” will be recorded${extra}`, undefined, { duration: 4000 });
+        this.refreshAfterChange();
+      },
       error: err => { this.busy.set(false); this.snack.open(`Couldn’t schedule it (${err?.status || err?.message || 'error'})`, 'Dismiss', { duration: 6000 }); },
     });
   }
