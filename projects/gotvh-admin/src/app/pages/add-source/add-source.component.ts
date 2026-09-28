@@ -676,6 +676,7 @@ export class AddSourceComponent implements OnInit {
   /** Tuners that have delivered video during this scan — they work. */
   private delivered = new Set<string>();
   private healthBusy = false;
+  private targetChecks = 0;
 
   /**
    * During a tuner scan, watch every busy tuner. Signal with no bitrate for ~6 s means the tuner
@@ -702,6 +703,25 @@ export class AddSourceComponent implements OnInit {
           const pct = Number(e?.signal_scale) === 1 ? Math.round(Number(e.signal) / 655.35) : 0;
           if (n >= 3) suspects.push({ name, signal: pct });
         }
+      }
+      // HDHomeRun tuners Tvheadend is tuning: check where the device sends their video, even
+      // before any signal reading — a target outside the device's network can never arrive.
+      const hdhrBusy = entries.map((e: any) => String(e?.input || '')).filter(n => parseHdhrTuner(n) && !this.delivered.has(n));
+      if (hdhrBusy.length && ++this.targetChecks % 3 === 1) {
+        const ips = [...new Set(hdhrBusy.map(n => parseHdhrTuner(n)!.ip))];
+        forkJoin(ips.map(ip => this.guard.device(ip))).subscribe(devices => {
+          const subnet = (ip: string) => ip.split('.').slice(0, 3).join('.');
+          const known = new Map(this.health().map(h => [h.tuner, h]));
+          for (const n of hdhrBusy) {
+            const hw = parseHdhrTuner(n)!;
+            const target = devices.find(d => d?.ip === hw.ip)?.tuners.find(t => t.index === hw.index)?.target;
+            if (target && subnet(target) !== subnet(hw.ip) && !known.has(n)) {
+              known.set(n, { tuner: n, problem: `The HDHomeRun is sending this tuner’s video to ${target}, an address it can’t reach.`,
+                fix: 'Tvheadend is in Docker or behind a VPN. Set its Local IP to the server’s LAN address and a Local port (Add a source → HDHomeRun → “Is Tvheadend in Docker or behind a VPN?”), forward the UDP ports, then rescan.' });
+            }
+          }
+          this.health.set([...known.values()]);
+        });
       }
       if (!suspects.length) { this.healthBusy = false; return; }
       // For HDHomeRuns, ask the device where it's sending each tuner's video.
