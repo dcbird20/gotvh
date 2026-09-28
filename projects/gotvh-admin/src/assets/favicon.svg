@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4c8df6"/>
+      <stop offset="1" stop-color="#0b57d0"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#bg)"/>
+  <!-- antenna -->
+  <path d="M24 10 L32 19 L40 10" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- screen -->
+  <rect x="10" y="19" width="44" height="31" rx="6" fill="none" stroke="#fff" stroke-width="4.5"/>
+  <!-- settings badge: gear -->
+  <circle cx="48" cy="48" r="12" fill="#0b57d0" stroke="#fff" stroke-width="3"/>
+  <g transform="translate(48 48)" fill="#fff">
+    <circle r="3.2" fill="#0b57d0"/>
+    <path d="M-1.6 -8 h3.2 l.6 2.3 a6 6 0 0 1 1.9 1.1 l2.3 -.7 1.6 2.8 -1.7 1.6 a6 6 0 0 1 0 2.2 l1.7 1.6 -1.6 2.8 -2.3 -.7 a6 6 0 0 1 -1.9 1.1 l-.6 2.3 h-3.2 l-.6 -2.3 a6 6 0 0 1 -1.9 -1.1 l-2.3 .7 -1.6 -2.8 1.7 -1.6 a6 6 0 0 1 0 -2.2 l-1.7 -1.6 1.6 -2.8 2.3 .7 a6 6 0 0 1 1.9 -1.1 z M0 -3.2 a3.2 3.2 0 1 0 0.01 0 z" fill-rule="evenodd"/>
+  </g>
+</svg>

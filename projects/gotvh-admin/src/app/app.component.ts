@@ -30,7 +30,7 @@ function readCollapsed(): boolean {
     <mat-sidenav-container class="shell" autosize>
       <mat-sidenav mode="side" opened class="nav" [class.rail]="collapsed()">
         <div class="brand">
-          <mat-icon>settings_remote</mat-icon>
+          <img src="assets/favicon.svg" alt="" width="28" height="28">
           @if (!collapsed()) { <span>GoTVH Admin</span> }
         </div>
         @for (section of sections; track section) {
