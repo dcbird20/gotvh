@@ -79,8 +79,21 @@ npm run start:admin   # dev server on http://localhost:4400, uses proxy.conf.jso
 npm run build:admin   # production build -> dist/gotvh-admin/browser
 ```
 
-Serve `dist/gotvh-admin/browser` from nginx on the same host as the Tvheadend proxy
-(`nginx/gotvh-tvh.conf`) so its relative `/api` calls reach Tvheadend.
+### Running it permanently on raven1 (nginx)
+
+```bash
+scripts/deploy-admin.sh --install   # first time: installs nginx if needed + the site, then builds and publishes
+scripts/deploy-admin.sh             # every update after that: pull, build, publish, reload nginx
+```
+
+- `http://raven1:8090` — the admin app for raven1's own Tvheadend (127.0.0.1:9981)
+- `http://raven1:8091` — the same app for the spare server on omv-dell (192.168.1.222:9983)
+
+The site (`nginx/gotvh-admin.conf` + `nginx/snippets/`) serves the built app from
+`/var/www/gotvh-admin` and passes Tvheadend's `/api`, `/stream`, `/play`, `/dvrfile`,
+`/xmltv`, `/imagecache` and `/comet` through on the same address, keeping the browser's
+Host so VLC playlists from the Guide point back at raven1. `/hdhr/<LAN IP>/…json` reaches
+an HDHomeRun for the tuner check in Add a source (private addresses only).
 
 Built so far:
 

@@ -57,10 +57,8 @@ The stock UI needs you to know the chain
 
 - [ ] Test every screen against the real server (built and tested against mocks so far).
       Try risky changes (stream/codec profiles, users) on a second Tvheadend instance first.
-- [ ] nginx: add a `/hdhr/<ip>/` → `http://<ip>/` proxy (private IPs only) for the HDHomeRun tuner check,
-      in case the device doesn't allow direct browser requests.
-- [ ] Serve the production admin build from nginx on raven1 (`npm run build:admin` →
-      `dist/gotvh-admin/browser`) instead of the dev server.
+- [x] nginx site for raven1 (`scripts/deploy-admin.sh`): ports 8090 (raven1) and 8091 (omv-dell),
+      Tvheadend passed through, `/hdhr/` proxy for the tuner check.
 - [ ] Switch the TV app's auto-record screen to the shared helpers in
       `projects/tvh-api/src/autorec-rules.ts`.
 - [ ] Upgrade Angular 19 → 21 on its own branch (clears most `npm audit` findings).
