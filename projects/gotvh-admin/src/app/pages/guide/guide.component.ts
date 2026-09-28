@@ -45,7 +45,8 @@ interface Cell { ev: GuideEvent; left: number; width: number; clippedStart: bool
 interface Row { ch: GuideChannel; cells: Cell[] }
 
 interface Opt { value: string; label: string }
-const readOpt = (k: string) => { try { return localStorage.getItem(`gotvh_guide_rec_${k}`) || '0'; } catch { return '0'; } };
+// Earlier versions remembered choices in the browser, which made one-off choices stick; forget them.
+try { ['start', 'stop', 'removal'].forEach(k => localStorage.removeItem(`gotvh_guide_rec_${k}`)); } catch { /* ignore */ }
 
 const HALF_HOUR = 1800;
 const now = () => Math.floor(Date.now() / 1000);
@@ -280,7 +281,7 @@ function recState(s: string): '' | 'scheduled' | 'recording' | 'recorded' | 'fai
                       </select>
                     </label>
                   </div>
-                  <p class="muted small">Remembered in this browser. “Not set” uses the DVR profile.</p>
+                  <p class="muted small">For this recording only. Profile defaults come from your DVR profile.</p>
                 </div>
                 } @else if (recOptionsError()) {
                   <p class="muted small">Padding and keep-for options aren’t available: {{ recOptionsError() }}</p>
@@ -562,7 +563,11 @@ export class GuideComponent implements OnInit {
 
   // ---------------------------------------------------------------- details & actions
 
-  select(e: GuideEvent): void { this.selected.set(e); this.autorecFor.set(null); }
+  select(e: GuideEvent): void {
+    // Each programme starts from the DVR profile's settings; choices are for that one recording.
+    if (this.selected()?.eventId !== e.eventId) { this.startExtra.set('0'); this.stopExtra.set('0'); this.removal.set('0'); }
+    this.selected.set(e); this.autorecFor.set(null);
+  }
   isAiring(e: GuideEvent): boolean { const n = this.nowSec(); return e.start <= n && e.stop > n; }
   rec(e: GuideEvent) { return recState(e.dvrState); }
   minutes(e: GuideEvent): number { return Math.round((e.stop - e.start) / 60); }
@@ -592,9 +597,9 @@ export class GuideComponent implements OnInit {
 
   /** Choices from Tvheadend's own DVR entry class, so the values are exactly what it accepts. */
   readonly recOptions = signal<{ start: Opt[]; stop: Opt[]; removal: Opt[] } | null>(null);
-  readonly startExtra = signal(readOpt('start'));
-  readonly stopExtra = signal(readOpt('stop'));
-  readonly removal = signal(readOpt('removal'));
+  readonly startExtra = signal('0');
+  readonly stopExtra = signal('0');
+  readonly removal = signal('0');
   readonly optionsChanged = computed(() => !!(Number(this.startExtra()) || Number(this.stopExtra()) || Number(this.removal())));
   readonly optionsSummary = computed(() => {
     const o = this.recOptions(); if (!o) return '';
@@ -651,6 +656,17 @@ export class GuideComponent implements OnInit {
       const STEPS = new Set(['0', '1', '2', '3', '5', '10', '15', '20', '30', '45', '60', '90', '120', '150', '180', '240']);
       const trim = (l: Opt[], keep: string) => l.filter(o => STEPS.has(o.value) || o.value === keep);
       const start = trim(pick('start_extra'), this.startExtra()), stop = trim(pick('stop_extra'), this.stopExtra()), removal = pick('removal');
+      // Say what "not set" means: the default DVR profile's values.
+      this.tvh.getGrid('dvr/config/grid').pipe(catchError(() => of([]))).subscribe(cfgs => {
+        const def: any = cfgs.find((c: any) => !String(c?.name || '').trim()) || cfgs[0];
+        if (!def) return;
+        const mins = (v: unknown) => { const n = Number(v) || 0; return n ? `${n} min` : 'none'; };
+        const days = removal.find(o => o.value === String(def['removal-days']))?.label
+          || (Number(def['removal-days']) ? `${def['removal-days']} days` : 'forever');
+        const relabel = (l: Opt[], text: string) => l.map(o => o.value === '0' ? { ...o, label: `Profile default (${text})` } : o);
+        this.recOptions.set({ start: relabel(start, mins(def['pre-extra-time'])), stop: relabel(stop, mins(def['post-extra-time'])),
+          removal: relabel(removal, String(days).toLowerCase()) });
+      });
       if (start.length || stop.length || removal.length) this.recOptions.set({ start, stop, removal });
       else this.recOptionsError.set('the DVR entry settings came without choices');
     });
@@ -658,7 +674,6 @@ export class GuideComponent implements OnInit {
 
   setOpt(which: 'start' | 'stop' | 'removal', value: string): void {
     ({ start: this.startExtra, stop: this.stopExtra, removal: this.removal })[which].set(value);
-    try { localStorage.setItem(`gotvh_guide_rec_${which}`, value); } catch { /* ignore */ }
   }
 
   record(e: GuideEvent): void {
