@@ -1614,6 +1614,48 @@ export class TvheadendService {
     );
   }
 
+  /**
+   * Guide events overlapping [from, to) (epoch seconds): stop > from and start < to, sorted by
+   * start. Optional channel tag. Tvheadend's epg/events/grid takes numeric start/stop filters.
+   */
+  getEpgWindow(from: number, to: number, opts: { channelTag?: string; limit?: number } = {}): Observable<any[]> {
+    let params = new HttpParams()
+      .set('start', '0')
+      .set('limit', String(opts.limit ?? 20000))
+      .set('sort', 'start')
+      .set('dir', 'ASC')
+      .set('filter', JSON.stringify([
+        { field: 'stop', type: 'numeric', value: Math.floor(from), comparison: 'gt' },
+        { field: 'start', type: 'numeric', value: Math.floor(to), comparison: 'lt' },
+      ]));
+    if (opts.channelTag) params = params.set('channelTag', opts.channelTag);
+    return this.http.get<any>(this.buildUrl(`epg/events/grid?${params.toString()}`), this.getRequestOptions()).pipe(
+      map(data => (Array.isArray(data) ? data : data?.entries || [])
+        .filter((e: any) => Number(e?.stop) > from && Number(e?.start) < to)),
+    );
+  }
+
+  /** Record every episode of the event's series (Tvheadend's series link → an auto-record rule). */
+  recordSeriesByEvent(eventId: number): Observable<any> {
+    return this.getDefaultDvrConfigUuid().pipe(
+      switchMap(configUuid => this.http.post<any>(
+        this.buildUrl('dvr/autorec/create_by_series'),
+        this.buildFormBody({ event_id: Number(eventId), config_uuid: configUuid }),
+        this.getFormRequestOptions())),
+    );
+  }
+
+  /**
+   * An .m3u playlist for a channel with a one-off access ticket, so a player such as VLC can open
+   * it without asking for a password (Tvheadend's /play/ticket/…).
+   */
+  channelPlaylistUrl(channelUuid: string, title = ''): string {
+    const path = `play/ticket/stream/channel/${encodeURIComponent(channelUuid)}${title ? `?title=${encodeURIComponent(title)}` : ''}`;
+    // /play/… lives at Tvheadend's root, next to /api (not under a custom stream base).
+    const root = this.apiBase.replace(/\/api\/?$/, '');
+    return new URL(`${root}/${path}`, window.location.origin).toString();
+  }
+
   cancelRecording(dvrUuid: string): Observable<any> {
     const normalizedUuid = String(dvrUuid || '').trim();
     if (!normalizedUuid) {

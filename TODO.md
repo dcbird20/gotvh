@@ -46,6 +46,13 @@ The stock UI needs you to know the chain
       server its own tuners; point the other server's playlist at specific tuners; or patch Tvheadend to
       return "no free adapter" so the scan requeues.
 
+## Guide
+
+- [x] Guide grid (channels × time, 4 hours at a time, days, tag filter, search) with Record,
+      Record series / every showing, Don't record, and Watch in VLC (ticketed .m3u).
+- [ ] Watch in the browser (needs an H.264/AAC transcoding stream profile + a web player).
+- [ ] Clash warnings when scheduling (more recordings than tuners at that time).
+
 ## Housekeeping
 
 - [ ] Test every screen against the real server (built and tested against mocks so far).

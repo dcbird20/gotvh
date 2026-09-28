@@ -13,6 +13,7 @@ export interface AdminNavItem {
  */
 export const NAV_ITEMS: AdminNavItem[] = [
   { path: 'dashboard', label: 'Dashboard', icon: 'monitoring', section: 'Overview' },
+  { path: 'guide', label: 'Guide', icon: 'view_timeline', section: 'Overview' },
   { path: 'status', label: 'Live status', icon: 'sensors', section: 'Overview' },
   { path: 'recordings', label: 'Recordings', icon: 'fiber_manual_record', section: 'DVR' },
   { path: 'autorec', label: 'Auto-record rules', icon: 'event_repeat', section: 'DVR' },
@@ -40,6 +41,11 @@ export const routes: Routes = [
     path: 'dashboard',
     title: 'Dashboard · GoTVH Admin',
     loadComponent: () => import('./pages/dashboard/dashboard.component').then(m => m.DashboardComponent),
+  },
+  {
+    path: 'guide',
+    title: 'Guide · GoTVH Admin',
+    loadComponent: () => import('./pages/guide/guide.component').then(m => m.GuideComponent),
   },
   {
     path: 'status',
