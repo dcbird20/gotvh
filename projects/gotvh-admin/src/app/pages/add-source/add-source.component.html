@@ -41,6 +41,22 @@
         <span>An M3U playlist address from your provider or an IPTV proxy. Each entry becomes a channel.</span>
       </button>
     </div>
+
+    @if (loaded() && networks().length) {
+      <section class="card existing-sources">
+        <h2><mat-icon>update</mat-icon> Or check a source you already have for new channels</h2>
+        <p class="muted small">Re-reads a playlist, or rescans an antenna network with its tuners. What’s already there is kept;
+          anything new shows up on Map services.</p>
+        @for (n of networks(); track n.uuid) {
+          <div class="tuner">
+            <span><strong>{{ n.name }}</strong>
+              <span class="muted small">{{ n.iptv ? 'IPTV playlist' : 'tuner network' }} · {{ plural(n.muxes, n.iptv ? 'stream' : 'frequency', n.iptv ? 'streams' : 'frequencies') }},
+                {{ plural(n.services, 'service') }}, {{ plural(n.channels, 'channel') }}</span></span>
+            <button mat-stroked-button (click)="updateNetwork(n)" [disabled]="busy()"><mat-icon>refresh</mat-icon> Check for new channels</button>
+          </div>
+        }
+      </section>
+    }
   }
 
   <!-- ============================================================ 2a: tuner -->
@@ -319,7 +335,7 @@
           <div class="stats">
             <div><span class="n">{{ s.scanned }}</span><span class="l">of {{ s.muxes }} {{ kind() === 'iptv' ? 'streams' : 'frequencies' }} checked</span></div>
             <div><span class="n">{{ s.ok }}</span><span class="l">{{ kind() === 'iptv' ? 'working' : 'with a station' }}</span></div>
-            <div><span class="n">{{ s.services }}</span><span class="l">services found</span></div>
+            <div><span class="n">{{ s.services }}</span><span class="l">services found@if (newServices() !== null) { ({{ newServices() }} new)}</span></div>
             @if (s.failed) { <div [class.bad]="kind() === 'iptv' || !s.ok"><span class="n">{{ s.failed }}</span><span class="l">{{ kind() === 'iptv' ? 'not responding' : 'nothing received' }}</span></div> }
           </div>
           @for (h of health(); track h.tuner) {
@@ -386,7 +402,13 @@
     <section class="card">
       @if (scan(); as s) {
         @if (s.services) {
-          <h2><mat-icon class="ok">check_circle</mat-icon> {{ plural(s.services, 'service') }} found on {{ networkLabel() }}</h2>
+          @if (newServices() !== null) {
+            <h2><mat-icon class="ok">check_circle</mat-icon>
+              {{ newServices() ? plural(newServices()!, 'new service') : 'No new services' }} on {{ networkLabel() }}
+              <span class="muted small">({{ s.services }} in all)</span></h2>
+          } @else {
+            <h2><mat-icon class="ok">check_circle</mat-icon> {{ plural(s.services, 'service') }} found on {{ networkLabel() }}</h2>
+          }
           <p>Services are what the scan finds; <strong>channels</strong> are what you watch. Next, choose which services become channels:</p>
         } @else {
           <h2><mat-icon class="bad">warning</mat-icon> No services found (yet)</h2>

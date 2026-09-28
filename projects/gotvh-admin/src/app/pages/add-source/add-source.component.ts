@@ -404,6 +404,7 @@ export class AddSourceComponent implements OnInit {
     if (!this.canStartTuner()) return;
     this.busy.set(true);
     this.error.set('');
+    this.baseline.set(this.networkMode === 'existing' ? (this.networks().find(n => n.uuid === this.existingNetwork)?.services ?? null) : null);
     const network$: Observable<string> = this.networkMode === 'existing'
       ? of(this.existingNetwork)
       : this.tvh.idnodeCreateWithClass('mpegts/network', this.networkClass, {
@@ -452,6 +453,7 @@ export class AddSourceComponent implements OnInit {
     if (!this.iptvUrl.trim() || this.iptvUrlError()) return;
     this.busy.set(true);
     this.error.set('');
+    this.baseline.set(null);
     this.tvh.idnodeCreateWithClass('mpegts/network', this.iptvClass(), {
       networkname: this.iptvName.trim() || 'IPTV',
       url: this.iptvUrl.trim(),
@@ -591,6 +593,50 @@ export class AddSourceComponent implements OnInit {
   readonly priority = signal<PriorityChange[]>([]);
   readonly describeChanges = describeChanges;
 
+  /** Services the network had before "Check for new channels"; null for a new source. */
+  readonly baseline = signal<number | null>(null);
+  readonly newServices = computed(() => {
+    const b = this.baseline(), s = this.scan();
+    return b === null || !s ? null : Math.max(0, s.services - b);
+  });
+
+  /**
+   * Check an existing source for new channels: an IPTV network re-reads its playlist (Tvheadend's
+   * network scan does that for automatic IPTV networks), a tuner network is rescanned with the
+   * tuners that receive it — with the same shared-tuner handling as a new scan.
+   */
+  updateNetwork(n: { uuid: string; name: string; services: number; iptv: boolean }): void {
+    this.error.set('');
+    this.baseline.set(n.services);
+    this.pass.set(1);
+    this.sharing.set(null);
+    this.priority.set([]);
+    if (n.iptv) {
+      this.kind.set('iptv');
+      this.tvh.scanNetwork(n.uuid).pipe(catchError(() => of(null))).subscribe();
+      this.beginScan(n.uuid, n.name);
+      return;
+    }
+    this.kind.set('tuner');
+    const receivers = this.hardwareTuners().filter(t => t.networks.includes(n.uuid));
+    for (const t of this.tuners()) t.selected = receivers.includes(t);
+    this.version.update(v => v + 1);
+    if (!receivers.length) {
+      // No tuner receives it yet: let the user pick tuners, with this network chosen.
+      this.onTunersChanged();
+      this.networkMode = 'existing';
+      this.existingNetwork = n.uuid;
+      this.step.set('tuner');
+      return;
+    }
+    this.busy.set(true);
+    this.guard.prepare(this.selectedTuners()).subscribe(r => {
+      this.busy.set(false);
+      this.sharing.set(r);
+      this.scanWhenFree(n.uuid, n.name);
+    });
+  }
+
   readonly retrying = signal(false);
   readonly retries = signal(0);
 
@@ -702,6 +748,7 @@ export class AddSourceComponent implements OnInit {
     this.kind.set(null);
     this.networkUuid.set(null);
     this.scan.set(null);
+    this.baseline.set(null);
     this.error.set('');
     this.networkMode = 'new';
     this.iptvUrl = '';

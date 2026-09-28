@@ -75,3 +75,4 @@ code { font-size: 12px; }
 
 .delivery { summary { cursor: pointer; } &[open] summary { margin-bottom: 10px; } }
 .snippet { background: var(--mat-sys-surface-container-high); padding: 8px 12px; border-radius: 8px; font-size: 12px; margin: 0 0 8px; }
+.existing-sources { margin-top: 20px; h2 mat-icon { color: var(--mat-sys-primary); } .tuner { padding: 6px 0; } }
