@@ -120,7 +120,9 @@ export class HdhrGuard {
     }).pipe(switchMap(({ devices, ours }) => {
       const byIp = new Map(devices.filter((d): d is HdhrDevice => !!d).map(d => [d.ip, d]));
       // A busy tuner's status entry has the tuning's uuid, not the tuner's — so match names too.
-      const tvhUsing = new Set(ours.flatMap((s: any) => [String(s?.uuid || ''), String(s?.input || '')]));
+      // status/inputs lists idle tuners too (subs 0, no stream): only busy ones count as ours.
+      const tvhUsing = new Set(ours.filter((s: any) => Number(s?.subs) > 0 || !!s?.stream)
+        .flatMap((s: any) => [String(s?.uuid || ''), String(s?.input || '')]));
       const toDisable: Array<TunerRef & { by: string }> = [];
       const toEnable: TunerRef[] = [];
       for (const t of hd) {
@@ -147,6 +149,22 @@ export class HdhrGuard {
         } as GuardReport;
       }));
     }));
+  }
+
+  /**
+   * All of Tvheadend's HDHomeRun tuners: switch off the ones another app or server holds, and back on
+   * the ones that are free again. Tvheadend keeps retrying a locked tuner ("resource locked by …")
+   * instead of moving on to a free tuner or an IPTV fallback, so a held tuner silences whole channels.
+   */
+  holdBusyTuners(): Observable<GuardReport> {
+    return this.tvh.idnodeLoadByClass('mpegts_input').pipe(
+      map(list => list.map(e => {
+        const name = String((e.params || []).find(p => p.id === 'displayname')?.value || e.text || '');
+        return { uuid: String(e.uuid || e.id || ''), name };
+      }).filter(t => !!parseHdhrTuner(t.name))),
+      switchMap(tuners => this.prepare(tuners)),
+      catchError(() => of({ devices: [], unreachable: [], held: [], free: [] } as GuardReport)),
+    );
   }
 
   /** Switch back on every tuner this app switched off. */

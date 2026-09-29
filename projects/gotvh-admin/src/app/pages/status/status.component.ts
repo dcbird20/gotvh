@@ -11,6 +11,7 @@ import { MatTableModule } from '@angular/material/table';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { IdnodeEntry, TvheadendService, truthy } from '@gotvh/tvh-api';
 import { ConfirmDialogComponent, ConfirmDialogData } from '../../shared/confirm-dialog.component';
+import { HdhrGuard } from '../../shared/hdhomerun';
 
 const POLL_MS = 2000;
 
@@ -131,6 +132,23 @@ export class StatusComponent implements OnInit {
   private readonly dialog = inject(MatDialog);
   private readonly snack = inject(MatSnackBar);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly guard = inject(HdhrGuard);
+
+  /** HDHomeRun tuners another app or server holds (switched off here until free). */
+  readonly held = signal<Array<{ uuid: string; name: string; by: string }>>([]);
+  readonly heldSummary = computed(() => this.held().map(h => `#${/#(\d+)/.exec(h.name)?.[1] ?? '?'} by ${h.by}`).join(', '));
+  heldBy(uuid: string): string | null { return this.held().find(h => h.uuid === uuid)?.by ?? null; }
+  private guardTimer: ReturnType<typeof setInterval> | null = null;
+
+  private checkHeld(): void {
+    this.guard.holdBusyTuners().subscribe(r => {
+      const before = this.held().map(h => h.uuid).join();
+      this.held.set(r.held);
+      // Enabled flags changed: reload the tuner list.
+      if (before !== r.held.map(h => h.uuid).join())
+        this.tvh.idnodeLoadByClass('mpegts_input').pipe(catchError(() => of(null))).subscribe(list => this.inputs.set(list || []));
+    });
+  }
 
   readonly paused = signal(false);
   readonly error = signal('');
@@ -268,7 +286,9 @@ export class StatusComponent implements OnInit {
       this.channelIds.set(new Map(chs.map((c: any) => [String(c.name || ''), String(c.uuid)]))));
     this.poll();
     this.timer = setInterval(() => { if (!this.paused() && !document.hidden) this.poll(); }, POLL_MS);
-    this.destroyRef.onDestroy(() => { if (this.timer) clearInterval(this.timer); });
+    this.checkHeld();
+    this.guardTimer = setInterval(() => { if (!this.paused() && !document.hidden) this.checkHeld(); }, 30000);
+    this.destroyRef.onDestroy(() => { if (this.timer) clearInterval(this.timer); if (this.guardTimer) clearInterval(this.guardTimer); });
   }
 
   togglePause(): void {

@@ -21,6 +21,7 @@ import { NameFix, findNameFixes } from '../../shared/channel-naming';
 import { FixNamesDialogComponent, FixNamesResult } from './fix-names-dialog.component';
 import { ChannelIssue, PlaybackResult, checkChannelHealth, firstValueFrom, testPlayback } from '../../shared/channel-health';
 import { broadcastFirst } from '../../shared/source-priority';
+import { HdhrGuard } from '../../shared/hdhomerun';
 import { ChannelHealthDialogComponent, ChannelRepair } from './channel-health-dialog.component';
 
 type YesNo = 'all' | 'yes' | 'no';
@@ -171,7 +172,7 @@ interface EditorState {
               @let pb = playback()!.result;
               <div class="playback" [class.ok]="pb.verdict === 'plays'">
                 <mat-icon>{{ pb.verdict === 'plays' ? 'check_circle' : 'error' }}</mat-icon>
-                <span>{{ pb.message }}</span>
+                <span>{{ pb.message }}@if (pb.held) { <br><span class="small">{{ pb.held }}</span> }</span>
               </div>
             }
             @if (e.uuid && !e.bulkUuids) { <admin-connections kind="channel" [uuid]="e.uuid" /> }
@@ -202,6 +203,7 @@ export class ChannelsComponent implements OnInit {
   private readonly tvh = inject(TvheadendService);
   private readonly dialog = inject(MatDialog);
   private readonly snack = inject(MatSnackBar);
+  private readonly guard = inject(HdhrGuard);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
@@ -398,9 +400,10 @@ export class ChannelsComponent implements OnInit {
     this.grid?.refresh();
     // Prove it: play each repaired channel for a few seconds.
     for (const r of repairs.filter(x => !x.disable && x.services.length)) {
-      const res = await testPlayback(this.tvh, { uuid: r.uuid, services: r.services }).catch(() => null);
+      const res = await testPlayback(this.tvh, { uuid: r.uuid, services: r.services }, 7, this.guard).catch(() => null);
       if (!res || res.verdict !== 'plays') failed = true;
       lines.push(`${r.name} — ${res ? res.message : 'couldn’t test playback.'}`);
+      if (res?.held && !lines.includes(res.held)) lines.push(res.held);
       this.repairReport.set({ lines: [...lines], failed });
     }
     this.repairReport.set({ lines, failed });
@@ -416,7 +419,7 @@ export class ChannelsComponent implements OnInit {
     this.testing.set(true);
     this.playback.set(null);
     try {
-      this.playback.set({ uuid, result: await testPlayback(this.tvh, { uuid }) });
+      this.playback.set({ uuid, result: await testPlayback(this.tvh, { uuid }, 7, this.guard) });
     } finally {
       this.testing.set(false);
     }

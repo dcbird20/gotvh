@@ -2,6 +2,7 @@ import { Observable, forkJoin, of } from 'rxjs';
 import { catchError, map, take } from 'rxjs/operators';
 import { TvheadendService, truthy } from '@gotvh/tvh-api';
 import { isPlaceholder } from './channel-naming';
+import { HdhrGuard } from './hdhomerun';
 
 /**
  * Channel health: find enabled channels that have nothing to play, and the feeds that should be
@@ -198,15 +199,31 @@ export interface PlaybackResult {
   message: string;
   /** The channel on the same source we compared with. */
   sibling?: { name: string; bytes: number };
+  /** HDHomeRun tuners another app or server holds, switched off in Tvheadend so it uses the others. */
+  held?: string;
+}
+
+/** "Tuners #0 and #1 are in use by 192.168.1.222" */
+function describeHeld(held: Array<{ name: string; by: string }>): string {
+  if (!held.length) return '';
+  const nums = held.map(h => '#' + (/#(\d+)/.exec(h.name)?.[1] ?? '?'));
+  const by = [...new Set(held.map(h => h.by))].join(', ');
+  const list = nums.length === 1 ? `Tuner ${nums[0]} is` : `Tuners ${nums.slice(0, -1).join(', ')} and ${nums[nums.length - 1]} are`;
+  return `HDHomeRun ${list} in use by ${by} (another app or server), so Tvheadend here leaves ${nums.length === 1 ? 'it' : 'them'} alone until free.`;
 }
 
 /**
  * Play a channel for a few seconds and say what happened. When nothing arrives, play another
  * channel from the same source to tell "this stream is dead" from "the whole source is down".
  */
-export async function testPlayback(tvh: TvheadendService, channel: { uuid: string; services?: string[] }, seconds = 7): Promise<PlaybackResult> {
+export async function testPlayback(tvh: TvheadendService, channel: { uuid: string; services?: string[] }, seconds = 7,
+                                   guard?: HdhrGuard): Promise<PlaybackResult> {
+  // Tvheadend retries an HDHomeRun tuner that someone else holds forever, instead of using a free
+  // tuner or the channel's IPTV feeds — so first take held tuners out of its hands.
+  const report = guard ? await firstValueFrom(guard.holdBusyTuners()).catch(() => null) : null;
+  const held = describeHeld(report?.held || []) || undefined;
   const r = await tvh.probeChannel(channel.uuid, seconds * 1000);
-  const base = { bytes: r.bytes, seconds };
+  const base = { bytes: r.bytes, seconds, held };
   if (r.bytes > 0) {
     const rate = r.bytes / seconds / 1e6;
     return { ...base, verdict: 'plays', message: `Plays — ${rate >= 0.1 ? rate.toFixed(1) + ' MB/s' : Math.round(r.bytes / 1024) + ' KB in ' + seconds + ' s'} received.` };

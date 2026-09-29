@@ -38,6 +38,9 @@ The stock UI needs you to know the chain
       antenna first, removes the disabled duplicates, then plays each repaired channel to prove it.
 - [x] **Test playback** — plays a channel for a few seconds; when nothing arrives, compares with another
       channel on the same source and says whether the stream or the whole source is dead.
+- [x] **Tuners held by another app** — Tvheadend retries a locked HDHomeRun tuner forever instead of
+      using a free one or the IPTV fallback. Test playback, channel repair and Live status switch held
+      tuners off in Tvheadend and back on once free.
 - [x] **Live status: receiving nothing** — streams and recordings with no data for 20 s are flagged with
       the likely cause and a link to the channel.
 - [x] **Tuner health during scans** — a tuner that locks but delivers no video is named, with the cause

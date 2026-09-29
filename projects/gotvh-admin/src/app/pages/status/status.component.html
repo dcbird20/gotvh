@@ -21,6 +21,13 @@
 
   <!-- ============================================================ tuners -->
   <h2>Tuners <span class="count">{{ busyTuners() }} of {{ enabledTuners() }} in use</span></h2>
+  @if (held().length) {
+    <div class="banner" role="status"><mat-icon>info</mat-icon>
+      <span>{{ held().length === 1 ? 'An HDHomeRun tuner is' : held().length + ' HDHomeRun tuners are' }} in use by another app or server
+        ({{ heldSummary() }}). Tvheadend would keep retrying {{ held().length === 1 ? 'it' : 'them' }} and play nothing, so
+        {{ held().length === 1 ? 'it’s' : 'they’re' }} switched off here and switched back on as soon as {{ held().length === 1 ? 'it’s' : 'they’re' }} free.</span>
+    </div>
+  }
   <div class="tuners">
     @for (t of tuners(); track t.uuid) {
       <section class="tuner" [class.busy]="t.streams.length" [class.off]="!t.enabled">
@@ -29,7 +36,8 @@
             <strong>{{ t.name }}</strong>
             <span class="muted small">{{ t.kind }}</span>
           </div>
-          @if (!t.enabled) { <span class="chip">Disabled</span> }
+          @if (heldBy(t.uuid); as by) { <span class="chip warn" matTooltip="Switched off here so Tvheadend uses the other tuners; switched back on when it's free">In use by {{ by }}</span> }
+          @else if (!t.enabled) { <span class="chip">Disabled</span> }
           @else if (!t.streams.length) { <span class="chip idle">Idle</span> }
           @else { <span class="chip on">In use</span> }
         </div>
