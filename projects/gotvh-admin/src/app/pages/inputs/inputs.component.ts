@@ -111,6 +111,9 @@ const GRID_TABS: GridTab[] = [
  * tuner hardware, networks, muxes and services. Every object opens in the
  * shared metadata-driven editor.
  */
+import { HdhrSwitchPlan, planHdhrSwitch } from '../../shared/hdhr-playlist';
+import { HdhrSwitchDialogComponent } from './hdhr-switch-dialog.component';
+
 @Component({
   selector: 'admin-inputs',
   standalone: true,
@@ -122,6 +125,25 @@ const GRID_TABS: GridTab[] = [
   styleUrl: './inputs.component.scss',
 })
 export class InputsComponent implements OnInit {
+  /** Native HDHomeRun tuners that could be handed back to the device (see hdhr-playlist.ts). */
+  readonly hdhrPlan = signal<HdhrSwitchPlan | null>(null);
+
+  private loadHdhrPlan(): void {
+    planHdhrSwitch(this.tvh).then(p => this.hdhrPlan.set(p), () => this.hdhrPlan.set(null));
+  }
+
+  switchHdhr(): void {
+    const plan = this.hdhrPlan();
+    if (!plan) return;
+    this.dialog.open(HdhrSwitchDialogComponent, { data: plan, width: '640px', maxHeight: '85vh' })
+      .afterClosed().subscribe(res => {
+        if (!res) return;
+        this.loadHdhrPlan();
+        this.loadTreeRoot();
+        this.refreshActive();
+      });
+  }
+
   private readonly tvh = inject(TvheadendService);
   private readonly dialog = inject(MatDialog);
   private readonly snack = inject(MatSnackBar);
@@ -160,6 +182,7 @@ export class InputsComponent implements OnInit {
 
   ngOnInit(): void {
     this.loadTreeRoot();
+    this.loadHdhrPlan();
     this.tvh.getBuilders('mpegts/network').subscribe({
       next: b => this.builders.set([...b].sort((x, y) => x.caption.localeCompare(y.caption))),
       error: () => this.builders.set([]),
@@ -168,8 +191,9 @@ export class InputsComponent implements OnInit {
     // Deep links, e.g. from a Connected to panel: /inputs?tab=muxes&open=<uuid>
     this.route.queryParamMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(q => {
       const tab = q.get('tab') as TabId | null, open = q.get('open');
-      if (open || tab || q.get('prefer')) this.clearDeepLink();
+      if (open || tab || q.get('prefer') || q.get('hdhr')) this.clearDeepLink();
       if (q.get('prefer') === 'antenna') this.preferAntenna();
+      if (q.get('hdhr') === 'switch') planHdhrSwitch(this.tvh).then(p => { this.hdhrPlan.set(p); if (p) this.switchHdhr(); });
       const index = tab === 'tuners' ? 0 : GRID_TABS.findIndex(t => t.id === tab) + 1;
       if (tab && index >= 0) this.tabIndex.set(index);
       if (open && tab) this.open({ tab, uuid: open, label: '' });
@@ -492,6 +516,6 @@ export class InputsComponent implements OnInit {
 
   /** Drop ?open= once handled, so following the same link again still works. */
   private clearDeepLink(): void {
-    this.router.navigate([], { relativeTo: this.route, queryParams: { open: null, tab: null, prefer: null }, queryParamsHandling: 'merge', replaceUrl: true });
+    this.router.navigate([], { relativeTo: this.route, queryParams: { open: null, tab: null, prefer: null, hdhr: null }, queryParamsHandling: 'merge', replaceUrl: true });
   }
 }

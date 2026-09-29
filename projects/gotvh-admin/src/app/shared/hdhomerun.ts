@@ -176,4 +176,10 @@ export class HdhrGuard {
   }
 
   get holding(): number { return this.disabled.size; }
+
+  /** Stop tracking held tuners (they were switched off on purpose, so don't switch them back on). */
+  forgetAll(): void {
+    this.disabled.clear();
+    saveHeld(this.disabled);
+  }
 }

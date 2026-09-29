@@ -38,6 +38,9 @@ The stock UI needs you to know the chain
       antenna first, removes the disabled duplicates, then plays each repaired channel to prove it.
 - [x] **Test playback** — plays a channel for a few seconds; when nothing arrives, compares with another
       channel on the same source and says whether the stream or the whole source is dead.
+- [x] **Let the HDHomeRun manage its tuners** — one click on Tuners & networks moves channels from native
+      tuners to the device's own lineup.m3u streams (matched by channel number), puts that source first, and
+      switches the native tuners and network off. Linked from Live status when tuners are held.
 - [x] **Tuners held by another app** — Tvheadend retries a locked HDHomeRun tuner forever instead of
       using a free one or the IPTV fallback. Test playback, channel repair and Live status switch held
       tuners off in Tvheadend and back on once free.

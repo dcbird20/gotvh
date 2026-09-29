@@ -42,3 +42,7 @@
 @media (max-width: 1100px) {
   .layout.with-editor { grid-template-columns: minmax(0, 1fr); }
 }
+
+.banner.hdhr { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-radius: 8px; margin: 0 0 12px;
+  background: var(--mat-sys-secondary-container); color: var(--mat-sys-on-secondary-container);
+  span { flex: 1; } }

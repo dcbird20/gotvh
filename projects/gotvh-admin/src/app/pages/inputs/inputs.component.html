@@ -2,6 +2,15 @@
   <h1>Tuners &amp; networks</h1>
   <p class="subtitle">Tuner hardware, the networks assigned to it, and the muxes and services found by scanning.</p>
 
+  @if (hdhrPlan(); as hp) {
+    <div class="banner hdhr" role="status">
+      <mat-icon>settings_input_antenna</mat-icon>
+      <span>Tvheadend controls the HDHomeRun at {{ hp.ip }} tuner by tuner. Letting the HDHomeRun hand out its own tuners
+        avoids locked tuners, silent channels and port forwarding{{ hp.moves.length ? ' — ' + hp.moves.length + (hp.moves.length === 1 ? ' channel moves' : ' channels move') : '' }}.</span>
+      <button mat-flat-button (click)="switchHdhr()">Review and switch…</button>
+    </div>
+  }
+
   <div class="layout" adminSplit [class.with-editor]="!!selection()">
     <div class="main">
       <mat-tab-group [selectedIndex]="tabIndex()" (selectedIndexChange)="onTabChange($event)"
