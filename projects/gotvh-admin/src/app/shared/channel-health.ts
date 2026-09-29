@@ -167,7 +167,7 @@ export function checkChannelHealth(tvh: TvheadendService): Observable<HealthRepo
       const duplicates = channels.filter((o: any) => String(o.uuid) !== String(ch.uuid) && !on(o.enabled)
         // An orphan's number may be junk ("23.1 ABC" numbered 16), so its name alone also counts.
         && (!!sameStation(me, stationId(String(o.name || ''), o.number))
-          || (!list(o.services).length && !!sameStation(me, stationId(String(o.name || '')))))
+          || (!list(o.services).some(x => usableIds.has(x)) && !!sameStation(me, stationId(String(o.name || '')))))
         && list(o.services).every(s => candIds.has(s) || !usableIds.has(s)))
         .map((o: any) => ({ uuid: String(o.uuid), name: String(o.name || ''), number: num(o), services: list(o.services), epggrab: list(o.epggrab) }));
 
@@ -206,10 +206,14 @@ export interface PlaybackResult {
 /** "Tuners #0 and #1 are in use by 192.168.1.222" */
 function describeHeld(held: Array<{ name: string; by: string }>): string {
   if (!held.length) return '';
-  const nums = held.map(h => '#' + (/#(\d+)/.exec(h.name)?.[1] ?? '?'));
-  const by = [...new Set(held.map(h => h.by))].join(', ');
-  const list = nums.length === 1 ? `Tuner ${nums[0]} is` : `Tuners ${nums.slice(0, -1).join(', ')} and ${nums[nums.length - 1]} are`;
-  return `HDHomeRun ${list} in use by ${by} (another app or server), so Tvheadend here leaves ${nums.length === 1 ? 'it' : 'them'} alone until free.`;
+  const num = (n: string) => Number(/#(\d+)/.exec(n)?.[1] ?? 99);
+  const byAddr = new Map<string, number[]>();
+  for (const h of held) byAddr.set(h.by, [...(byAddr.get(h.by) || []), num(h.name)]);
+  const and = (xs: string[]) => xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`;
+  const parts = [...byAddr].map(([by, ns]) => `${and(ns.sort((a, b) => a - b).map(n => '#' + n))} by ${by}`);
+  const one = held.length === 1;
+  return `HDHomeRun ${one ? 'tuner' : 'tuners'} ${parts.join('; ')} ${one ? 'is' : 'are'} in use by another app or device, `
+    + `so ${one ? 'it’s' : 'they’re'} switched off in Tvheadend until free.`;
 }
 
 /**
@@ -218,6 +222,18 @@ function describeHeld(held: Array<{ name: string; by: string }>): string {
  */
 export async function testPlayback(tvh: TvheadendService, channel: { uuid: string; services?: string[] }, seconds = 7,
                                    guard?: HdhrGuard): Promise<PlaybackResult> {
+  // A switched-off channel is refused (403); say so, and point at the one that works.
+  const all = await firstValueFrom(tvh.getGrid('channel/grid', { all: 1, limit: 100000 })).catch(() => [] as any[]);
+  const me = all.find((c: any) => String(c.uuid) === channel.uuid);
+  if (me && !on(me.enabled)) {
+    const id = stationId(String(me.name || ''), me.number);
+    const idByName = stationId(String(me.name || ''));
+    const alt = all.find((c: any) => String(c.uuid) !== channel.uuid && on(c.enabled)
+      && (sameStation(id, stationId(String(c.name || ''), c.number)) || sameStation(idByName, stationId(String(c.name || ''), c.number))));
+    const label = (c: any) => `${c.number && c.number !== '0' ? c.number + ' ' : ''}“${c.name}”`;
+    return { verdict: 'disabled', bytes: 0, seconds: 0,
+      message: `This channel is switched off, so Tvheadend won’t stream it.${alt ? ` The working channel for this station is ${label(alt)}.` : ' Switch it on (Enabled) to watch it.'}` };
+  }
   // Tvheadend retries an HDHomeRun tuner that someone else holds forever, instead of using a free
   // tuner or the channel's IPTV feeds — so first take held tuners out of its hands.
   const report = guard ? await firstValueFrom(guard.holdBusyTuners()).catch(() => null) : null;
@@ -230,7 +246,7 @@ export async function testPlayback(tvh: TvheadendService, channel: { uuid: strin
   }
   switch (r.status) {
     case 401: return { ...base, verdict: 'auth', message: 'Tvheadend refused the sign-in for streaming. Sign in again, or give this account streaming rights.' };
-    case 403: return { ...base, verdict: 'disabled', message: 'Tvheadend won’t stream it: the channel is disabled, or this account isn’t allowed to watch it.' };
+    case 403: return { ...base, verdict: 'disabled', message: 'Tvheadend refused it: this account isn’t allowed to watch this channel (check its tags and the account’s channel limits in Users & access).' };
     case 502: return { ...base, verdict: 'no-service', message: 'Nothing is linked to this channel that Tvheadend can use. Run the channel check to relink it.' };
     case 503: return { ...base, verdict: 'busy', message: 'No free tuner or stream slot: everything is in use (recordings, other viewers, or the IPTV stream limit).' };
     case 0: return { ...base, verdict: 'unreachable', message: 'Couldn’t reach Tvheadend’s stream.' };
