@@ -59,7 +59,17 @@ interface StreamRow {
   dvrUuid: string | null;
   /** Client connection(s) this stream arrives over, if found. */
   connectionIds: number[];
+  /** Seconds with nothing coming in (≥ SILENT_SECS), or 0. */
+  silentFor: number;
+  /** Nothing at all since it started, vs. stopped after a while. */
+  neverReceived: boolean;
+  /** Plain explanation when silent. */
+  silentWhy: string;
+  channelUuid: string | null;
 }
+
+/** A stream receiving nothing for this long is flagged. */
+const SILENT_SECS = 20;
 
 interface ConnectionRow {
   id: number;
@@ -136,6 +146,11 @@ export class StatusComponent implements OnInit {
   private previous = new Map<string, { cc: number; te: number; unc: number }>();
   private readonly rising = signal(new Map<string, string[]>());
 
+  /** Subscription id → when it last went quiet (in = 0). */
+  private quietSince = new Map<number, number>();
+  private readonly channelIds = signal(new Map<string, string>());
+  readonly now = signal(Date.now());
+
   private timer: ReturnType<typeof setInterval> | null = null;
   private inFlight = false;
 
@@ -181,7 +196,13 @@ export class StatusComponent implements OnInit {
   readonly streams = computed<StreamRow[]>(() => {
     const conns = this.connections();
     const recs = this.recordings().filter(r => /record/i.test(String(r?.sched_status || '')));
+    const now = this.now(), chIds = this.channelIds();
     return this.subscriptions().map(s => {
+      const started = Number(s.start) > 0 ? Number(s.start) * 1000 : now;
+      const neverReceived = s.total_in !== undefined && Number(s.total_in) === 0;
+      const quiet = neverReceived ? started : this.quietSince.get(Number(s.id));
+      const silentFor = quiet !== undefined && now - quiet >= SILENT_SECS * 1000 ? Math.round((now - quiet) / 1000) : 0;
+      const iptv = /iptv|m3u|playlist/i.test(String(s.service || ''));
       const title = String(s.title || '');
       const recording = /^DVR:/i.test(title);
       const channel = String(s.channel || '');
@@ -209,6 +230,16 @@ export class StatusComponent implements OnInit {
         since: durationSince(s.start),
         dvrUuid: rec ? String(rec.uuid) : null,
         connectionIds,
+        silentFor,
+        neverReceived,
+        silentWhy: !silentFor ? '' : iptv
+          ? (neverReceived
+            ? 'The IPTV provider accepted the request but hasn’t sent anything. The stream entry is likely dead — use Test playback on the channel to compare with others from the same source.'
+            : 'The IPTV stream stopped arriving. The provider dropped it or hit its connection limit.')
+          : (neverReceived
+            ? 'The tuner is tuned but no data is arriving. For an HDHomeRun behind Docker or a VPN, its UDP packets aren’t reaching Tvheadend; otherwise the signal is too weak.'
+            : 'The tuner stopped delivering data — signal lost or the tuner was taken by another app.'),
+        channelUuid: chIds.get(channel) ?? null,
       };
     }).sort((a, b) => Number(b.recording) - Number(a.recording) || a.channel.localeCompare(b.channel));
   });
@@ -225,11 +256,16 @@ export class StatusComponent implements OnInit {
     }));
   });
 
+  readonly silentCount = computed(() => this.streams().filter(s => s.silentFor).length);
+
   readonly streamColumns = ['what', 'channel', 'who', 'source', 'state', 'rate', 'since', 'actions'];
   readonly connColumns = ['peer', 'user', 'type', 'streams', 'since', 'actions'];
 
   ngOnInit(): void {
     this.tvh.idnodeLoadByClass('mpegts_input').pipe(catchError(() => of(null))).subscribe(list => this.inputs.set(list || []));
+    // Channel names → uuids, so a silent stream can link to its channel.
+    this.tvh.getGrid('channel/grid', { all: 1, limit: 100000 }).pipe(catchError(() => of([] as any[]))).subscribe(chs =>
+      this.channelIds.set(new Map(chs.map((c: any) => [String(c.name || ''), String(c.uuid)]))));
     this.poll();
     this.timer = setInterval(() => { if (!this.paused() && !document.hidden) this.poll(); }, POLL_MS);
     this.destroyRef.onDestroy(() => { if (this.timer) clearInterval(this.timer); });
@@ -253,6 +289,8 @@ export class StatusComponent implements OnInit {
         this.inFlight = false;
         this.trackRising(inputs);
         this.inputStatus.set(inputs);
+        this.trackQuiet(subs);
+        this.now.set(Date.now());
         this.subscriptions.set(subs);
         this.connections.set(conns);
         this.recordings.set(recs);
@@ -268,6 +306,16 @@ export class StatusComponent implements OnInit {
           : `Couldn’t reach Tvheadend (${err?.status || 'network error'}) — retrying.`);
       },
     });
+  }
+
+  private trackQuiet(subs: any[]): void {
+    const now = Date.now(), next = new Map<number, number>();
+    for (const s of subs) {
+      const id = Number(s.id);
+      if (Number(s.in) > 0) continue;
+      next.set(id, this.quietSince.get(id) ?? now);
+    }
+    this.quietSince = next;
   }
 
   private trackRising(inputs: any[]): void {

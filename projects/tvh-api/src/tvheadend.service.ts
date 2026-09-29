@@ -1644,6 +1644,29 @@ export class TvheadendService {
     return this.http.get(this.channelPlaylistUrl(channelUuid, title), { ...this.getRequestOptions(), responseType: 'text' });
   }
 
+  /**
+   * Play a channel for a few seconds and count what arrives — the plain answer to "does it play?".
+   * Uses the untouched stream ("pass" profile). status 0 = the request failed outright.
+   */
+  async probeChannel(channelUuid: string, ms = 6000): Promise<{ status: number; bytes: number }> {
+    const root = this.apiBase.replace(/\/api\/?$/, '');
+    const url = new URL(`${root}/stream/channel/${encodeURIComponent(channelUuid)}?profile=pass`, window.location.origin).toString();
+    const ctl = new AbortController();
+    let status = 0, bytes = 0;
+    const reading = fetch(url, { headers: this.authHeader ? { Authorization: this.authHeader } : {}, signal: ctl.signal, cache: 'no-store' })
+      .then(async r => {
+        status = r.status;
+        if (!r.ok || !r.body) return;
+        const rd = r.body.getReader();
+        for (;;) { const { done, value } = await rd.read(); if (done) break; bytes += value.length; }
+      })
+      .catch(() => { /* aborted or network error */ });
+    await new Promise(res => setTimeout(res, ms));
+    ctl.abort();
+    await reading.catch(() => {});
+    return { status, bytes };
+  }
+
   /** Record every episode of the event's series (Tvheadend's series link → an auto-record rule). */
   recordSeriesByEvent(eventId: number): Observable<any> {
     return this.getDefaultDvrConfigUuid().pipe(

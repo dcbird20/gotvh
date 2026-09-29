@@ -1,7 +1,8 @@
 import { Component, DestroyRef, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { Observable, of } from 'rxjs';
+import { Observable, concat, of } from 'rxjs';
+import { catchError, toArray } from 'rxjs/operators';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -18,6 +19,9 @@ import { SplitHandleDirective } from '../../shared/split-handle.directive';
 import { ConnectionsComponent } from '../../shared/connections.component';
 import { NameFix, findNameFixes } from '../../shared/channel-naming';
 import { FixNamesDialogComponent, FixNamesResult } from './fix-names-dialog.component';
+import { ChannelIssue, PlaybackResult, checkChannelHealth, firstValueFrom, testPlayback } from '../../shared/channel-health';
+import { broadcastFirst } from '../../shared/source-priority';
+import { ChannelHealthDialogComponent, ChannelRepair } from './channel-health-dialog.component';
 
 type YesNo = 'all' | 'yes' | 'no';
 type ServiceCount = 'all' | 'none' | 'one' | 'many';
@@ -47,6 +51,27 @@ interface EditorState {
     <div class="admin-page wide">
       <h1>Channels</h1>
       <p class="subtitle">Channel numbers, names, tags and which services feed them. Select several to change a setting on all of them.</p>
+
+      @if (health().length) {
+        <div class="fix-banner bad">
+          <mat-icon>report</mat-icon>
+          <span>
+            <strong>{{ health().length }} {{ health().length === 1 ? 'channel has' : 'channels have' }} nothing to play</strong>
+            ({{ healthNames() }}).
+            @if (healthFixable()) { A working feed for the same station was found for {{ healthFixable() === health().length ? 'all of them' : healthFixable() }}. }
+          </span>
+          <button mat-flat-button (click)="repairChannels()" [disabled]="repairing()">{{ repairing() ? 'Repairing…' : 'Review and repair…' }}</button>
+        </div>
+      }
+      @if (repairReport(); as rr) {
+        <div class="fix-banner" [class.bad]="rr.failed">
+          <mat-icon>{{ rr.failed ? 'error' : 'check_circle' }}</mat-icon>
+          <span>
+            @for (l of rr.lines; track $index) { <div>{{ l }}</div> }
+          </span>
+          <button mat-button (click)="repairReport.set(null)">Dismiss</button>
+        </div>
+      }
 
       @if (nameFixes().length) {
         <div class="fix-banner">
@@ -133,9 +158,22 @@ interface EditorState {
               [createPath]="e.creating ? 'channel' : null" [title]="e.title"
               (saved)="onSaved($event)" (closed)="close()">
               @if (e.uuid) {
-                <button formExtraActions mat-button type="button" class="danger-text" (click)="deleteOne(e)">Delete</button>
+                <ng-container ngProjectAs="[formExtraActions]">
+                <button mat-button type="button" (click)="testChannel(e.uuid)" [disabled]="testing()"
+                        matTooltip="Play the channel for a few seconds and report what arrives">
+                  <mat-icon>{{ testing() ? 'hourglass_top' : 'play_circle' }}</mat-icon> {{ testing() ? 'Testing…' : 'Test playback' }}
+                </button>
+                <button mat-button type="button" class="danger-text" (click)="deleteOne(e)">Delete</button>
+                </ng-container>
               }
             </admin-idnode-form>
+            @if (e.uuid && playback()?.uuid === e.uuid) {
+              @let pb = playback()!.result;
+              <div class="playback" [class.ok]="pb.verdict === 'plays'">
+                <mat-icon>{{ pb.verdict === 'plays' ? 'check_circle' : 'error' }}</mat-icon>
+                <span>{{ pb.message }}</span>
+              </div>
+            }
             @if (e.uuid && !e.bulkUuids) { <admin-connections kind="channel" [uuid]="e.uuid" /> }
           </div>
         }
@@ -146,6 +184,10 @@ interface EditorState {
     .fix-banner { display: flex; align-items: center; gap: 12px; padding: 8px 12px; margin: 0 0 12px; border-radius: 8px;
       background: var(--mat-sys-secondary-container); color: var(--mat-sys-on-secondary-container); }
     .fix-banner span { flex: 1; }
+    .fix-banner.bad { background: var(--mat-sys-error-container); color: var(--mat-sys-on-error-container); }
+    .playback { display: flex; gap: 8px; align-items: flex-start; padding: 8px 12px; margin: 8px 0; border-radius: 8px;
+      background: var(--mat-sys-error-container); color: var(--mat-sys-on-error-container); }
+    .playback.ok { background: var(--mat-sys-secondary-container); color: var(--mat-sys-on-secondary-container); }
     .wide { max-width: none; }
     .filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 8px; }
     .f-small { width: 150px; }
@@ -308,7 +350,80 @@ export class ChannelsComponent implements OnInit {
       });
   }
 
+  // ---------------------------------------------------------------- health
+
+  /** Enabled channels with no working feed. */
+  readonly health = signal<ChannelIssue[]>([]);
+  readonly healthFixable = computed(() => this.health().filter(i => i.candidates.length).length);
+  readonly healthNames = computed(() => {
+    const h = this.health();
+    return h.slice(0, 3).map(i => i.name).join(', ') + (h.length > 3 ? ` and ${h.length - 3} more` : '');
+  });
+  readonly repairing = signal(false);
+  readonly repairReport = signal<{ lines: string[]; failed: boolean } | null>(null);
+
+  private loadHealth(): void {
+    checkChannelHealth(this.tvh).subscribe({ next: r => this.health.set(r.issues), error: () => this.health.set([]) });
+  }
+
+  repairChannels(): void {
+    this.dialog.open<ChannelHealthDialogComponent, ChannelIssue[], ChannelRepair[]>(ChannelHealthDialogComponent,
+      { data: this.health(), width: '760px', maxHeight: '85vh' })
+      .afterClosed().subscribe(repairs => { if (repairs?.length) this.applyRepairs(repairs); });
+  }
+
+  private async applyRepairs(repairs: ChannelRepair[]): Promise<void> {
+    this.repairing.set(true);
+    const lines: string[] = [];
+    let failed = false;
+    const ok = <T>(o: Observable<T>) => firstValueFrom(o.pipe(catchError(() => of(null)))).then(v => v !== null);
+    for (const r of repairs) {
+      if (r.disable) {
+        if (await ok(this.tvh.idnodeSave(r.uuid, { enabled: 0 }))) lines.push(`${r.name}: switched off.`);
+        else { failed = true; lines.push(`${r.name}: couldn’t switch it off.`); }
+        continue;
+      }
+      const conf: Record<string, unknown> = { services: r.services };
+      if (r.epggrab?.length) conf['epggrab'] = r.epggrab;
+      if (!(await ok(this.tvh.idnodeSave(r.uuid, conf)))) { failed = true; lines.push(`${r.name}: couldn’t link the feeds.`); continue; }
+      // Remove the disabled duplicates once their feeds have moved.
+      const removed = await firstValueFrom(concat(...r.remove.map(d => this.tvh.idnodeDelete(d.uuid).pipe(catchError(() => of(null))))).pipe(toArray()))
+        .catch(() => [] as unknown[]);
+      const removedCount = r.remove.length ? removed.filter(x => x !== null).length : 0;
+      lines.push(`${r.name}: linked ${r.services.length} ${r.services.length === 1 ? 'feed' : 'feeds'}${removedCount ? `, removed ${removedCount} disabled ${removedCount === 1 ? 'duplicate' : 'duplicates'}` : ''}.`);
+    }
+    // Antenna before IPTV when a channel now has both.
+    if (repairs.some(r => r.services.length > 1)) await firstValueFrom(broadcastFirst(this.tvh).pipe(catchError(() => of([]))));
+    this.repairReport.set({ lines: [...lines, 'Testing playback…'], failed });
+    this.grid?.refresh();
+    // Prove it: play each repaired channel for a few seconds.
+    for (const r of repairs.filter(x => !x.disable && x.services.length)) {
+      const res = await testPlayback(this.tvh, { uuid: r.uuid, services: r.services }).catch(() => null);
+      if (!res || res.verdict !== 'plays') failed = true;
+      lines.push(`${r.name} — ${res ? res.message : 'couldn’t test playback.'}`);
+      this.repairReport.set({ lines: [...lines], failed });
+    }
+    this.repairReport.set({ lines, failed });
+    this.repairing.set(false);
+    this.loadHealth();
+  }
+
+  /** Last playback test, shown under the channel editor. */
+  readonly playback = signal<{ uuid: string; result: PlaybackResult } | null>(null);
+  readonly testing = signal(false);
+
+  async testChannel(uuid: string): Promise<void> {
+    this.testing.set(true);
+    this.playback.set(null);
+    try {
+      this.playback.set({ uuid, result: await testPlayback(this.tvh, { uuid }) });
+    } finally {
+      this.testing.set(false);
+    }
+  }
+
   ngOnInit(): void {
+    this.loadHealth();
     this.loadNameFixes();
     // Linked from elsewhere, e.g. Channel tags → /channels?tag=<uuid> (or ?tag=none).
     const tag = this.route.snapshot.queryParamMap.get('tag');

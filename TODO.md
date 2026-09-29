@@ -33,6 +33,13 @@ The stock UI needs you to know the chain
       Map services, or "Use the antenna first" from a channel's Connected to card, which shows the order).
 - [x] **Local IP / Local port** for HDHomeRun behind Docker or a VPN — in Add a source's HDHomeRun step,
       with the UDP ports to forward.
+- [x] **Channel health** — Channels flags enabled channels with nothing to play (feed deleted, switched
+      off, or none), finds the same station's working feeds (call sign, or number + network), relinks them
+      antenna first, removes the disabled duplicates, then plays each repaired channel to prove it.
+- [x] **Test playback** — plays a channel for a few seconds; when nothing arrives, compares with another
+      channel on the same source and says whether the stream or the whole source is dead.
+- [x] **Live status: receiving nothing** — streams and recordings with no data for 20 s are flagged with
+      the likely cause and a link to the channel.
 - [x] **Tuner health during scans** — a tuner that locks but delivers no video is named, with the cause
       (e.g. HDHomeRun sending to an unreachable container address).
 - [x] **No duplicate networks** — Add a source suggests rescanning the network the tuners already have;

@@ -59,3 +59,7 @@ td.bad { color: var(--mat-sys-error); }
 }
 
 .no-signal { margin: 8px 0; }
+
+.silent { display: flex; gap: 6px; align-items: flex-start; margin-top: 4px; max-width: 520px;
+  font: var(--mat-sys-body-small); color: var(--mat-sys-error);
+  a { color: inherit; font-weight: 500; } }

@@ -80,7 +80,9 @@
   </div>
 
   <!-- ============================================================ streams -->
-  <h2>Streams &amp; recordings <span class="count">{{ streams().length }}</span></h2>
+  <h2>Streams &amp; recordings <span class="count">{{ streams().length }}</span>
+    @if (silentCount()) { <span class="chip warn">{{ silentCount() }} receiving nothing</span> }
+  </h2>
   @if (streams().length) {
     <table mat-table [dataSource]="streams()">
       <ng-container matColumnDef="what">
@@ -89,6 +91,15 @@
           @if (s.recording) { <mat-icon class="small-icon rec">fiber_manual_record</mat-icon> }
           {{ s.what }}
           @if (s.errors) { <span class="chip warn" matTooltip="Stream errors since it started">{{ s.errors }} errors</span> }
+          @if (s.silentFor) {
+            <div class="silent">
+              <mat-icon class="small-icon">signal_disconnected</mat-icon>
+              <span><strong>{{ s.neverReceived ? 'Nothing received' : 'Nothing received for ' + s.silentFor + ' s' }}</strong>{{ s.recording ? ' — this recording will be empty.' : '.' }}
+                {{ s.silentWhy }}
+                @if (s.channelUuid) { <a routerLink="/channels" [queryParams]="{ open: s.channelUuid }">Check the channel</a> }
+              </span>
+            </div>
+          }
         </td>
       </ng-container>
       <ng-container matColumnDef="channel">
