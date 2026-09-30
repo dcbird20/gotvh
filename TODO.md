@@ -94,3 +94,14 @@ The stock UI needs you to know the chain
 - [x] Channel tags (channel counts, order, hidden/private, what limits them, link to Channels)
 - [x] Stream profiles (types in plain English, used-by, default, codec profiles for transcoding)
 - [x] Multi-select + bulk actions + bulk edit (add/remove/replace for lists) everywhere
+
+## Native TV app (tv-android)
+
+- [x] **First version** — live TV (last channel, channel up/down, banner, channel list, typed numbers),
+      guide grid with record, converting-profile fallback; APK built by GitHub on every push.
+- [ ] Recordings list and playback (with resume)
+- [ ] Auto-record rules view
+- [ ] Mini guide / "what's next" strip while watching
+- [ ] Digest sign-in (for servers that don't accept Basic)
+- [ ] Software AC-3 / MPEG-2 decoding (FFmpeg extension) for TVs without hardware support
+
