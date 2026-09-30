@@ -7,6 +7,10 @@ cd "$(dirname "$0")/.."
 
 WEBROOT=/var/www/gotvh-admin
 
+# Pull first, so --install copies the current nginx settings (not the ones from before the pull).
+echo "Updating the code…"
+git pull --ff-only
+
 if [[ "${1:-}" == "--install" ]]; then
   command -v nginx >/dev/null || { echo "Installing nginx…"; sudo apt-get update -q && sudo apt-get install -y nginx; }
   sudo mkdir -p /etc/nginx/snippets "$WEBROOT"
@@ -14,9 +18,6 @@ if [[ "${1:-}" == "--install" ]]; then
   sudo cp nginx/gotvh-admin.conf /etc/nginx/sites-available/gotvh-admin
   sudo ln -sf /etc/nginx/sites-available/gotvh-admin /etc/nginx/sites-enabled/gotvh-admin
 fi
-
-echo "Updating the code…"
-git pull --ff-only
 
 echo "Installing packages (only if package-lock.json changed)…"
 if [[ ! -d node_modules || package-lock.json -nt node_modules/.package-lock.json ]]; then npm ci; fi
