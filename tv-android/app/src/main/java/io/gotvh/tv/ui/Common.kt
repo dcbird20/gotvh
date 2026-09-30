@@ -21,6 +21,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -67,9 +70,27 @@ fun dayLabel(sec: Long): String {
 @Composable
 fun TvButton(text: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
+    // A click needs OK to go down *and* up on this button. The OK that opened a dialog goes down on
+    // the screen behind it and comes up here; without this, that release pressed the first button.
+    var armed by remember { mutableStateOf(false) }
     Box(
         modifier
-            .onFocusChanged { focused = it.isFocused }
+            .onFocusChanged {
+                focused = it.isFocused
+                if (!it.isFocused) armed = false
+            }
+            .onPreviewKeyEvent { ev ->
+                if (!isOkKey(ev.nativeKeyEvent.keyCode)) return@onPreviewKeyEvent false
+                when (ev.type) {
+                    KeyEventType.KeyDown -> {
+                        if (ev.nativeKeyEvent.repeatCount > 0) return@onPreviewKeyEvent true // holding OK
+                        armed = true
+                        false
+                    }
+                    KeyEventType.KeyUp -> if (armed) { armed = false; false } else true
+                    else -> false
+                }
+            }
             .clip(RoundedCornerShape(8.dp))
             .background(if (focused) Tv.accent else Color(0x26FFFFFF))
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick)
@@ -78,6 +99,15 @@ fun TvButton(text: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
         Text(text, color = if (focused) Color.Black else Tv.text, fontSize = 17.sp, fontWeight = FontWeight.Medium)
     }
 }
+
+/** OK on a remote (centre of the D-pad) or Enter on a keyboard. */
+fun isOkKey(keyCode: Int): Boolean =
+    keyCode == android.view.KeyEvent.KEYCODE_DPAD_CENTER || keyCode == android.view.KeyEvent.KEYCODE_ENTER ||
+        keyCode == android.view.KeyEvent.KEYCODE_NUMPAD_ENTER
+
+/** Holding OK sends repeats; screens treat only the first press as a press. */
+fun isHeldOk(ev: androidx.compose.ui.input.key.KeyEvent): Boolean =
+    isOkKey(ev.nativeKeyEvent.keyCode) && ev.nativeKeyEvent.repeatCount > 0
 
 /** Channel logo from Tvheadend's image cache, or the channel number when there's none. */
 @Composable

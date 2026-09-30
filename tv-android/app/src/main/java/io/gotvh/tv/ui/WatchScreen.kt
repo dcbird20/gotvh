@@ -57,7 +57,7 @@ private const val LIST_PAGE = 8
  * Full-screen TV. Keys:
  *  Up / Ch+ next channel · Down / Ch− previous · OK info banner (OK again: channel list) ·
  *  Left channel list · Right / Guide the guide · Menu the menu · digits jump to a number · Last channel ·
- *  Back closes what's open, twice to exit.
+ *  Back closes what's open, then opens the menu (Recordings, Settings, Exit…).
  */
 @Composable
 fun WatchScreen(vm: AppViewModel) {
@@ -68,7 +68,6 @@ fun WatchScreen(vm: AppViewModel) {
     var listOpen by remember { mutableStateOf(false) }
     var listIndex by remember { mutableIntStateOf(vm.currentIndex) }
     var digits by remember { mutableStateOf("") }
-    var backArmedAt by remember { mutableLongStateOf(0L) }
     val bannerVisible = now < bannerUntil
     val channels = vm.channels
 
@@ -99,17 +98,15 @@ fun WatchScreen(vm: AppViewModel) {
         digits = ""
     }
 
-    BackHandler {
+    // Google TV remotes have no Menu key, so Back on full-screen TV opens the menu.
+    BackHandler(enabled = !vm.menuOpen) {
         when {
             listOpen -> listOpen = false
             bannerVisible -> bannerUntil = 0
-            System.currentTimeMillis() - backArmedAt < 2500 -> (context as? Activity)?.finish()
-            else -> {
-                backArmedAt = System.currentTimeMillis()
-                vm.notice = "Press Back again to exit"
-            }
+            else -> vm.menuOpen = true
         }
     }
+
 
     Box(
         Modifier
@@ -117,6 +114,7 @@ fun WatchScreen(vm: AppViewModel) {
             .focusRequester(focus)
             .focusable()
             .onPreviewKeyEvent { ev ->
+                if (isHeldOk(ev)) return@onPreviewKeyEvent true
                 if (ev.type != KeyEventType.KeyDown || channels.isEmpty()) return@onPreviewKeyEvent false
                 val k = ev.nativeKeyEvent.keyCode
                 if (listOpen) {
@@ -241,7 +239,7 @@ private fun ChannelBanner(vm: AppViewModel) {
                     }
                 }
             }
-            Text("OK  channels · ▶  guide", color = Tv.muted, fontSize = 14.sp)
+            Text("OK  channels · ▶  guide · Back  menu", color = Tv.muted, fontSize = 14.sp)
         }
     }
 }

@@ -35,10 +35,9 @@ sign-in both work.
 | OK | Info banner: now with progress, and the next few programmes; OK again: channel list |
 | Left | Channel list (Up/Down, OK to tune, Right for its guide) |
 | Right / Guide | Guide |
-| Menu | Menu: Live TV, Guide, Recordings, Auto-record rules, Settings |
+| Back (or Menu) | Closes what's open, then the menu: Live TV, Guide, Recordings, Auto-record rules, Settings, Exit |
 | 0–9 | Type a channel number |
 | Last channel | Back to the previous channel |
-| Back | Close what's open; twice to exit |
 
 **Guide** (drawn over the channel you're watching)
 
@@ -50,10 +49,9 @@ sign-in both work.
 | ⏪ / ⏩ | Two hours back / ahead |
 | OK | Details: Watch, Record, Record series, Don't record |
 | ▶ | Watch that channel |
-| Menu | Menu |
 | Back / Guide | Back to TV |
 
-**Recordings** (Menu → Recordings)
+**Recordings** (Back → Recordings)
 
 | Key | Does |
 |---|---|
@@ -65,8 +63,10 @@ sign-in both work.
 **Playing a recording**: Left/⏪ back 10 s · Right/⏩ forward 30 s · OK/⏯ pause · Back to Recordings.
 It remembers where you stopped and offers to resume.
 
-**Auto-record rules** (Menu → Auto-record rules): OK to switch a rule on or off, or delete it.
+**Auto-record rules** (Back → Auto-record rules): OK to switch a rule on or off, or delete it.
 Creating and editing rules is in the guide (Record series) and the admin app.
+
+Google TV remotes have no Menu key, so Back from full-screen TV opens the menu; Home leaves the app.
 
 ## Playback
 

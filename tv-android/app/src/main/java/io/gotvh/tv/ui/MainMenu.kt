@@ -1,5 +1,6 @@
 package io.gotvh.tv.ui
 
+import android.app.Activity
 import android.view.KeyEvent
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -27,23 +28,26 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.gotvh.tv.AppViewModel
 import io.gotvh.tv.Screen
 
-private val ITEMS = listOf(
+private val ITEMS: List<Pair<String, Screen?>> = listOf(
     "Live TV" to Screen.Watch,
     "Guide" to Screen.Guide,
     "Recordings" to Screen.Recordings,
     "Auto-record rules" to Screen.Rules,
     "Settings" to Screen.Setup,
+    "Exit" to null,
 )
 
 /** The Menu key's menu, over whatever is on screen. */
 @Composable
 fun MainMenu(vm: AppViewModel) {
+    val context = LocalContext.current
     val focus = remember { FocusRequester() }
     var index by remember { mutableIntStateOf(ITEMS.indexOfFirst { it.second == vm.screen }.coerceAtLeast(0)) }
     LaunchedEffect(Unit) { focus.requestFocus() }
@@ -56,12 +60,15 @@ fun MainMenu(vm: AppViewModel) {
             .focusRequester(focus)
             .focusable()
             .onPreviewKeyEvent { ev ->
+                if (isHeldOk(ev)) return@onPreviewKeyEvent true
                 if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (ev.nativeKeyEvent.keyCode) {
                     KeyEvent.KEYCODE_DPAD_UP -> index = Math.floorMod(index - 1, ITEMS.size)
                     KeyEvent.KEYCODE_DPAD_DOWN -> index = Math.floorMod(index + 1, ITEMS.size)
-                    KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER, KeyEvent.KEYCODE_DPAD_RIGHT ->
-                        vm.open(ITEMS[index].second)
+                    KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER, KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                        val target = ITEMS[index].second
+                        if (target == null) (context as? Activity)?.finish() else vm.open(target)
+                    }
                     KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_MENU -> vm.menuOpen = false
                     else -> return@onPreviewKeyEvent false
                 }

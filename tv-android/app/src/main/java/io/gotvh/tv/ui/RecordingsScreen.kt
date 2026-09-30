@@ -85,6 +85,7 @@ fun RecordingsScreen(vm: AppViewModel) {
             .focusRequester(focus)
             .focusable()
             .onPreviewKeyEvent { ev ->
+                if (isHeldOk(ev)) return@onPreviewKeyEvent true
                 if (dialogOpen || ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 val ok = ev.nativeKeyEvent.keyCode in setOf(KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER)
                 when (val k = ev.nativeKeyEvent.keyCode) {
@@ -132,7 +133,7 @@ fun RecordingsScreen(vm: AppViewModel) {
                     )
                 }
                 Spacer(Modifier.weight(1f))
-                Text("OK play · Menu · Back TV", color = Tv.muted, fontSize = 13.sp)
+                Text("OK play · Back TV", color = Tv.muted, fontSize = 13.sp)
             }
             Spacer(Modifier.height(18.dp))
             if (leftCount == 0) {

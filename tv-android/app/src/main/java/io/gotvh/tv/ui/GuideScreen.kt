@@ -130,6 +130,7 @@ fun GuideScreen(vm: AppViewModel) {
             .focusRequester(focus)
             .focusable()
             .onPreviewKeyEvent { ev ->
+                if (isHeldOk(ev)) return@onPreviewKeyEvent true
                 if (detail != null || ev.type != KeyEventType.KeyDown || channels.isEmpty()) return@onPreviewKeyEvent false
                 when (ev.nativeKeyEvent.keyCode) {
                     KeyEvent.KEYCODE_DPAD_UP -> row = (row - 1).coerceAtLeast(0)
@@ -167,7 +168,7 @@ fun GuideScreen(vm: AppViewModel) {
                 Spacer(Modifier.width(18.dp))
                 Text(dayLabel(windowStart), color = Tv.accent, fontSize = 20.sp)
                 Spacer(Modifier.weight(1f))
-                Text("OK details · ▶ watch · ⏪⏩ 2 hours · Menu · Back TV", color = Tv.muted, fontSize = 13.sp)
+                Text("OK details · ▶ watch · ⏪⏩ 2 hours · Back TV", color = Tv.muted, fontSize = 13.sp)
             }
             Spacer(Modifier.height(10.dp))
             ProgramSummary(selected, channel)
