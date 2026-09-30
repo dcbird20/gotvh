@@ -1,5 +1,7 @@
 import { CommonModule } from '@angular/common';
-import { Component, HostListener, OnDestroy, OnInit } from '@angular/core';
+import { ChangeDetectorRef, Component, HostListener, OnDestroy, OnInit } from '@angular/core';
+import { SpatialNavService } from '../../services/spatial-nav.service';
+import { renderThen } from '../../services/render-then';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { forkJoin, of, Subject } from 'rxjs';
@@ -47,12 +49,21 @@ export class ChannelsComponent implements OnInit, OnDestroy {
 
   private destroy$ = new Subject<void>();
 
+  private destroyed = false;
+
+  /** Render now, then act on the new DOM (replaces setTimeout(…, 0) focus waits). */
+  private afterRender(action: () => unknown): void {
+    renderThen(this.cdr, () => this.destroyed, action);
+  }
+
   constructor(
     private tvh: TvheadendService,
     private router: Router,
     private route: ActivatedRoute,
     private returnNavigation: ReturnNavigationService,
-    private viewStateCache: ViewStateCacheService
+    private viewStateCache: ViewStateCacheService,
+    private spatialNav: SpatialNavService,
+    private cdr: ChangeDetectorRef
   ) {}
 
   ngOnInit(): void {
@@ -63,6 +74,7 @@ export class ChannelsComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.destroyed = true;
     this.destroy$.next();
     this.destroy$.complete();
   }
@@ -321,7 +333,7 @@ export class ChannelsComponent implements OnInit, OnDestroy {
       return;
     }
 
-    if (!this.isSelectKey(event) || this.loading || !!this.errorMessage || this.activationInProgress) {
+    if (!this.spatialNav.isSelectKey(event) || this.loading || !!this.errorMessage || this.activationInProgress) {
       return;
     }
 
@@ -383,11 +395,11 @@ export class ChannelsComponent implements OnInit, OnDestroy {
       this.selectChannel(match);
     }
 
-    setTimeout(() => {
+    this.afterRender(() => {
       const escapedUuid = channelUuid.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
       const target = document.querySelector(`.channel-card[data-channel-uuid="${escapedUuid}"]`) as HTMLElement | null;
       target?.focus();
-    }, 0);
+    });
   }
 
   private restoreCachedViewState(): void {
@@ -791,14 +803,14 @@ export class ChannelsComponent implements OnInit, OnDestroy {
     const activeElement = document.activeElement as HTMLElement | null;
     const activeChannelCard = activeElement?.closest('.channel-card') as HTMLElement | null;
 
-    if (this.isDirectionalKey(event, 'down')) {
+    if (this.spatialNav.isDirectionalKey(event, 'down')) {
       const channelCard = activeChannelCard;
       if (channelCard && this.isLastChannelRow(channelCard)) {
         return this.focusDetailActionButton();
       }
     }
 
-    if (this.isDirectionalKey(event, 'up')) {
+    if (this.spatialNav.isDirectionalKey(event, 'up')) {
       const activeElement = document.activeElement as HTMLElement | null;
       const actionArea = activeElement?.closest('.detail-strip__actions') as HTMLElement | null;
       if (actionArea) {
@@ -852,52 +864,6 @@ export class ChannelsComponent implements OnInit, OnDestroy {
     }
 
     return !!target.closest('input, textarea, [contenteditable="true"], [contenteditable=""]');
-  }
-
-  private isSelectKey(event: KeyboardEvent): boolean {
-    const key = String(event.key || '');
-    const code = String((event as any).code || '');
-    const keyCode = Number((event as any).keyCode || (event as any).which || 0);
-    const looksLikePrintableKeyboardInput = (key.length === 1 && key !== ' ')
-      || code.startsWith('Key')
-      || code.startsWith('Digit');
-
-    return key === 'Enter'
-      || key === 'BrowserSelect'
-      || key === 'NumpadEnter'
-      || key === 'Select'
-      || key === 'OK'
-      || key === ' '
-      || key === 'Spacebar'
-      || code === 'BrowserSelect'
-      || code === 'Enter'
-      || code === 'NumpadEnter'
-      || code === 'Space'
-      || keyCode === 13
-      || keyCode === 23
-      || keyCode === 32
-        || (keyCode === 66 && !looksLikePrintableKeyboardInput)
-      || keyCode === 160;
-  }
-
-  private isDirectionalKey(event: KeyboardEvent, direction: 'up' | 'down' | 'left' | 'right'): boolean {
-    const key = String(event.key || '');
-    const code = String((event as any).code || '');
-    const keyCode = Number((event as any).keyCode || (event as any).which || 0);
-
-    if (direction === 'up') {
-      return key === 'ArrowUp' || code === 'ArrowUp' || keyCode === 19 || keyCode === 38;
-    }
-
-    if (direction === 'down') {
-      return key === 'ArrowDown' || code === 'ArrowDown' || keyCode === 20 || keyCode === 40;
-    }
-
-    if (direction === 'left') {
-      return key === 'ArrowLeft' || code === 'ArrowLeft' || keyCode === 21 || keyCode === 37;
-    }
-
-    return key === 'ArrowRight' || code === 'ArrowRight' || keyCode === 22 || keyCode === 39;
   }
 
   private captureRemoteKey(event: KeyboardEvent): void {

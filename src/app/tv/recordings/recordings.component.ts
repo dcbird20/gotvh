@@ -1,5 +1,6 @@
 import { CommonModule } from '@angular/common';
-import { Component, HostListener, OnInit } from '@angular/core';
+import { ChangeDetectorRef, Component, HostListener, OnDestroy, OnInit } from '@angular/core';
+import { renderThen } from '../../services/render-then';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { forkJoin, of } from 'rxjs';
@@ -27,7 +28,7 @@ interface RecordingProgramStack {
   templateUrl: './recordings.component.html',
   styleUrls: ['./recordings.component.scss']
 })
-export class RecordingsComponent implements OnInit {
+export class RecordingsComponent implements OnInit, OnDestroy {
   loading = true;
   error = '';
   actionError = '';
@@ -70,8 +71,20 @@ export class RecordingsComponent implements OnInit {
     private route: ActivatedRoute,
     private returnNavigation: ReturnNavigationService,
     private recordingProgress: RecordingPlaybackProgressService,
-    private spatialNav: SpatialNavService
+    private spatialNav: SpatialNavService,
+    private cdr: ChangeDetectorRef
   ) {}
+
+  private destroyed = false;
+
+  ngOnDestroy(): void {
+    this.destroyed = true;
+  }
+
+  /** Render now, then act on the new DOM (replaces setTimeout focus waits). */
+  private afterRender(action: () => unknown): void {
+    renderThen(this.cdr, () => this.destroyed, action);
+  }
 
   ngOnInit(): void {
     this.capturePendingReturnContext();
@@ -306,6 +319,9 @@ export class RecordingsComponent implements OnInit {
   }
 
   handleRowArrowRight(entry: any, stack: RecordingProgramStack, isParent: boolean, event: KeyboardEvent): void {
+    if (this.spatialNav.directionOf(event) !== 'right') {
+      return;
+    }
     if (!isParent || !stack.childEntries.length || !this.usesProgramStacks() || this.isEditing(entry)) {
       return;
     }
@@ -319,7 +335,7 @@ export class RecordingsComponent implements OnInit {
       event.stopPropagation();
       this.revealMoreChildrenInStack(stack);
 
-      setTimeout(() => {
+      this.afterRender(() => {
         const preferredChild = this.getPreferredChildEntry(stack);
         if (!preferredChild) {
           return;
@@ -336,7 +352,7 @@ export class RecordingsComponent implements OnInit {
       this.expandedStackKey = stack.key;
       this.expandedStackVisibleChildren = Math.min(this.stackChildPreviewLimit, stack.childEntries.length);
 
-      setTimeout(() => {
+      this.afterRender(() => {
         const preferredChild = this.getPreferredChildEntry(stack);
         if (!preferredChild) {
           return;
@@ -420,40 +436,10 @@ export class RecordingsComponent implements OnInit {
   }
 
   private getChannelPageDirection(event: KeyboardEvent): -1 | 1 | null {
-    const key = String(event.key || '').trim();
-    const code = String((event as any).code || '').trim();
-    const keyCode = Number((event as any).keyCode || (event as any).which || 0);
-    const isBareChannelUp = keyCode === 33 && !key && !code;
-    const isBareChannelDown = keyCode === 34 && !key && !code;
-
-    if (
-      key === 'ChannelUp'
-      || key === 'MediaChannelUp'
-      || code === 'ChannelUp'
-      || code === 'MediaChannelUp'
-      || isBareChannelUp
-      || keyCode === 92
-      || keyCode === 166
-      || keyCode === 427
-    ) {
-      return -1;
-    }
-
-    if (
-      key === 'ChannelDown'
-      || key === 'MediaChannelDown'
-      || code === 'ChannelDown'
-      || code === 'MediaChannelDown'
-      || isBareChannelDown
-      || keyCode === 93
-      || keyCode === 167
-      || keyCode === 428
-    ) {
-      return 1;
-    }
-
-    return null;
+    const k = this.spatialNav.channelKey(event);
+    return k === 'up' ? -1 : k === 'down' ? 1 : null;
   }
+
 
   private moveRecordingFocusByPage(target: EventTarget | null, direction: -1 | 1): boolean {
     const visibleEntries = this.getFilteredEntries();
@@ -490,7 +476,7 @@ export class RecordingsComponent implements OnInit {
       return false;
     }
 
-    setTimeout(() => {
+    this.afterRender(() => {
       this.spatialNav.focusByElementId(`recording-body-${rowUuid}`);
     });
     return true;
@@ -679,7 +665,7 @@ export class RecordingsComponent implements OnInit {
       stop: this.formatDateTimeInput(entry?.stop)
     };
 
-    setTimeout(() => {
+    this.afterRender(() => {
       this.spatialNav.focusByElementId(`recording-edit-stop-plus-30-${uuid}`);
     });
   }
@@ -713,7 +699,7 @@ export class RecordingsComponent implements OnInit {
     this.confirmingRemoveUuid = '';
     this.expandedActionsUuid = uuid;
 
-    setTimeout(() => {
+    this.afterRender(() => {
       const firstActionId = this.getSecondaryActionFirstId(entry) || this.getActionSheetCloseId();
       this.spatialNav.focusByElementId(firstActionId);
     });
@@ -737,7 +723,7 @@ export class RecordingsComponent implements OnInit {
     this.confirmingRemoveUuid = '';
     this.expandedActionsUuid = uuid;
 
-    setTimeout(() => {
+    this.afterRender(() => {
       const firstActionId = this.getSecondaryActionFirstId(entry) || this.getActionSheetCloseId();
       this.spatialNav.focusByElementId(firstActionId);
     });
@@ -748,7 +734,6 @@ export class RecordingsComponent implements OnInit {
     this.handleRowLongPress(entry, event);
   }
 
-  @HostListener('document:keydown.escape')
   handleEscapeKey(): void {
     if (this.confirmingRemoveStackKey) {
       this.clearRemoveConfirmation();
@@ -765,7 +750,6 @@ export class RecordingsComponent implements OnInit {
     }
   }
 
-  @HostListener('document:keydown.pageup', ['$event'])
   handlePageUp(event: KeyboardEvent): void {
     const target = this.getRecordingsKeyTarget(event);
     if (this.shouldIgnoreGlobalRecordingsKeys(target)) {
@@ -776,7 +760,6 @@ export class RecordingsComponent implements OnInit {
     this.moveRecordingFocusByPage(target, -1);
   }
 
-  @HostListener('document:keydown.pagedown', ['$event'])
   handlePageDown(event: KeyboardEvent): void {
     const target = this.getRecordingsKeyTarget(event);
     if (this.shouldIgnoreGlobalRecordingsKeys(target)) {
@@ -787,7 +770,16 @@ export class RecordingsComponent implements OnInit {
     this.moveRecordingFocusByPage(target, 1);
   }
 
+  /** The screen's one key entry point (see SpatialNavService for what each remote sends). */
   @HostListener('document:keydown', ['$event'])
+  handleRecordingsKey(event: KeyboardEvent): void {
+    if (event.key === 'Escape') { this.handleEscapeKey(); return; }
+    if (this.spatialNav.channelKey(event)) { this.handleChannelPageKeys(event); return; }
+    const page = this.spatialNav.pageKey(event);
+    if (page === 'up') { this.handlePageUp(event); return; }
+    if (page === 'down') { this.handlePageDown(event); return; }
+  }
+
   handleChannelPageKeys(event: KeyboardEvent): void {
     const direction = this.getChannelPageDirection(event);
     if (!direction) {
@@ -846,7 +838,7 @@ export class RecordingsComponent implements OnInit {
 
     const restoreTarget = this.actionSheetTriggerElement;
     this.actionSheetTriggerElement = null;
-    setTimeout(() => {
+    this.afterRender(() => {
       restoreTarget?.focus();
     });
   }
@@ -1200,7 +1192,7 @@ export class RecordingsComponent implements OnInit {
     this.confirmingRemoveUuid = uuid;
     this.actionError = '';
 
-    setTimeout(() => {
+    this.afterRender(() => {
       this.spatialNav.focusByElementId('recording-remove-confirm-yes');
     });
   }
@@ -1223,7 +1215,7 @@ export class RecordingsComponent implements OnInit {
     this.confirmingRemoveStackKey = stack.key;
     this.actionError = '';
 
-    setTimeout(() => {
+    this.afterRender(() => {
       this.spatialNav.focusByElementId('recording-remove-stack-confirm-yes');
     });
   }
@@ -1421,11 +1413,11 @@ export class RecordingsComponent implements OnInit {
 
     this.expandStackForEntry(uuid);
 
-    setTimeout(() => {
+    this.afterRender(() => {
       const escapedUuid = uuid.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
       const target = document.querySelector(`[data-recording-row-uuid="${escapedUuid}"]`) as HTMLElement | null;
       target?.focus();
-    }, 0);
+    });
   }
 
   private focusFirstRowOnEntryIfNeeded(): void {
@@ -1440,11 +1432,11 @@ export class RecordingsComponent implements OnInit {
     }
 
     this.shouldApplyInitialRowFocus = false;
-    setTimeout(() => {
+    this.afterRender(() => {
       const escapedUuid = firstUuid.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
       const target = document.querySelector(`[data-recording-row-uuid="${escapedUuid}"]`) as HTMLElement | null;
       target?.focus();
-    }, 0);
+    });
   }
 
   cancelRecording(entry: any): void {
@@ -1476,7 +1468,7 @@ export class RecordingsComponent implements OnInit {
     this.pendingPostDeleteFocusUuid = '';
     this.shouldApplyInitialRowFocus = false;
 
-    setTimeout(() => {
+    this.afterRender(() => {
       const escapedUuid = focusUuid.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
       const target = document.querySelector(`[data-recording-row-uuid="${escapedUuid}"]`) as HTMLElement | null;
       if (target) {
@@ -1486,7 +1478,7 @@ export class RecordingsComponent implements OnInit {
 
       const fallback = document.querySelector('[data-recording-row-uuid]') as HTMLElement | null;
       fallback?.focus();
-    }, 0);
+    });
   }
 
   private resolvePostDeleteFocusUuid(removedUuid: string): string {

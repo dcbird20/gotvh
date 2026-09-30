@@ -1,5 +1,6 @@
 import { CommonModule } from '@angular/common';
-import { Component, HostListener, OnDestroy, OnInit } from '@angular/core';
+import { ChangeDetectorRef, Component, HostListener, OnDestroy, OnInit } from '@angular/core';
+import { renderThen } from '../../services/render-then';
 import { FormsModule } from '@angular/forms';
 import { Subject, Subscription, forkJoin, of } from 'rxjs';
 import { catchError, debounceTime, distinctUntilChanged, map, switchMap } from 'rxjs/operators';
@@ -95,9 +96,17 @@ export class AutorecComponent implements OnInit, OnDestroy {
     comment: ''
   };
 
+  private destroyed = false;
+
+  /** Render now, then act on the new DOM (replaces setTimeout(…, 0) focus waits). */
+  private afterRender(action: () => unknown): void {
+    renderThen(this.cdr, () => this.destroyed, action);
+  }
+
   constructor(
     private tvh: TvheadendService,
-    private spatialNav: SpatialNavService
+    private spatialNav: SpatialNavService,
+    private cdr: ChangeDetectorRef
   ) {}
 
   ngOnInit(): void {
@@ -106,6 +115,7 @@ export class AutorecComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.destroyed = true;
     this.guidePreviewSubscription?.unsubscribe();
   }
 
@@ -240,11 +250,11 @@ export class AutorecComponent implements OnInit, OnDestroy {
     this.error = '';
     this.confirmingDeleteRuleUuid = uuid;
 
-    setTimeout(() => {
+    this.afterRender(() => {
       const cancelButton = document.querySelector('[data-autorec-delete-confirm-cancel]') as HTMLElement | null;
       const confirmButton = document.querySelector('[data-autorec-delete-confirm-yes]') as HTMLElement | null;
       (cancelButton || confirmButton)?.focus();
-    }, 0);
+    });
   }
 
   confirmDeleteRule(): void {
@@ -497,7 +507,7 @@ export class AutorecComponent implements OnInit, OnDestroy {
     }
 
     this.pendingFocusTarget = null;
-    setTimeout(() => {
+    this.afterRender(() => {
       if (target === 'refresh') {
         (document.querySelector('[data-autorec-refresh]') as HTMLElement | null)?.focus();
         return;
@@ -512,7 +522,7 @@ export class AutorecComponent implements OnInit, OnDestroy {
       const sameRule = document.querySelector(`[data-autorec-row-uuid="${escapedUuid}"]`) as HTMLElement | null;
       const fallback = document.querySelector('[data-autorec-row-uuid], [data-autorec-refresh]') as HTMLElement | null;
       (sameRule || fallback)?.focus();
-    }, 0);
+    });
   }
 
   trackByUuid(_: number, rule: any): string {
@@ -704,11 +714,11 @@ export class AutorecComponent implements OnInit, OnDestroy {
 
   openConfigPicker(target: ConfigPickerTarget): void {
     this.configPickerTarget = target;
-    setTimeout(() => {
+    this.afterRender(() => {
       const selected = document.querySelector('[data-autorec-config-option-current="true"]') as HTMLElement | null;
       const first = document.querySelector('[data-autorec-config-option]') as HTMLElement | null;
       (selected || first)?.focus();
-    }, 0);
+    });
   }
 
   closeConfigPicker(): void {

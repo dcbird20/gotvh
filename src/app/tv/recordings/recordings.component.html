@@ -74,7 +74,7 @@
         (contextmenu)="handleRowContextMenu(entry, $event)"
         (click)="handleRowBodyActivate(entry, stack, isParent)"
         (focus)="rememberFocusedEntryInStack(entry, stack, isParent)"
-        (keydown.arrowright)="handleRowArrowRight(entry, stack, isParent, $event)"
+        (keydown)="handleRowArrowRight(entry, stack, isParent, $event)"
         data-tv-linear-anchor="true"
         [id]="getRowBodyId(entry)"
         [attr.data-recording-row-uuid]="entry.uuid"

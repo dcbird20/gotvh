@@ -1,5 +1,6 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnDestroy, OnInit } from '@angular/core';
+import { ChangeDetectorRef, Component, OnDestroy, OnInit } from '@angular/core';
+import { renderThen } from '../../services/render-then';
 import { ActivatedRoute, Router } from '@angular/router';
 import { forkJoin, Subject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
@@ -41,12 +42,20 @@ export class HomeComponent implements OnInit, OnDestroy {
   private pendingReturnContext: ReturnNavigationContext | null = null;
   private brokenHeroChannelUuid = '';
 
+  private destroyed = false;
+
+  /** Render now, then act on the new DOM (replaces setTimeout(…, 0) focus waits). */
+  private afterRender(action: () => unknown): void {
+    renderThen(this.cdr, () => this.destroyed, action);
+  }
+
   constructor(
     private tvh: TvheadendService,
     private router: Router,
     private route: ActivatedRoute,
     private returnNavigation: ReturnNavigationService,
-    private viewStateCache: ViewStateCacheService
+    private viewStateCache: ViewStateCacheService,
+    private cdr: ChangeDetectorRef
   ) {}
 
   ngOnInit(): void {
@@ -65,6 +74,7 @@ export class HomeComponent implements OnInit, OnDestroy {
 
 
   ngOnDestroy(): void {
+    this.destroyed = true;
     this.destroy$.next();
     this.destroy$.complete();
     if (this.heroTimer) {
@@ -246,11 +256,11 @@ export class HomeComponent implements OnInit, OnDestroy {
     const recordingUuid = String(context.payload['recordingUuid'] || '').trim();
 
     if (origin === 'recording' && recordingUuid) {
-      setTimeout(() => {
+      this.afterRender(() => {
         const escapedUuid = recordingUuid.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
         const target = document.querySelector(`app-tv-card[data-recording-uuid="${escapedUuid}"]`) as HTMLElement | null;
         target?.focus();
-      }, 0);
+      });
       return;
     }
 
@@ -264,14 +274,14 @@ export class HomeComponent implements OnInit, OnDestroy {
       this.setHero(matchedIndex);
     }
 
-    setTimeout(() => {
+    this.afterRender(() => {
       const escapedUuid = channelUuid.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
       const selector = origin === 'on-now'
         ? `app-tv-card[data-channel-uuid="${escapedUuid}"]`
         : '.hero__watch-btn';
       const target = document.querySelector(selector) as HTMLElement | null;
       target?.focus();
-    }, 0);
+    });
   }
 
   private restoreCachedViewState(): void {

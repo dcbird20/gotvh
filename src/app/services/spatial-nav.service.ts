@@ -132,6 +132,61 @@ export class SpatialNavService {
       || keyCode === 160;
   }
 
+  /** Which D-pad direction a key is, for any remote (named arrows or raw Android codes). */
+  directionOf(event: KeyboardEvent): 'up' | 'down' | 'left' | 'right' | null {
+    return (['up', 'down', 'left', 'right'] as const).find(d => this.isDirectionalKey(event, d)) ?? null;
+  }
+
+  /**
+   * Channel +/− on a remote. Android TV remotes send ChannelUp/ChannelDown (166/167), some send
+   * a bare keyCode 33/34 with no key name; PageUp/PageDown from a keyboard are not channel keys.
+   */
+  channelKey(event: KeyboardEvent): 'up' | 'down' | null {
+    const key = String(event.key || '').trim();
+    const code = String((event as any).code || '').trim();
+    const keyCode = Number((event as any).keyCode || (event as any).which || 0);
+    const bare = !key && !code;
+    if (key === 'ChannelUp' || key === 'MediaChannelUp' || code === 'ChannelUp' || code === 'MediaChannelUp'
+      || (bare && keyCode === 33) || keyCode === 92 || keyCode === 166 || keyCode === 427) {
+      return 'up';
+    }
+    if (key === 'ChannelDown' || key === 'MediaChannelDown' || code === 'ChannelDown' || code === 'MediaChannelDown'
+      || (bare && keyCode === 34) || keyCode === 93 || keyCode === 167 || keyCode === 428) {
+      return 'down';
+    }
+    return null;
+  }
+
+  /** Keyboard PageUp/PageDown (not the remote's channel keys). */
+  pageKey(event: KeyboardEvent): 'up' | 'down' | null {
+    if (this.channelKey(event)) {
+      return null;
+    }
+    const key = String(event.key || '');
+    const keyCode = Number((event as any).keyCode || (event as any).which || 0);
+    if (key === 'PageUp' || keyCode === 33) { return 'up'; }
+    if (key === 'PageDown' || keyCode === 34) { return 'down'; }
+    return null;
+  }
+
+  /** Rewind / fast-forward media keys (not the arrows). */
+  mediaSeekKey(event: KeyboardEvent): 'rewind' | 'forward' | null {
+    const key = String(event.key || '');
+    const code = String((event as any).code || '');
+    const keyCode = Number((event as any).keyCode || (event as any).which || 0);
+    if (key === 'MediaRewind' || code === 'MediaRewind' || keyCode === 89 || keyCode === 168 || keyCode === 412) { return 'rewind'; }
+    if (key === 'MediaFastForward' || code === 'MediaFastForward' || keyCode === 90 || keyCode === 208 || keyCode === 417) { return 'forward'; }
+    return null;
+  }
+
+  /** Escape / the remote's Back button. */
+  isBackKey(event: KeyboardEvent): boolean {
+    const key = String(event.key || '');
+    const code = String((event as any).code || '');
+    const keyCode = Number((event as any).keyCode || (event as any).which || 0);
+    return key === 'Escape' || key === 'BrowserBack' || key === 'GoBack' || code === 'BrowserBack' || keyCode === 27 || keyCode === 4;
+  }
+
   isDirectionalKey(event: KeyboardEvent, direction: 'up' | 'down' | 'left' | 'right'): boolean {
     const key = String(event.key || '');
     const code = String((event as any).code || '');

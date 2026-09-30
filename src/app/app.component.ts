@@ -345,40 +345,10 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   private getChannelPageDirection(event: KeyboardEvent): -1 | 1 | null {
-    const key = String(event.key || '').trim();
-    const code = String((event as any).code || '').trim();
-    const keyCode = Number((event as any).keyCode || (event as any).which || 0);
-    const isBareChannelUp = keyCode === 33 && !key && !code;
-    const isBareChannelDown = keyCode === 34 && !key && !code;
-
-    if (
-      key === 'ChannelUp'
-      || key === 'MediaChannelUp'
-      || code === 'ChannelUp'
-      || code === 'MediaChannelUp'
-      || isBareChannelUp
-      || keyCode === 92
-      || keyCode === 166
-      || keyCode === 427
-    ) {
-      return -1;
-    }
-
-    if (
-      key === 'ChannelDown'
-      || key === 'MediaChannelDown'
-      || code === 'ChannelDown'
-      || code === 'MediaChannelDown'
-      || isBareChannelDown
-      || keyCode === 93
-      || keyCode === 167
-      || keyCode === 428
-    ) {
-      return 1;
-    }
-
-    return null;
+    const k = this.spatialNav.channelKey(event);
+    return k === 'up' ? -1 : k === 'down' ? 1 : null;
   }
+
 
   private handleStatusPageDirectionalBridge(event: KeyboardEvent, activeElement: HTMLElement | null): boolean {
     const currentPath = this.router.url.split('?')[0] || '';

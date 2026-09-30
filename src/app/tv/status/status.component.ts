@@ -1,5 +1,6 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnInit } from '@angular/core';
+import { ChangeDetectorRef, Component, OnDestroy, OnInit } from '@angular/core';
+import { renderThen } from '../../services/render-then';
 import { forkJoin, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { TvFocusableDirective } from '../../directives/tv-focusable.directive';
@@ -13,7 +14,7 @@ import { TvheadendService } from '@gotvh/tvh-api';
   templateUrl: './status.component.html',
   styleUrls: ['./status.component.scss']
 })
-export class StatusComponent implements OnInit {
+export class StatusComponent implements OnInit, OnDestroy {
   loading = true;
   error = '';
   serverInfo: any = null;
@@ -28,7 +29,19 @@ export class StatusComponent implements OnInit {
   };
   private shouldRestoreRefreshFocus = false;
 
-  constructor(private tvh: TvheadendService) {}
+  private destroyed = false;
+
+  /** Render now, then act on the new DOM (replaces setTimeout(…, 0) focus waits). */
+  private afterRender(action: () => unknown): void {
+    renderThen(this.cdr, () => this.destroyed, action);
+  }
+
+  constructor(private tvh: TvheadendService,
+    private cdr: ChangeDetectorRef) {}
+
+  ngOnDestroy(): void {
+    this.destroyed = true;
+  }
 
   ngOnInit(): void {
     this.refresh();
@@ -92,9 +105,9 @@ export class StatusComponent implements OnInit {
     }
 
     this.shouldRestoreRefreshFocus = false;
-    setTimeout(() => {
+    this.afterRender(() => {
       (document.querySelector('[data-status-refresh]') as HTMLElement | null)?.focus();
-    }, 0);
+    });
   }
 
 

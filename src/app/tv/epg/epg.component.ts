@@ -1,6 +1,7 @@
 import { CommonModule } from '@angular/common';
 import { Component, OnInit, OnDestroy, AfterViewInit, ViewChild, ElementRef, HostListener, ChangeDetectorRef } from '@angular/core';
 import { SpatialNavService } from '../../services/spatial-nav.service';
+import { renderThen } from '../../services/render-then';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { forkJoin, of } from 'rxjs';
@@ -174,9 +175,7 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
    * Replaces the old this.afterRender(…) waits, which guessed when Angular had redrawn.
    */
   private afterRender(action: () => unknown): void {
-    if (this.destroyed) { return; }
-    this.cdr.detectChanges();
-    action();
+    renderThen(this.cdr, () => this.destroyed, action);
   }
 
   // ── Lifecycle ────────────────────────────────────────────────
@@ -1225,11 +1224,12 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     const key = String(event.key || '');
     const keyCode = Number((event as any).keyCode || (event as any).which || 0);
     if (key === 'Escape' || keyCode === 27) { this.handleEscapeKey(); return; }
-    if (this.getChannelPageDirection(event)) { this.handleChannelPageKeys(event); return; }
-    if (key === 'PageUp' || keyCode === 33) { this.handlePageUp(event); return; }
-    if (key === 'PageDown' || keyCode === 34) { this.handlePageDown(event); return; }
+    if (this.spatialNav.channelKey(event)) { this.handleChannelPageKeys(event); return; }
+    const page = this.spatialNav.pageKey(event);
+    if (page === 'up') { this.handlePageUp(event); return; }
+    if (page === 'down') { this.handlePageDown(event); return; }
     if (key === 'Home' || keyCode === 36) { this.handleHome(event); return; }
-    const dir = (['up', 'down', 'left', 'right'] as const).find(d => this.spatialNav.isDirectionalKey(event, d));
+    const dir = this.spatialNav.directionOf(event);
     if (!dir) { return; }
     const target = this.getGuideKeyTarget(event);
     if (!target?.closest('[data-tv-nav-scope="epg-page"]') || this.shouldIgnoreGlobalGuideKeys(target)) { return; }
@@ -1417,40 +1417,10 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   private getChannelPageDirection(event: KeyboardEvent): -1 | 1 | null {
-    const key = String(event.key || '').trim();
-    const code = String((event as any).code || '').trim();
-    const keyCode = Number((event as any).keyCode || (event as any).which || 0);
-    const isBareChannelUp = keyCode === 33 && !key && !code;
-    const isBareChannelDown = keyCode === 34 && !key && !code;
-
-    if (
-      key === 'ChannelUp'
-      || key === 'MediaChannelUp'
-      || code === 'ChannelUp'
-      || code === 'MediaChannelUp'
-      || isBareChannelUp
-      || keyCode === 92
-      || keyCode === 166
-      || keyCode === 427
-    ) {
-      return -1;
-    }
-
-    if (
-      key === 'ChannelDown'
-      || key === 'MediaChannelDown'
-      || code === 'ChannelDown'
-      || code === 'MediaChannelDown'
-      || isBareChannelDown
-      || keyCode === 93
-      || keyCode === 167
-      || keyCode === 428
-    ) {
-      return 1;
-    }
-
-    return null;
+    const k = this.spatialNav.channelKey(event);
+    return k === 'up' ? -1 : k === 'down' ? 1 : null;
   }
+
 
   private getGuideKeyTarget(event: KeyboardEvent): HTMLElement | null {
     const activeElement = document.activeElement as HTMLElement | null;

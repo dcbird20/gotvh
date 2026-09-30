@@ -7,6 +7,7 @@ import { TvFocusableDirective } from '../../directives/tv-focusable.directive';
 import { RemoteKeyDebugService } from '../../services/remote-key-debug.service';
 import { RecordingPlaybackProgress, RecordingPlaybackProgressService } from '../../services/recording-playback-progress.service';
 import { ReturnNavigationService } from '../../services/return-navigation.service';
+import { SpatialNavService } from '../../services/spatial-nav.service';
 import { TvheadendService } from '@gotvh/tvh-api';
 import { environment } from '../../../environments/environment';
 
@@ -109,7 +110,8 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
     private remoteKeyDebug: RemoteKeyDebugService,
     private returnNavigation: ReturnNavigationService,
     private tvh: TvheadendService,
-    private recordingProgress: RecordingPlaybackProgressService
+    private recordingProgress: RecordingPlaybackProgressService,
+    private spatialNav: SpatialNavService
   ) {
     this.playbackType = this.route.snapshot.queryParamMap.get('playback') === 'recording' ? 'recording' : 'live';
     this.channelId = this.route.snapshot.paramMap.get('channelId') || '';
@@ -461,43 +463,12 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
     }
   }
 
+  /** Channel +/− (and PageUp/PageDown on a keyboard) surf live channels. */
   private resolveChannelSurfDirection(event: KeyboardEvent): -1 | 1 | null {
-    const key = String(event.key || '').trim();
-    const code = String((event as any).code || '').trim();
-    const keyCode = Number((event as any).keyCode || (event as any).which || 0);
-
-    if (
-      key === 'ChannelUp'
-      || key === 'MediaChannelUp'
-      || key === 'PageUp'
-      || code === 'ChannelUp'
-      || code === 'MediaChannelUp'
-      || code === 'PageUp'
-      || keyCode === 33
-      || keyCode === 92
-      || keyCode === 166
-      || keyCode === 427
-    ) {
-      return 1;
-    }
-
-    if (
-      key === 'ChannelDown'
-      || key === 'MediaChannelDown'
-      || key === 'PageDown'
-      || code === 'ChannelDown'
-      || code === 'MediaChannelDown'
-      || code === 'PageDown'
-      || keyCode === 34
-      || keyCode === 93
-      || keyCode === 167
-      || keyCode === 428
-    ) {
-      return -1;
-    }
-
-    return null;
+    const k = this.spatialNav.channelKey(event) || this.spatialNav.pageKey(event);
+    return k === 'up' ? 1 : k === 'down' ? -1 : null;
   }
+
 
   private async surfLiveChannel(direction: -1 | 1): Promise<void> {
     if (this.channelSurfInProgress) {
@@ -1203,41 +1174,19 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
     }
   }
 
+  /** Left/Right (any remote, including raw D-pad codes) and the rewind/fast-forward keys seek. */
   private resolveRecordingSeekDelta(event: KeyboardEvent): number | null {
-    const key = String(event.key || '').trim();
-    const code = String((event as any).code || '').trim();
-    const keyCode = Number((event as any).keyCode || (event as any).which || 0);
-
-    if (
-      key === 'ArrowLeft'
-      || key === 'Left'
-      || key === 'MediaRewind'
-      || code === 'ArrowLeft'
-      || code === 'MediaRewind'
-      || keyCode === 37
-      || keyCode === 89
-      || keyCode === 168
-      || keyCode === 412
-    ) {
+    const dir = this.spatialNav.directionOf(event);
+    const media = this.spatialNav.mediaSeekKey(event);
+    if (dir === 'left' || media === 'rewind') {
       return -this.recordingRewindStepSeconds;
     }
-
-    if (
-      key === 'ArrowRight'
-      || key === 'Right'
-      || key === 'MediaFastForward'
-      || code === 'ArrowRight'
-      || code === 'MediaFastForward'
-      || keyCode === 39
-      || keyCode === 90
-      || keyCode === 208
-      || keyCode === 417
-    ) {
+    if (dir === 'right' || media === 'forward') {
       return this.recordingFastForwardStepSeconds;
     }
-
     return null;
   }
+
 
   private seekRecordingBy(deltaSeconds: number): void {
     if (!this.isRecordingPlayback() || !deltaSeconds) {
