@@ -1,0 +1,204 @@
+package io.gotvh.tv.data
+
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import okhttp3.Credentials
+import okhttp3.FormBody
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import org.json.JSONArray
+import org.json.JSONObject
+import java.net.URLEncoder
+import java.util.concurrent.TimeUnit
+
+/** A Tvheadend request that failed, with a message meant for the viewer. */
+class TvhException(message: String, val status: Int = 0) : Exception(message)
+
+/**
+ * Talks to Tvheadend's JSON API (the same API the web apps use).
+ * Sign-in is HTTP Basic, sent with every request, including streams and channel icons.
+ */
+class TvhClient(server: String, username: String, password: String) {
+
+    val base: String = normalize(server)
+    val authHeader: String? = if (username.isNotEmpty()) Credentials.basic(username, password) else null
+
+    /** Adds the sign-in to every request to this server (API calls, icons). */
+    val http: OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .addInterceptor { chain ->
+            val req = chain.request()
+            val auth = authHeader
+            if (auth != null && req.header("Authorization") == null && req.url.toString().startsWith(base)) {
+                chain.proceed(req.newBuilder().header("Authorization", auth).build())
+            } else {
+                chain.proceed(req)
+            }
+        }
+        .build()
+
+    private var dvrConfig: String? = null
+
+    // ------------------------------------------------------------------ requests
+
+    private suspend fun get(path: String, params: Map<String, String> = emptyMap()): JSONObject =
+        withContext(Dispatchers.IO) {
+            val url = "$base/api/$path".toHttpUrl().newBuilder().apply {
+                params.forEach { (k, v) -> addQueryParameter(k, v) }
+            }.build()
+            execute(Request.Builder().url(url).build())
+        }
+
+    private suspend fun post(path: String, form: Map<String, String>): JSONObject =
+        withContext(Dispatchers.IO) {
+            val body = FormBody.Builder().apply { form.forEach { (k, v) -> add(k, v) } }.build()
+            execute(Request.Builder().url("$base/api/$path").post(body).build())
+        }
+
+    private fun execute(request: Request): JSONObject {
+        http.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw TvhException(describe(response.code, response.header("WWW-Authenticate")), response.code)
+            }
+            val text = response.body?.string().orEmpty().trim()
+            return when {
+                text.isEmpty() -> JSONObject()
+                text.startsWith("[") -> JSONObject().put("entries", JSONArray(text))
+                else -> JSONObject(text)
+            }
+        }
+    }
+
+    private fun describe(code: Int, challenge: String?): String = when {
+        code == 401 && challenge?.startsWith("Digest", ignoreCase = true) == true && authHeader != null ->
+            "Tvheadend only accepts Digest sign-in. In Tvheadend's web interface set the HTTP authentication to " +
+                "allow plain (Basic) as well, then try again."
+        code == 401 -> "Wrong username or password."
+        code == 403 -> "This account isn't allowed to use Tvheadend's API. Give it web interface and streaming rights."
+        code == 404 -> "That address answered, but it isn't Tvheadend (no /api)."
+        else -> "Tvheadend answered with an error ($code)."
+    }
+
+    // ------------------------------------------------------------------ API
+
+    /** Proves the address and sign-in work. Returns e.g. "Tvheadend 4.3". */
+    suspend fun serverInfo(): String {
+        val info = get("serverinfo")
+        return listOf(info.optString("name", "Tvheadend"), info.optString("sw_version")).filter { it.isNotBlank() }.joinToString(" ")
+    }
+
+    /** Switched-on channels, in channel-number order. */
+    suspend fun channels(): List<Channel> {
+        val entries = get("channel/grid", mapOf("start" to "0", "limit" to "5000")).optJSONArray("entries") ?: JSONArray()
+        val out = ArrayList<Channel>(entries.length())
+        for (i in 0 until entries.length()) {
+            val o = entries.getJSONObject(i)
+            if (o.has("enabled") && !o.optBoolean("enabled", true)) continue
+            val number = o.opt("number")?.toString()?.takeUnless { it == "0" || it == "null" } ?: ""
+            out += Channel(
+                uuid = o.optString("uuid"),
+                name = o.optString("name").ifBlank { "Channel" },
+                number = number,
+                icon = iconUrl(o.optString("icon_public_url")),
+            )
+        }
+        return out.sortedWith(compareBy<Channel>({ numberKey(it.number).first }, { numberKey(it.number).second }, { it.name.lowercase() }))
+    }
+
+    /** Guide entries overlapping [fromSec, toSec), grouped by channel uuid and sorted by start. */
+    suspend fun programs(fromSec: Long, toSec: Long): Map<String, List<Program>> {
+        val filter = JSONArray()
+            .put(JSONObject().put("field", "stop").put("type", "numeric").put("value", fromSec).put("comparison", "gt"))
+            .put(JSONObject().put("field", "start").put("type", "numeric").put("value", toSec).put("comparison", "lt"))
+        val entries = get(
+            "epg/events/grid",
+            mapOf("start" to "0", "limit" to "20000", "sort" to "start", "dir" to "ASC", "filter" to filter.toString()),
+        ).optJSONArray("entries") ?: JSONArray()
+        val out = HashMap<String, MutableList<Program>>()
+        for (i in 0 until entries.length()) {
+            val o = entries.getJSONObject(i)
+            val genres = o.optJSONArray("genre")
+            val p = Program(
+                eventId = o.optLong("eventId"),
+                channelUuid = o.optString("channelUuid"),
+                start = o.optLong("start"),
+                stop = o.optLong("stop"),
+                title = o.optString("title").ifBlank { "(no title)" },
+                subtitle = o.optString("subtitle"),
+                description = o.optString("description").ifBlank { o.optString("summary") },
+                genre = if (genres == null) emptyList() else List(genres.length()) { genres.optInt(it) },
+                dvrState = o.optString("dvrState"),
+                dvrUuid = o.optString("dvrUuid"),
+                seriesLink = o.optString("serieslinkUri"),
+            )
+            if (p.channelUuid.isNotEmpty() && p.stop > p.start) out.getOrPut(p.channelUuid) { mutableListOf() } += p
+        }
+        return out.mapValues { (_, list) -> list.sortedBy { it.start } }
+    }
+
+    /** Stream profile names the server offers ("pass", "webtv-h264-aac-mpegts", …). */
+    suspend fun streamProfiles(): List<String> {
+        val entries = get("profile/list").optJSONArray("entries") ?: return emptyList()
+        return List(entries.length()) { entries.getJSONObject(it).optString("val") }.filter { it.isNotBlank() }
+    }
+
+    private suspend fun defaultDvrConfig(): String {
+        dvrConfig?.let { return it }
+        val entries = get("dvr/config/grid").optJSONArray("entries") ?: JSONArray()
+        var uuid = ""
+        for (i in 0 until entries.length()) {
+            val o = entries.getJSONObject(i)
+            if (uuid.isEmpty() || o.optString("name").isEmpty()) uuid = o.optString("uuid")
+            if (o.optString("name").isEmpty()) break
+        }
+        return uuid.also { dvrConfig = it }
+    }
+
+    suspend fun record(eventId: Long) {
+        post("dvr/entry/create_by_event", mapOf("event_id" to eventId.toString(), "config_uuid" to defaultDvrConfig()))
+    }
+
+    /** Every episode, via the event's series link (becomes an auto-record rule). */
+    suspend fun recordSeries(eventId: Long) {
+        post("dvr/autorec/create_by_series", mapOf("event_id" to eventId.toString(), "config_uuid" to defaultDvrConfig()))
+    }
+
+    suspend fun cancelRecording(dvrUuid: String) {
+        post("dvr/entry/cancel", mapOf("uuid" to dvrUuid))
+    }
+
+    /** End a recording in progress, keeping the part already recorded. */
+    suspend fun stopRecording(dvrUuid: String) {
+        post("dvr/entry/stop", mapOf("uuid" to dvrUuid))
+    }
+
+    fun streamUrl(channelUuid: String, profile: String): String =
+        "$base/stream/channel/$channelUuid?profile=${URLEncoder.encode(profile, "UTF-8")}"
+
+    private fun iconUrl(raw: String): String? {
+        val s = raw.trim()
+        if (s.isEmpty()) return null
+        if (s.startsWith("http://") || s.startsWith("https://")) return s
+        return "$base/${s.trimStart('/')}"
+    }
+
+    companion object {
+        /** "192.168.1.222:9981", "http://host:9981/", "http://host/tvh/api" → "http://host:9981" / "http://host/tvh". */
+        fun normalize(server: String): String {
+            var s = server.trim().trimEnd('/')
+            if (!s.startsWith("http://") && !s.startsWith("https://")) s = "http://$s"
+            if (s.endsWith("/api")) s = s.removeSuffix("/api")
+            return s
+        }
+
+        /** "3.1" → (3, 1); "202" → (202, 0); "" → last. */
+        fun numberKey(number: String): Pair<Int, Int> {
+            val parts = number.split('.', '-')
+            val major = parts.getOrNull(0)?.toIntOrNull() ?: Int.MAX_VALUE
+            val minor = parts.getOrNull(1)?.toIntOrNull() ?: 0
+            return major to minor
+        }
+    }
+}
