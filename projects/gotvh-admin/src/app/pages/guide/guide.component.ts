@@ -635,6 +635,8 @@ export class GuideComponent implements OnInit {
   // ---------------------------------------------------------------- details & actions
 
   select(e: GuideEvent): void {
+    // Clicking the open programme again closes the panel, and the guide takes the full width back.
+    if (this.selected()?.eventId === e.eventId) { this.selected.set(null); this.autorecFor.set(null); return; }
     // Each programme starts from the DVR profile's settings; choices are for that one recording.
     if (this.selected()?.eventId !== e.eventId) { this.startExtra.set('0'); this.stopExtra.set('0'); this.removal.set('0'); }
     this.selected.set(e); this.autorecFor.set(null);
