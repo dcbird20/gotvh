@@ -220,9 +220,9 @@ export class AppComponent implements OnInit, OnDestroy {
       return;
     }
 
-    if (this.handleGuideChannelPageBridge(event, active)) {
-      event.preventDefault();
-      event.stopPropagation();
+    // Channel up/down on the Guide is handled by the Guide itself (it used to be bridged here as
+    // well, which paged twice per press).
+    if (this.isGuideRoute() && this.getChannelPageDirection(event)) {
       return;
     }
 
@@ -330,12 +330,9 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   private shouldDeferDirectionalNavigation(event: KeyboardEvent, activeElement: HTMLElement | null): boolean {
-    const key = String(event.key || '');
-    const isDirectional = key === 'ArrowUp'
-      || key === 'ArrowDown'
-      || key === 'ArrowLeft'
-      || key === 'ArrowRight';
-
+    // The Guide runs its own grid navigation (and hands the rest back to spatial nav), for named
+    // arrows and raw D-pad codes alike.
+    const isDirectional = (['up', 'down', 'left', 'right'] as const).some(d => this.spatialNav.isDirectionalKey(event, d));
     if (!isDirectional) {
       return false;
     }
@@ -343,32 +340,8 @@ export class AppComponent implements OnInit, OnDestroy {
     return activeElement?.closest('[data-tv-nav-scope="epg-page"]') != null;
   }
 
-  private handleGuideChannelPageBridge(event: KeyboardEvent, activeElement: HTMLElement | null): boolean {
-    const currentPath = this.router.url.split('?')[0] || '';
-    if (currentPath !== '/guide') {
-      return false;
-    }
-
-    const direction = this.getChannelPageDirection(event);
-    if (!direction) {
-      return false;
-    }
-
-    const target = activeElement || document.body || document.documentElement;
-    const pageKey = direction > 0 ? 'PageDown' : 'PageUp';
-    const pageKeyCode = direction > 0 ? 34 : 33;
-    const syntheticEvent = new KeyboardEvent('keydown', {
-      key: pageKey,
-      code: pageKey,
-      bubbles: true,
-      cancelable: true
-    });
-
-    Object.defineProperty(syntheticEvent, 'keyCode', { value: pageKeyCode });
-    Object.defineProperty(syntheticEvent, 'which', { value: pageKeyCode });
-
-    target.dispatchEvent(syntheticEvent);
-    return true;
+  private isGuideRoute(): boolean {
+    return (this.router.url.split('?')[0] || '') === '/guide';
   }
 
   private getChannelPageDirection(event: KeyboardEvent): -1 | 1 | null {

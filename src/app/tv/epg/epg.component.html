@@ -1,4 +1,4 @@
-<section class="epg-view" data-tv-nav-scope="epg-page">
+<section class="epg-view" data-tv-nav-scope="epg-page" data-tv-nav-remember>
   <header class="epg-section-header">
     <div class="epg-heading-block">
       <h2 class="epg-title">Guide</h2>
@@ -194,6 +194,7 @@
   <div *ngIf="selectedProgram" class="epg-modal-backdrop" (click)="closeProgramDetails()">
     <div
       class="epg-program-modal-card"
+      data-tv-nav-trap
       role="dialog"
       aria-modal="true"
       tabindex="-1"

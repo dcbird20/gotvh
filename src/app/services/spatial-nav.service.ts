@@ -16,6 +16,8 @@ export class SpatialNavService {
   private lastScopeElement: HTMLElement | null = null;
   private nextId = 1;
   private readonly directionDeadZonePx = 4;
+  /** Last item focused inside each scope marked data-tv-nav-remember (re-entering a scope returns there). */
+  private readonly rememberedInScope = new WeakMap<HTMLElement, FocusableItem>();
 
   allocateId(): number {
     return this.nextId++;
@@ -41,6 +43,10 @@ export class SpatialNavService {
     }
     this.currentItem = item;
     this.lastScopeElement = this.getNavigationScopeElement(item.getElement());
+    const remembering = item.getElement().closest('[data-tv-nav-remember]') as HTMLElement | null;
+    if (remembering) {
+      this.rememberedInScope.set(remembering, item);
+    }
     item.focus();
   }
 
@@ -204,10 +210,27 @@ export class SpatialNavService {
     }
 
     const currentScope = this.getNavigationScope(currentElement);
-    const scopeLocked = (navigationMode === 'linear-vertical' && (dir === 'up' || dir === 'down'))
+    // data-tv-nav-trap: focus never leaves this scope (dialogs drawn over other content).
+    const trapped = !!currentElement.closest('[data-tv-nav-trap]');
+    const scopeLocked = trapped
+      || (navigationMode === 'linear-vertical' && (dir === 'up' || dir === 'down'))
       || (navigationMode === 'linear-horizontal' && (dir === 'left' || dir === 'right'));
-    const bestInScope = this.findBestCandidate(dir, fromRect, fromCx, fromCy, currentScope, currentItem);
-    const best = bestInScope || (scopeLocked ? null : this.findBestCandidate(dir, fromRect, fromCx, fromCy, null, currentItem));
+    const trapElement = trapped ? currentElement.closest('[data-tv-nav-trap]') as HTMLElement : null;
+    const bestInScope = trapElement
+      ? this.findBestCandidate(dir, fromRect, fromCx, fromCy, null, currentItem, trapElement)
+      : this.findBestCandidate(dir, fromRect, fromCx, fromCy, currentScope, currentItem);
+    let best = bestInScope || (scopeLocked ? null : this.findBestCandidate(dir, fromRect, fromCx, fromCy, null, currentItem));
+
+    // Entering a data-tv-nav-remember area from outside: go back to where you were in it.
+    if (best) {
+      const target = best.getElement().closest('[data-tv-nav-remember]') as HTMLElement | null;
+      if (target && !target.contains(currentElement)) {
+        const remembered = this.rememberedInScope.get(target);
+        if (remembered && remembered !== best && this.items.includes(remembered) && this.isItemVisible(remembered)) {
+          best = remembered;
+        }
+      }
+    }
 
     if (best) {
       this.setFocus(best);
@@ -298,13 +321,18 @@ export class SpatialNavService {
     fromCx: number,
     fromCy: number,
     requiredScope: string | null,
-    currentItem: FocusableItem
+    currentItem: FocusableItem,
+    within: HTMLElement | null = null
   ): FocusableItem | null {
     let best: FocusableItem | null = null;
     let bestScore = Infinity;
 
     for (const item of this.items) {
       if (item === currentItem) {
+        continue;
+      }
+
+      if (within && !within.contains(item.getElement())) {
         continue;
       }
 

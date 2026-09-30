@@ -1,5 +1,6 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnInit, OnDestroy, AfterViewInit, ViewChild, ElementRef, HostListener } from '@angular/core';
+import { Component, OnInit, OnDestroy, AfterViewInit, ViewChild, ElementRef, HostListener, ChangeDetectorRef } from '@angular/core';
+import { SpatialNavService } from '../../services/spatial-nav.service';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { forkJoin, of } from 'rxjs';
@@ -161,8 +162,22 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     private tvheadendService: TvheadendService,
     private router: Router,
     private route: ActivatedRoute,
-    private returnNavigation: ReturnNavigationService
+    private returnNavigation: ReturnNavigationService,
+    private spatialNav: SpatialNavService,
+    private cdr: ChangeDetectorRef
   ) {}
+
+  private destroyed = false;
+
+  /**
+   * Render the guide now, then run `action` against the new DOM.
+   * Replaces the old this.afterRender(…) waits, which guessed when Angular had redrawn.
+   */
+  private afterRender(action: () => unknown): void {
+    if (this.destroyed) { return; }
+    this.cdr.detectChanges();
+    action();
+  }
 
   // ── Lifecycle ────────────────────────────────────────────────
 
@@ -183,6 +198,7 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   ngOnDestroy(): void {
+    this.destroyed = true;
     clearInterval(this.timeUpdateTimer);
   }
 
@@ -273,14 +289,14 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
       return;
     }
 
-    setTimeout(() => {
+    this.afterRender(() => {
       const restored = this.restoreReturnFocusIfNeeded();
       this.scrollToCurrent();
       this.scrollToFocusedChannel();
       if (!restored) {
         this.focusGuideEntryIfNeeded();
       }
-    }, 0);
+    });
   }
 
   private describeGuideDataError(xmltvError: any, tvheadendEpgError: any): string {
@@ -495,18 +511,18 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     this.timelineStart = new Date(this.timelineStart.getTime() + (direction * stepMs));
     this.generateHourTicks();
     this.rebuildGuideViewModel();
-    setTimeout(() => {
+    this.afterRender(() => {
       this.scrollToCurrent();
       this.focusCurrentProgramInView();
-    }, 0);
+    });
   }
 
   jumpToNow(): void {
     this.updateTimelineStart();
-    setTimeout(() => {
+    this.afterRender(() => {
       this.scrollToCurrent();
       this.focusCurrentProgramInView();
-    }, 0);
+    });
   }
 
   isNowInWindow(): boolean {
@@ -599,7 +615,7 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
       return;
     }
     this.rebuildRenderedChannels(nextStart);
-    setTimeout(() => this.focusFirstRenderedChannel(), 0);
+    this.afterRender(() => this.focusFirstRenderedChannel());
   }
 
   private focusFirstRenderedChannel(): void {
@@ -692,7 +708,7 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
       this.ensureFocusedChannelVisible();
     }
 
-    setTimeout(() => {
+    this.afterRender(() => {
       const container = this.timelineOuter?.nativeElement;
       if (!container) {
         return;
@@ -713,7 +729,7 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
 
       this.focusElement(target);
       this.scrollToFocusedChannel();
-    }, 0);
+    });
     return true;
   }
 
@@ -912,10 +928,10 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     this.useVerticalGuide = !this.useVerticalGuide;
     this.persistGuideLayoutPreference(this.useVerticalGuide);
     this.ensureFocusedChannelVisible();
-    setTimeout(() => {
+    this.afterRender(() => {
       this.scrollToFocusedChannel();
       this.focusCurrentProgramInView();
-    }, 0);
+    });
   }
 
   openChannelVerticalView(channel: any): void {
@@ -927,17 +943,17 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     this.channelSpotlightId = channelId;
     this.channelSpotlightName = String(channel?.name || channelId).trim();
     this.rebuildGuideViewModel();
-    setTimeout(() => {
+    this.afterRender(() => {
       this.scrollToFocusedChannel();
       this.focusCurrentProgramInView();
-    }, 0);
+    });
   }
 
   clearChannelSpotlight(): void {
     this.channelSpotlightId = '';
     this.channelSpotlightName = '';
     this.rebuildGuideViewModel();
-    setTimeout(() => this.focusCurrentProgramInView(), 0);
+    this.afterRender(() => this.focusCurrentProgramInView());
   }
 
   clearTransientFilters(): void {
@@ -949,7 +965,7 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     this.focusedChannelId = '';
     this.channelWindowStart = 0;
     this.rebuildGuideViewModel();
-    setTimeout(() => this.focusCurrentProgramInView(), 0);
+    this.afterRender(() => this.focusCurrentProgramInView());
   }
 
   enterChannelRow(channelId: string): void {
@@ -959,9 +975,9 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     }
 
     this.handleChannelFocus(normalized);
-    setTimeout(() => {
+    this.afterRender(() => {
       this.focusFirstProgramForChannel(normalized);
-    }, 0);
+    });
   }
 
   toggleGuideOptions(): void {
@@ -975,7 +991,7 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     }
     this.focusedChannelId = normalized;
     this.ensureFocusedChannelVisible();
-    setTimeout(() => this.scrollToFocusedChannel(), 0);
+    this.afterRender(() => this.scrollToFocusedChannel());
   }
 
   handleProgramFocus(program: any): void {
@@ -1157,9 +1173,9 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     this.lastFocusedGridElement = document.activeElement as HTMLElement | null;
     this.selectedProgram = program;
     this.resetRecordingState();
-    setTimeout(() => {
+    this.afterRender(() => {
       this.focusElement(this.watchLiveButton?.nativeElement);
-    }, 0);
+    });
   }
 
   closeProgramDetails(skipFocusRestore = false): void {
@@ -1171,17 +1187,15 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     }
     const restoreTarget = this.lastFocusedGridElement;
     this.lastFocusedGridElement = null;
-    setTimeout(() => {
+    this.afterRender(() => {
       this.focusElement(restoreTarget);
-    }, 0);
+    });
   }
 
-  @HostListener('document:keydown.escape')
   handleEscapeKey(): void {
     if (this.selectedProgram) { this.closeProgramDetails(); }
   }
 
-  @HostListener('document:keydown.pageup', ['$event'])
   handlePageUp(event: KeyboardEvent): void {
     const target = this.getGuideKeyTarget(event);
     if (this.selectedProgram || this.shouldIgnoreGlobalGuideKeys(target)) {
@@ -1191,7 +1205,6 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     this.moveGuideFocusByPage(target, -1);
   }
 
-  @HostListener('document:keydown.pagedown', ['$event'])
   handlePageDown(event: KeyboardEvent): void {
     const target = this.getGuideKeyTarget(event);
     if (this.selectedProgram || this.shouldIgnoreGlobalGuideKeys(target)) {
@@ -1201,7 +1214,36 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     this.moveGuideFocusByPage(target, 1);
   }
 
+  /**
+   * The Guide's one key entry point. Recognises remotes that send only raw D-pad codes
+   * (19–22) as well as named arrow keys, so every remote gets the same grid navigation.
+   */
   @HostListener('document:keydown', ['$event'])
+  handleGuideKey(event: KeyboardEvent): void {
+    this.handleFilterClearKeys(event);
+    if (event.defaultPrevented) { return; }
+    const key = String(event.key || '');
+    const keyCode = Number((event as any).keyCode || (event as any).which || 0);
+    if (key === 'Escape' || keyCode === 27) { this.handleEscapeKey(); return; }
+    if (this.getChannelPageDirection(event)) { this.handleChannelPageKeys(event); return; }
+    if (key === 'PageUp' || keyCode === 33) { this.handlePageUp(event); return; }
+    if (key === 'PageDown' || keyCode === 34) { this.handlePageDown(event); return; }
+    if (key === 'Home' || keyCode === 36) { this.handleHome(event); return; }
+    const dir = (['up', 'down', 'left', 'right'] as const).find(d => this.spatialNav.isDirectionalKey(event, d));
+    if (!dir) { return; }
+    const target = this.getGuideKeyTarget(event);
+    if (!target?.closest('[data-tv-nav-scope="epg-page"]') || this.shouldIgnoreGlobalGuideKeys(target)) { return; }
+    if (dir === 'up') { this.handleArrowUp(event); }
+    if (dir === 'down') { this.handleArrowDown(event); }
+    if (dir === 'left') { this.handleArrowLeft(event); }
+    if (dir === 'right') { this.handleArrowRight(event); }
+    // Anything the grid logic didn't take (toolbar, programme details, the way out to the menu)
+    // moves by position, like the rest of the app.
+    if (!event.defaultPrevented && this.spatialNav.handleKeydown(event)) {
+      event.preventDefault();
+    }
+  }
+
   handleChannelPageKeys(event: KeyboardEvent): void {
     const direction = this.getChannelPageDirection(event);
     if (!direction) {
@@ -1218,7 +1260,6 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     this.moveGuideFocusByPage(target, direction);
   }
 
-  @HostListener('document:keydown.home', ['$event'])
   handleHome(event: KeyboardEvent): void {
     const target = this.getGuideKeyTarget(event);
     if (this.selectedProgram || this.shouldIgnoreGlobalGuideKeys(target)) {
@@ -1228,7 +1269,6 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     this.jumpToNow();
   }
 
-  @HostListener('document:keydown.arrowup', ['$event'])
   handleArrowUp(event: KeyboardEvent): void {
     const target = this.getGuideKeyTarget(event);
     if (this.selectedProgram || this.shouldIgnoreGlobalGuideKeys(target)) {
@@ -1245,10 +1285,10 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     }
 
     event.preventDefault();
+    this.rememberGridPosition(target);
     this.focusGuideHeaderControls();
   }
 
-  @HostListener('document:keydown.arrowdown', ['$event'])
   handleArrowDown(event: KeyboardEvent): void {
     const target = this.getGuideKeyTarget(event);
     if (this.selectedProgram || this.shouldIgnoreGlobalGuideKeys(target)) {
@@ -1265,10 +1305,37 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     }
 
     event.preventDefault();
-    this.focusCurrentProgramInView();
+    if (!this.restoreGridPosition()) {
+      this.focusCurrentProgramInView();
+    }
   }
 
-  @HostListener('document:keydown.arrowleft', ['$event'])
+  /** Where you were in the grid when you went up to the toolbar; Down returns there. */
+  private gridReturn: { channelId: string; start: string; end: string } | null = null;
+
+  private rememberGridPosition(target: HTMLElement | null): void {
+    const cell = target?.closest('.epg-program-bar, .epg-vertical-program-item, .epg-channel-col-clickable, .epg-vertical-channel-header-btn') as HTMLElement | null;
+    if (!cell) { this.gridReturn = null; return; }
+    this.gridReturn = {
+      channelId: this.resolveGuideChannelIdFromTarget(cell),
+      start: String(cell.getAttribute('data-program-start') || ''),
+      end: String(cell.getAttribute('data-program-end') || ''),
+    };
+  }
+
+  private restoreGridPosition(): boolean {
+    const r = this.gridReturn;
+    this.gridReturn = null;
+    if (!r?.channelId) { return false; }
+    const container = this.timelineOuter?.nativeElement || document;
+    const id = this.escapeForAttributeSelector(r.channelId);
+    const program = r.start && r.end
+      ? container.querySelector(`.epg-program-bar[data-channel-id="${id}"][data-program-start="${r.start}"][data-program-end="${r.end}"], .epg-vertical-program-item[data-channel-id="${id}"][data-program-start="${r.start}"][data-program-end="${r.end}"]`) as HTMLElement | null
+      : null;
+    if (program) { this.preserveTimelineColumnAnchor = true; return this.focusElement(program); }
+    return this.focusChannelButtonForChannel(r.channelId);
+  }
+
   handleArrowLeft(event: KeyboardEvent): void {
     const target = this.getGuideKeyTarget(event);
     if (!this.selectedProgram) {
@@ -1298,7 +1365,6 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     this.showPreviousProgram();
   }
 
-  @HostListener('document:keydown.arrowright', ['$event'])
   handleArrowRight(event: KeyboardEvent): void {
     const target = this.getGuideKeyTarget(event);
     if (!this.selectedProgram) {
@@ -1308,6 +1374,11 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
       }
 
       if (this.focusProgramForChannelTarget(target)) {
+        event.preventDefault();
+        return;
+      }
+
+      if (this.shiftTimelineWindowLaterFromProgramTarget(target)) {
         event.preventDefault();
         return;
       }
@@ -1577,14 +1648,50 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     this.rebuildGuideViewModel();
     this.focusedChannelId = channelId;
 
-    setTimeout(() => {
+    this.afterRender(() => {
       this.scrollToCurrent();
       if (this.focusFirstProgramForChannel(channelId)) {
         return;
       }
       this.focusChannelButtonForChannel(channelId);
-    }, 0);
+    });
 
+    return true;
+  }
+
+  /** Right on the last programme in view: show the next hours and focus what follows it. */
+  private shiftTimelineWindowLaterFromProgramTarget(target: EventTarget | null): boolean {
+    if (this.useVerticalGuide) {
+      return false;
+    }
+    const programCell = (target as HTMLElement | null)?.closest('.epg-program-bar') as HTMLElement | null;
+    const channelId = String(programCell?.getAttribute('data-channel-id') || '').trim();
+    const range = this.getProgramTimeRange(programCell);
+    if (!programCell || !channelId || !range) {
+      return false;
+    }
+    // Only if the guide has something after it.
+    const hasLater = (this.programsByChannel[channelId] || []).some((p: any) =>
+      (typeof p?.__startMs === 'number' ? p.__startMs : this.parseEpgTime(p?.startTime)) >= range.end - 1000);
+    if (!hasLater) {
+      return false;
+    }
+    const stepMs = this.getTimelineStepHours() * 60 * 60 * 1000;
+    this.timelineStart = new Date(this.timelineStart.getTime() + stepMs);
+    this.generateHourTicks();
+    this.rebuildGuideViewModel();
+    this.focusedChannelId = channelId;
+    this.afterRender(() => {
+      this.scrollToCurrent();
+      const container = this.timelineOuter?.nativeElement || document;
+      const id = this.escapeForAttributeSelector(channelId);
+      const cells = Array.from(container.querySelectorAll(`.epg-program-bar[data-channel-id="${id}"]`)) as HTMLElement[];
+      const next = cells.find(c => Number(c.getAttribute('data-program-start')) >= range.end - 1000)
+        || cells.find(c => Number(c.getAttribute('data-program-end')) > range.end) || cells[cells.length - 1];
+      if (!next || !this.focusElement(next)) {
+        this.focusChannelButtonForChannel(channelId);
+      }
+    });
     return true;
   }
 
@@ -1832,9 +1939,9 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   private focusGuideTargetAfterRender(action: () => boolean): boolean {
-    setTimeout(() => {
+    this.afterRender(() => {
       action();
-    }, 0);
+    });
     return true;
   }
 
@@ -2676,7 +2783,7 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
     try { localStorage.removeItem('epg.channelFilter'); } catch { /* ignore */ }
   }
 
-  @HostListener('document:keydown', ['$event'])
+  // Called from handleGuideKey (a second document:keydown listener in the same component is dropped).
   handleFilterClearKeys(event: KeyboardEvent): void {
     const active = document.activeElement as HTMLElement | null;
     if (!active || active.tagName !== 'INPUT' || !active.classList.contains('epg-filter-input')) return;
@@ -2690,6 +2797,6 @@ export class EpgComponent implements OnInit, OnDestroy, AfterViewInit {
   clearFilterQuery(input: HTMLInputElement): void {
     this.filterQuery = '';
     this.onFilterQueryChange();
-    setTimeout(() => input.focus(), 0);
+    this.afterRender(() => input.focus());
   }
 }
