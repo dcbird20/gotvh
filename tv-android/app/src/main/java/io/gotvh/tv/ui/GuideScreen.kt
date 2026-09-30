@@ -70,7 +70,7 @@ private fun alignDown(sec: Long) = sec - Math.floorMod(sec, STEP)
  * The guide. Focus is one programme at a time ("virtual focus"): the grid keeps a channel row and a
  * point in time, so Up/Down stay at the same time of day, like a paper guide.
  *  Left/Right previous/next programme (the window scrolls at the edges) · Up/Down channel ·
- *  Ch+/Ch− a page of channels · ⏪/⏩ two hours · OK details · ▶ watch · Menu settings · Back TV.
+ *  Ch+/Ch− a page of channels · ⏪/⏩ two hours · OK details · ▶ watch · Menu · Back TV.
  */
 @Composable
 fun GuideScreen(vm: AppViewModel) {
@@ -99,7 +99,7 @@ fun GuideScreen(vm: AppViewModel) {
         }
     }
     LaunchedEffect(windowStart) { vm.ensureGuide(windowStart - 3600, windowStart + 6 * 3600) }
-    LaunchedEffect(detail) { if (detail == null) focus.requestFocus() }
+    LaunchedEffect(detail, vm.menuOpen) { if (detail == null && !vm.menuOpen) focus.requestFocus() }
     LaunchedEffect(row) {
         val visible = listState.layoutInfo.visibleItemsInfo
         if (visible.isEmpty()) return@LaunchedEffect
@@ -155,7 +155,7 @@ fun GuideScreen(vm: AppViewModel) {
                         if (selected != null) detail = selected else watch(row)
                     KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> watch(row)
                     KeyEvent.KEYCODE_GUIDE -> vm.screen = Screen.Watch
-                    KeyEvent.KEYCODE_MENU -> vm.screen = Screen.Setup
+                    KeyEvent.KEYCODE_MENU -> vm.menuOpen = true
                     else -> return@onPreviewKeyEvent false
                 }
                 true
@@ -167,7 +167,7 @@ fun GuideScreen(vm: AppViewModel) {
                 Spacer(Modifier.width(18.dp))
                 Text(dayLabel(windowStart), color = Tv.accent, fontSize = 20.sp)
                 Spacer(Modifier.weight(1f))
-                Text("OK details · ▶ watch · ⏪⏩ 2 hours · Menu settings · Back TV", color = Tv.muted, fontSize = 13.sp)
+                Text("OK details · ▶ watch · ⏪⏩ 2 hours · Menu · Back TV", color = Tv.muted, fontSize = 13.sp)
             }
             Spacer(Modifier.height(10.dp))
             ProgramSummary(selected, channel)

@@ -7,6 +7,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -19,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -90,4 +93,47 @@ fun ChannelLogo(channel: Channel, loader: ImageLoader?, size: Dp, modifier: Modi
             )
         }
     }
+}
+
+/** A dialog of choices for the remote; the first button has focus, Back closes it. */
+@androidx.compose.runtime.Composable
+fun ActionDialog(
+    title: String,
+    lines: List<String>,
+    actions: List<Pair<String, () -> Unit>>,
+    onClose: () -> Unit,
+) {
+    val first = androidx.compose.runtime.remember { androidx.compose.ui.focus.FocusRequester() }
+    androidx.compose.runtime.LaunchedEffect(title, actions.size) { first.requestFocus() }
+    androidx.activity.compose.BackHandler { onClose() }
+    Box(
+        androidx.compose.ui.Modifier.fillMaxSize().background(Color(0xAA000000)),
+        contentAlignment = Alignment.Center,
+    ) {
+        androidx.compose.foundation.layout.Column(
+            androidx.compose.ui.Modifier
+                .width(720.dp)
+                .background(Tv.panelSolid, RoundedCornerShape(14.dp))
+                .padding(30.dp),
+            verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp),
+        ) {
+            Text(title, color = Tv.text, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+            lines.filter { it.isNotBlank() }.forEach { Text(it, color = Tv.muted, fontSize = 17.sp, maxLines = 6, overflow = TextOverflow.Ellipsis) }
+            androidx.compose.foundation.layout.Spacer(androidx.compose.ui.Modifier.size(6.dp))
+            androidx.compose.foundation.layout.Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp)) {
+                actions.forEachIndexed { i, (label, action) ->
+                    TvButton(label, if (i == 0) androidx.compose.ui.Modifier.focusRequester(first) else androidx.compose.ui.Modifier) { action() }
+                }
+            }
+        }
+    }
+}
+
+/** "1:05:30" / "12:04". */
+fun clock(ms: Long): String {
+    val s = (ms / 1000).coerceAtLeast(0)
+    val h = s / 3600
+    val m = (s % 3600) / 60
+    val sec = s % 60
+    return if (h > 0) "%d:%02d:%02d".format(h, m, sec) else "%d:%02d".format(m, sec)
 }

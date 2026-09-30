@@ -99,9 +99,9 @@ The stock UI needs you to know the chain
 
 - [x] **First version** — live TV (last channel, channel up/down, banner, channel list, typed numbers),
       guide grid with record, converting-profile fallback; APK built by GitHub on every push.
-- [ ] Recordings list and playback (with resume)
-- [ ] Auto-record rules view
-- [ ] Mini guide / "what's next" strip while watching
-- [ ] Digest sign-in (for servers that don't accept Basic)
-- [ ] Software AC-3 / MPEG-2 decoding (FFmpeg extension) for TVs without hardware support
+- [x] Recordings list and playback (with resume, delete, upcoming)
+- [x] Auto-record rules view (on/off, delete)
+- [x] Mini guide: next programmes in the banner, now/next with progress in the channel list
+- [x] Digest sign-in (API, logos and streams)
+- [x] Software AC-3 / E-AC-3 audio (FFmpeg); MPEG-2 video still falls back to a converting profile
 

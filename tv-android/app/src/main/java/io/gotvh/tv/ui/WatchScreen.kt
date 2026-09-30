@@ -56,7 +56,7 @@ private const val LIST_PAGE = 8
 /**
  * Full-screen TV. Keys:
  *  Up / Ch+ next channel · Down / Ch− previous · OK info banner (OK again: channel list) ·
- *  Left channel list · Right / Guide / Menu the guide · digits jump to a number · Last channel ·
+ *  Left channel list · Right / Guide the guide · Menu the menu · digits jump to a number · Last channel ·
  *  Back closes what's open, twice to exit.
  */
 @Composable
@@ -83,6 +83,7 @@ fun WatchScreen(vm: AppViewModel) {
     }
 
     LaunchedEffect(Unit) { focus.requestFocus() }
+    LaunchedEffect(vm.menuOpen) { if (!vm.menuOpen) focus.requestFocus() }
     LaunchedEffect(Unit) {
         while (true) {
             delay(1000)
@@ -143,10 +144,11 @@ fun WatchScreen(vm: AppViewModel) {
                     KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER ->
                         if (bannerVisible) openList() else showBanner()
                     KeyEvent.KEYCODE_DPAD_LEFT -> openList()
-                    KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_GUIDE, KeyEvent.KEYCODE_MENU -> {
+                    KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_GUIDE -> {
                         vm.guideRow = vm.currentIndex
                         vm.screen = Screen.Guide
                     }
+                    KeyEvent.KEYCODE_MENU -> vm.menuOpen = true
                     KeyEvent.KEYCODE_INFO -> showBanner()
                     KeyEvent.KEYCODE_LAST_CHANNEL -> vm.tunePrevious()
                     in KeyEvent.KEYCODE_0..KeyEvent.KEYCODE_9 -> {
@@ -192,7 +194,7 @@ private fun ChannelBanner(vm: AppViewModel) {
     val context = LocalContext.current
     val ch = vm.currentChannel ?: return
     val nowS = nowSec()
-    val (current, next) = vm.nowAndNext(ch.uuid, nowS)
+    val current = vm.nowAndNext(ch.uuid, nowS).first
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
         Row(
             Modifier
@@ -221,8 +223,22 @@ private fun ChannelBanner(vm: AppViewModel) {
                 } else {
                     Text("No guide information", color = Tv.muted, fontSize = 18.sp)
                 }
-                if (next != null) {
-                    Text("Next  ${timeOf(context, next.start)}  ${next.title}", color = Tv.muted, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                // Mini guide: what's coming up on this channel.
+                val later = vm.upNext(ch.uuid, 4, nowS)
+                if (later.isNotEmpty()) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        later.forEachIndexed { i, p ->
+                            Column(
+                                Modifier.width(250.dp).background(Color(0x1FFFFFFF), RoundedCornerShape(8.dp)).padding(horizontal = 12.dp, vertical = 8.dp),
+                            ) {
+                                Text((if (i == 0) "Next · " else "") + timeOf(context, p.start), color = if (i == 0) Tv.accent else Tv.muted, fontSize = 13.sp)
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    if (p.isScheduled) Box(Modifier.size(8.dp).background(Tv.rec, CircleShape))
+                                    Text(p.title, color = Tv.text, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
+                        }
+                    }
                 }
             }
             Text("OK  channels · ▶  guide", color = Tv.muted, fontSize = 14.sp)
@@ -233,14 +249,15 @@ private fun ChannelBanner(vm: AppViewModel) {
 /** Left panel with every channel and what's on it now. */
 @Composable
 private fun ChannelList(vm: AppViewModel, selected: Int) {
+    val context = LocalContext.current
     val state = rememberLazyListState()
     LaunchedEffect(selected) { state.scrollToItem((selected - 4).coerceAtLeast(0)) }
     val nowS = nowSec()
-    Box(Modifier.fillMaxHeight().width(460.dp).background(Tv.panel).padding(vertical = 24.dp)) {
+    Box(Modifier.fillMaxHeight().width(520.dp).background(Tv.panel).padding(vertical = 24.dp)) {
         LazyColumn(state = state) {
             itemsIndexed(vm.channels, key = { _, c -> c.uuid }) { i, ch ->
                 val isSel = i == selected
-                val current = vm.nowAndNext(ch.uuid, nowS).first
+                val (current, next) = vm.nowAndNext(ch.uuid, nowS)
                 Row(
                     Modifier
                         .fillMaxWidth()
@@ -255,7 +272,16 @@ private fun ChannelList(vm: AppViewModel, selected: Int) {
                     ChannelLogo(ch, vm.imageLoader, 34.dp)
                     Column(Modifier.weight(1f)) {
                         Text(ch.name, color = fg, fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(current?.title ?: "", color = if (isSel) Color(0xCC000000) else Tv.muted, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(current?.title ?: "No guide information", color = if (isSel) Color(0xCC000000) else Tv.muted, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (current != null) {
+                            val f = ((nowS - current.start).toFloat() / (current.stop - current.start).coerceAtLeast(1)).coerceIn(0f, 1f)
+                            Box(Modifier.padding(vertical = 3.dp).fillMaxWidth(0.6f).height(3.dp).background(if (isSel) Color(0x33000000) else Color(0x33FFFFFF))) {
+                                Box(Modifier.fillMaxHeight().fillMaxWidth(f).background(if (isSel) Color.Black else Tv.accent))
+                            }
+                        }
+                        if (next != null) {
+                            Text("Next ${timeOf(context, next.start)} ${next.title}", color = if (isSel) Color(0x99000000) else Tv.muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
                     }
                     if (i == vm.currentIndex) Spacer(Modifier.size(8.dp).background(if (isSel) Color.Black else Tv.accent, CircleShape))
                 }

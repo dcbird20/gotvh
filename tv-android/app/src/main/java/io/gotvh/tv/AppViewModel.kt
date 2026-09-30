@@ -8,8 +8,10 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import coil.ImageLoader
+import io.gotvh.tv.data.AutorecRule
 import io.gotvh.tv.data.Channel
 import io.gotvh.tv.data.Program
+import io.gotvh.tv.data.Recording
 import io.gotvh.tv.data.Settings
 import io.gotvh.tv.data.TvhClient
 import io.gotvh.tv.data.TvhException
@@ -18,7 +20,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.IOException
 
-enum class Screen { Setup, Watch, Guide }
+enum class Screen { Setup, Watch, Guide, Recordings, Rules, Playback }
 
 fun nowSec(): Long = System.currentTimeMillis() / 1000
 
@@ -45,6 +47,18 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private var previousIndex = -1
     /** A short message for the viewer (connection problems, "Recording scheduled"). */
     var notice by mutableStateOf<String?>(null)
+    /** The Menu-key menu (Live TV, Guide, Recordings, Auto-record, Settings). */
+    var menuOpen by mutableStateOf(false)
+
+    var recorded by mutableStateOf<List<Recording>>(emptyList())
+        private set
+    var upcoming by mutableStateOf<List<Recording>>(emptyList())
+        private set
+    var rules by mutableStateOf<List<AutorecRule>>(emptyList())
+        private set
+    /** The recording playing on the Playback screen. */
+    var playing by mutableStateOf<Recording?>(null)
+        private set
     var loading by mutableStateOf(false)
         private set
 
@@ -150,9 +164,112 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun resumeIfStopped() {
         val c = client ?: return
+        if (screen == Screen.Playback) {
+            val r = playing ?: return
+            if (!player.exo.isPlaying && !player.tuning) player.playRecording(c, r.uuid, settings.resumePosition(r.uuid))
+            return
+        }
         val ch = currentChannel ?: return
         if (!player.exo.isPlaying && !player.tuning) player.play(c, ch, profiles)
     }
+
+    /** Back to live TV from anywhere (restarts the channel if a recording was playing). */
+    fun goLive() {
+        menuOpen = false
+        screen = Screen.Watch
+        val c = client ?: return
+        val ch = currentChannel ?: return
+        if (!player.isLive) player.play(c, ch, profiles)
+    }
+
+    fun open(target: Screen) {
+        menuOpen = false
+        when (target) {
+            Screen.Watch -> goLive()
+            Screen.Guide -> {
+                guideRow = currentIndex
+                screen = Screen.Guide
+            }
+            Screen.Recordings -> {
+                screen = Screen.Recordings
+                loadRecordings()
+            }
+            Screen.Rules -> {
+                screen = Screen.Rules
+                loadRules()
+            }
+            else -> screen = target
+        }
+    }
+
+    // ------------------------------------------------------------------ recordings
+
+    fun loadRecordings() {
+        val c = client ?: return
+        viewModelScope.launch {
+            try {
+                recorded = c.recordings(upcoming = false).sortedByDescending { it.start }
+                upcoming = c.recordings(upcoming = true).sortedBy { it.start }
+            } catch (e: TvhException) {
+                notice = e.message
+            } catch (e: IOException) {
+                notice = "Couldn't reach Tvheadend."
+            }
+        }
+    }
+
+    /** Play a recording from where you left off (or from the start). */
+    fun playRecording(r: Recording, fromStart: Boolean) {
+        val c = client ?: return
+        playing = r
+        screen = Screen.Playback
+        player.playRecording(c, r.uuid, if (fromStart) 0 else settings.resumePosition(r.uuid))
+    }
+
+    /** Remember where playback is, so the recording can resume later. Near the end counts as watched. */
+    fun saveRecordingPosition() {
+        val r = playing ?: return
+        val pos = player.exo.currentPosition
+        val dur = player.exo.duration
+        val watched = player.ended || (dur > 0 && pos > dur - 60_000)
+        settings.saveResumePosition(r.uuid, if (watched || pos < 15_000) 0 else pos)
+    }
+
+    fun leavePlayback() {
+        saveRecordingPosition()
+        player.stop()
+        playing = null
+        screen = Screen.Recordings
+        loadRecordings()
+    }
+
+    fun deleteRecording(r: Recording) = dvr("Deleted “${r.title}”", reloadRecordings = true) { it.removeRecording(r.uuid) }
+
+    fun cancelUpcoming(r: Recording) = dvr("Won’t record “${r.title}”", reloadRecordings = true) {
+        if (r.isRecordingNow) it.stopRecording(r.uuid) else it.cancelRecording(r.uuid)
+    }
+
+    // ------------------------------------------------------------------ auto-record rules
+
+    fun loadRules() {
+        val c = client ?: return
+        viewModelScope.launch {
+            try {
+                rules = c.autorecRules().sortedBy { it.label.lowercase() }
+            } catch (e: TvhException) {
+                notice = e.message
+            } catch (e: IOException) {
+                notice = "Couldn't reach Tvheadend."
+            }
+        }
+    }
+
+    fun setRuleEnabled(rule: AutorecRule, enabled: Boolean) =
+        dvr(if (enabled) "“${rule.label}” switched on" else "“${rule.label}” switched off", reloadRules = true) { it.setEnabled(rule.uuid, enabled) }
+
+    fun deleteRule(rule: AutorecRule) = dvr("Deleted the rule “${rule.label}”", reloadRules = true) { it.deleteNode(rule.uuid) }
+
+    fun channelName(uuid: String): String? = channels.firstOrNull { it.uuid == uuid }?.label
 
     // ------------------------------------------------------------------ guide
 
@@ -163,6 +280,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val i = list.indexOfFirst { it.isAiring(now) }
         return if (i >= 0) list[i] to list.getOrNull(i + 1) else null to list.firstOrNull { it.start > now }
     }
+
+    /** The next [count] programmes after the one on now. */
+    fun upNext(channelUuid: String, count: Int, now: Long = nowSec()): List<Program> =
+        programsFor(channelUuid).filter { it.start > now }.take(count)
 
     /** Make sure the guide covers [from, to); loads more if not. */
     fun ensureGuide(from: Long, to: Long) {
@@ -199,12 +320,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (p.isRecordingNow) dvr("Stopped recording “${p.title}”") { it.stopRecording(p.dvrUuid) }
         else dvr("Won’t record “${p.title}”") { it.cancelRecording(p.dvrUuid) }
 
-    private fun dvr(done: String, action: suspend (TvhClient) -> Unit) {
+    private fun dvr(done: String, reloadRecordings: Boolean = false, reloadRules: Boolean = false, action: suspend (TvhClient) -> Unit) {
         val c = client ?: return
         viewModelScope.launch {
             try {
                 action(c)
                 notice = done
+                if (reloadRecordings) loadRecordings()
+                if (reloadRules) loadRules()
                 refreshGuide()
             } catch (e: TvhException) {
                 notice = e.message

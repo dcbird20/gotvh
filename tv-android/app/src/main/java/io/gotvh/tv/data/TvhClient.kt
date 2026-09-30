@@ -37,6 +37,8 @@ class TvhClient(server: String, username: String, password: String) {
                 chain.proceed(req)
             }
         }
+        // Digest-only servers answer the Basic attempt with a challenge; this signs the retry.
+        .authenticator(DigestAuthenticator(username, password))
         .build()
 
     private var dvrConfig: String? = null
@@ -72,9 +74,6 @@ class TvhClient(server: String, username: String, password: String) {
     }
 
     private fun describe(code: Int, challenge: String?): String = when {
-        code == 401 && challenge?.startsWith("Digest", ignoreCase = true) == true && authHeader != null ->
-            "Tvheadend only accepts Digest sign-in. In Tvheadend's web interface set the HTTP authentication to " +
-                "allow plain (Basic) as well, then try again."
         code == 401 -> "Wrong username or password."
         code == 403 -> "This account isn't allowed to use Tvheadend's API. Give it web interface and streaming rights."
         code == 404 -> "That address answered, but it isn't Tvheadend (no /api)."
@@ -172,6 +171,61 @@ class TvhClient(server: String, username: String, password: String) {
     /** End a recording in progress, keeping the part already recorded. */
     suspend fun stopRecording(dvrUuid: String) {
         post("dvr/entry/stop", mapOf("uuid" to dvrUuid))
+    }
+
+    // ------------------------------------------------------------------ recordings
+
+    suspend fun recordings(upcoming: Boolean): List<Recording> {
+        val path = if (upcoming) "dvr/entry/grid_upcoming" else "dvr/entry/grid_finished"
+        val entries = get(path, mapOf("start" to "0", "limit" to "5000")).optJSONArray("entries") ?: JSONArray()
+        return List(entries.length()) { i ->
+            val o = entries.getJSONObject(i)
+            Recording(
+                uuid = o.optString("uuid"),
+                title = o.optString("disp_title").ifBlank { o.optString("title") }.ifBlank { "(no title)" },
+                subtitle = o.optString("disp_subtitle").ifBlank { o.optString("disp_extratext") },
+                description = o.optString("disp_description").ifBlank { o.optString("disp_summary") },
+                channelName = o.optString("channelname"),
+                start = o.optLong("start"),
+                stop = o.optLong("stop"),
+                filesize = o.optLong("filesize"),
+                status = o.optString("status"),
+                schedStatus = o.optString("sched_status"),
+            )
+        }.filter { it.uuid.isNotEmpty() }
+    }
+
+    /** Delete a finished recording and its file. */
+    suspend fun removeRecording(uuid: String) {
+        post("dvr/entry/remove", mapOf("uuid" to uuid))
+    }
+
+    /** The recorded file, streamed with seeking. */
+    fun recordingUrl(uuid: String): String = "$base/dvrfile/$uuid"
+
+    // ------------------------------------------------------------------ auto-record rules
+
+    suspend fun autorecRules(): List<AutorecRule> {
+        val entries = get("dvr/autorec/grid", mapOf("start" to "0", "limit" to "2000")).optJSONArray("entries") ?: JSONArray()
+        return List(entries.length()) { i ->
+            val o = entries.getJSONObject(i)
+            AutorecRule(
+                uuid = o.optString("uuid"),
+                name = o.optString("name"),
+                title = o.optString("title"),
+                channelUuid = o.optString("channel"),
+                enabled = o.optBoolean("enabled", true),
+                comment = o.optString("comment"),
+            )
+        }.filter { it.uuid.isNotEmpty() }
+    }
+
+    suspend fun setEnabled(uuid: String, enabled: Boolean) {
+        post("idnode/save", mapOf("node" to JSONObject().put("uuid", uuid).put("enabled", if (enabled) 1 else 0).toString()))
+    }
+
+    suspend fun deleteNode(uuid: String) {
+        post("idnode/delete", mapOf("uuid" to uuid))
     }
 
     fun streamUrl(channelUuid: String, profile: String): String =

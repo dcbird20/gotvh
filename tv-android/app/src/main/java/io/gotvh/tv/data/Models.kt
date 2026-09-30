@@ -29,3 +29,33 @@ data class Program(
     val isScheduled: Boolean get() = dvrUuid.isNotEmpty() && (dvrState.startsWith("scheduled") || dvrState.startsWith("recording"))
     val isRecordingNow: Boolean get() = dvrState.startsWith("recording")
 }
+
+/** A DVR entry: finished or upcoming. Times are Unix seconds. */
+data class Recording(
+    val uuid: String,
+    val title: String,
+    val subtitle: String,
+    val description: String,
+    val channelName: String,
+    val start: Long,
+    val stop: Long,
+    val filesize: Long,
+    /** Tvheadend's status text, e.g. "Completed OK", "Scheduled for recording". */
+    val status: String,
+    val schedStatus: String,
+) {
+    val durationSec: Long get() = (stop - start).coerceAtLeast(0)
+    val isRecordingNow: Boolean get() = schedStatus.startsWith("recording")
+}
+
+/** An auto-record rule (Tvheadend "dvr/autorec"). */
+data class AutorecRule(
+    val uuid: String,
+    val name: String,
+    val title: String,
+    val channelUuid: String,
+    val enabled: Boolean,
+    val comment: String,
+) {
+    val label: String get() = name.ifBlank { title }.ifBlank { "(any programme)" }
+}

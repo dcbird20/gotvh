@@ -29,4 +29,13 @@ class Settings(context: Context) {
         set(value) = prefs.edit().putString("profile", value).apply()
 
     val isConfigured: Boolean get() = server.isNotBlank()
+
+    /** Where you stopped watching a recording (ms), so it can resume. 0 = from the start. */
+    fun resumePosition(recordingUuid: String): Long = prefs.getLong("resume.$recordingUuid", 0L)
+
+    fun saveResumePosition(recordingUuid: String, positionMs: Long) {
+        prefs.edit().apply {
+            if (positionMs <= 0) remove("resume.$recordingUuid") else putLong("resume.$recordingUuid", positionMs)
+        }.apply()
+    }
 }

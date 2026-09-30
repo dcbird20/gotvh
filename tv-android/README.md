@@ -17,8 +17,8 @@ On the TV:
 3. Updates install over the previous version (every build is signed with the same key).
 
 First start asks for the Tvheadend address (e.g. `http://192.168.1.222:9981`) and account — the
-same as the admin web app. The account needs web interface and streaming rights, and Tvheadend
-must accept plain (Basic) sign-in.
+same as the admin web app. The account needs web interface and streaming rights. Basic and Digest
+sign-in both work.
 
 ## Remote
 
@@ -27,9 +27,10 @@ must accept plain (Basic) sign-in.
 | Key | Does |
 |---|---|
 | Up / Ch+ · Down / Ch− | Next / previous channel |
-| OK | Info banner (now, next, progress); OK again: channel list |
+| OK | Info banner: now with progress, and the next few programmes; OK again: channel list |
 | Left | Channel list (Up/Down, OK to tune, Right for its guide) |
-| Right / Guide / Menu | Guide |
+| Right / Guide | Guide |
+| Menu | Menu: Live TV, Guide, Recordings, Auto-record rules, Settings |
 | 0–9 | Type a channel number |
 | Last channel | Back to the previous channel |
 | Back | Close what's open; twice to exit |
@@ -44,13 +45,29 @@ must accept plain (Basic) sign-in.
 | ⏪ / ⏩ | Two hours back / ahead |
 | OK | Details: Watch, Record, Record series, Don't record |
 | ▶ | Watch that channel |
-| Menu | Settings (server and sign-in) |
+| Menu | Menu |
 | Back / Guide | Back to TV |
+
+**Recordings** (Menu → Recordings)
+
+| Key | Does |
+|---|---|
+| Up / Down | Move; Up at the top reaches the Recorded / Upcoming tabs |
+| Right / OK | A show's episodes; OK on an episode: Resume, Play from start, Delete |
+| OK (Upcoming) | Don't record / Stop recording |
+| Back | Shows, then TV |
+
+**Playing a recording**: Left/⏪ back 10 s · Right/⏩ forward 30 s · OK/⏯ pause · Back to Recordings.
+It remembers where you stopped and offers to resume.
+
+**Auto-record rules** (Menu → Auto-record rules): OK to switch a rule on or off, or delete it.
+Creating and editing rules is in the guide (Record series) and the admin app.
 
 ## Playback
 
-Streams use the `pass` profile (the broadcast as-is). If the TV can't decode a channel — antenna
-channels are often MPEG-2 video with Dolby AC-3 sound — the app switches to a converting profile
+Streams use the `pass` profile (the broadcast as-is). Dolby AC-3 / E-AC-3 sound is decoded in
+software (FFmpeg) on TVs that can't decode it themselves. If the TV can't decode a channel's
+picture — antenna channels are often MPEG-2 — the app switches to a converting profile
 on the server (any profile with h264 in its name). If Tvheadend has none, add one under
 Configuration → Stream → Stream profiles (e.g. a *Transcode/av-lib* profile producing H.264/AAC in
 MPEG-TS) and the app uses it automatically.

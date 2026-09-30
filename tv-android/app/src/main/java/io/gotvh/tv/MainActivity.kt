@@ -25,6 +25,10 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.ui.PlayerView
 import io.gotvh.tv.player.TvPlayer
 import io.gotvh.tv.ui.GuideScreen
+import io.gotvh.tv.ui.MainMenu
+import io.gotvh.tv.ui.PlaybackScreen
+import io.gotvh.tv.ui.RecordingsScreen
+import io.gotvh.tv.ui.RulesScreen
 import io.gotvh.tv.ui.SetupScreen
 import io.gotvh.tv.ui.Tv
 import io.gotvh.tv.ui.WatchScreen
@@ -47,6 +51,7 @@ class MainActivity : ComponentActivity() {
     // Stop the stream when the app goes to the background (frees the tuner), resume on return.
     override fun onStop() {
         super.onStop()
+        if (vm.screen == Screen.Playback) vm.saveRecordingPosition()
         vm.player.stop()
     }
 
@@ -64,7 +69,11 @@ fun GoTvhApp(vm: AppViewModel) {
             Screen.Setup -> SetupScreen(vm)
             Screen.Watch -> WatchScreen(vm)
             Screen.Guide -> GuideScreen(vm)
+            Screen.Recordings -> RecordingsScreen(vm)
+            Screen.Rules -> RulesScreen(vm)
+            Screen.Playback -> PlaybackScreen(vm)
         }
+        if (vm.menuOpen) MainMenu(vm)
         Notice(vm)
     }
 }
