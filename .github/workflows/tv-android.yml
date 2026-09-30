@@ -54,7 +54,8 @@ jobs:
       # A fixed download link for the newest build from main:
       # https://github.com/<owner>/<repo>/releases/download/tv-latest/gotvh-tv.apk
       - name: Publish to the tv-latest release
-        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/admin-workspace'
+        # Only main publishes (both branches carry the same commits; two runs would race).
+        if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

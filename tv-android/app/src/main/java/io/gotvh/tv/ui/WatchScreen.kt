@@ -194,52 +194,64 @@ private fun ChannelBanner(vm: AppViewModel) {
     val nowS = nowSec()
     val current = vm.nowAndNext(ch.uuid, nowS).first
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
-        Row(
+        Column(
             Modifier
                 .fillMaxWidth()
-                .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xF00B1220))))
-                .padding(start = 48.dp, end = 48.dp, top = 60.dp, bottom = 36.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(24.dp),
+                .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xE00B1220), Color(0xF50B1220))))
+                .padding(start = 48.dp, end = 48.dp, top = 70.dp, bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            ChannelLogo(ch, vm.imageLoader, 88.dp)
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    if (ch.number.isNotEmpty()) Text(ch.number, color = Tv.accent, fontSize = 30.sp, fontWeight = FontWeight.Bold)
-                    Text(ch.name, color = Tv.text, fontSize = 26.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (current?.isRecordingNow == true) Box(Modifier.size(14.dp).background(Tv.rec, CircleShape))
-                }
-                if (current != null) {
-                    Text(current.title, color = Tv.text, fontSize = 22.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            // Channel and what's on now.
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                ChannelLogo(ch, vm.imageLoader, 88.dp)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                        Text(timeRange(context, current.start, current.stop), color = Tv.muted, fontSize = 16.sp)
-                        val progress = ((nowS - current.start).toFloat() / (current.stop - current.start).coerceAtLeast(1)).coerceIn(0f, 1f)
-                        Box(Modifier.width(260.dp).height(5.dp).background(Color(0x33FFFFFF), RoundedCornerShape(3.dp))) {
-                            Box(Modifier.fillMaxHeight().fillMaxWidth(progress).background(Tv.accent, RoundedCornerShape(3.dp)))
-                        }
+                        if (ch.number.isNotEmpty()) Text(ch.number, color = Tv.accent, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+                        Text(ch.name, color = Tv.text, fontSize = 26.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false))
+                        if (current?.isRecordingNow == true) Box(Modifier.size(14.dp).background(Tv.rec, CircleShape))
+                        Spacer(Modifier.weight(1f))
+                        Text("OK  channels · ▶  guide · Back  menu", color = Tv.muted, fontSize = 14.sp)
                     }
-                } else {
-                    Text("No guide information", color = Tv.muted, fontSize = 18.sp)
-                }
-                // Mini guide: what's coming up on this channel.
-                val later = vm.upNext(ch.uuid, 4, nowS)
-                if (later.isNotEmpty()) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        later.forEachIndexed { i, p ->
-                            Column(
-                                Modifier.width(250.dp).background(Color(0x1FFFFFFF), RoundedCornerShape(8.dp)).padding(horizontal = 12.dp, vertical = 8.dp),
-                            ) {
-                                Text((if (i == 0) "Next · " else "") + timeOf(context, p.start), color = if (i == 0) Tv.accent else Tv.muted, fontSize = 13.sp)
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    if (p.isScheduled) Box(Modifier.size(8.dp).background(Tv.rec, CircleShape))
-                                    Text(p.title, color = Tv.text, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                }
+                    if (current != null) {
+                        Text(current.title + if (current.subtitle.isNotBlank()) " · ${current.subtitle}" else "",
+                            color = Tv.text, fontSize = 22.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                            Text(timeRange(context, current.start, current.stop), color = Tv.muted, fontSize = 16.sp)
+                            val progress = ((nowS - current.start).toFloat() / (current.stop - current.start).coerceAtLeast(1)).coerceIn(0f, 1f)
+                            Box(Modifier.weight(1f).height(5.dp).background(Color(0x33FFFFFF), RoundedCornerShape(3.dp))) {
+                                Box(Modifier.fillMaxHeight().fillMaxWidth(progress).background(Tv.accent, RoundedCornerShape(3.dp)))
                             }
+                            Text("${((current.stop - nowS).coerceAtLeast(0) + 59) / 60} min left", color = Tv.muted, fontSize = 16.sp)
                         }
+                    } else {
+                        Text("No guide information", color = Tv.muted, fontSize = 18.sp)
                     }
                 }
             }
-            Text("OK  channels · ▶  guide · Back  menu", color = Tv.muted, fontSize = 14.sp)
+            // Mini guide: what's coming up on this channel, across the whole screen.
+            val later = vm.upNext(ch.uuid, 5, nowS)
+            if (later.isNotEmpty()) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    later.forEachIndexed { i, p ->
+                        Column(
+                            Modifier
+                                .weight(1f)
+                                .background(if (i == 0) Color(0x2EF5B63F) else Color(0x1FFFFFFF), RoundedCornerShape(8.dp))
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            Text((if (i == 0) "Next · " else "") + timeOf(context, p.start), color = if (i == 0) Tv.accent else Tv.muted, fontSize = 14.sp)
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                if (p.isScheduled) Box(Modifier.size(8.dp).background(Tv.rec, CircleShape))
+                                Text(p.title, color = Tv.text, fontSize = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+                    // Keep tiles the same width when fewer programmes are known.
+                    repeat(5 - later.size) { Spacer(Modifier.weight(1f)) }
+                }
+            }
         }
     }
 }
