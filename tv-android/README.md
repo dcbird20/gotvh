@@ -10,10 +10,15 @@ Every push builds an APK on GitHub. The newest one is always at:
 
     https://github.com/dcbird20/gotvh/releases/download/tv-latest/gotvh-tv.apk
 
+On the home network there's a short address for typing on a remote (raven1's nginx redirects it
+to the link above):
+
+    192.168.1.72:8090/tv
+
 On the TV:
 1. Settings → Device Preferences → Security & restrictions → allow installing from unknown sources
    for the app you'll use to download (e.g. **Downloader** by AFTVnews, free in the Play Store).
-2. In Downloader, open the address above and install.
+2. In Downloader, open `192.168.1.72:8090/tv` (or the full address) and install.
 3. Updates install over the previous version (every build is signed with the same key).
 
 First start asks for the Tvheadend address (e.g. `http://192.168.1.222:9981`) and account — the
