@@ -89,6 +89,8 @@ function recState(s: string): '' | 'scheduled' | 'recording' | 'recorded' | 'fai
  * Programme guide: channels down the side, time across the top, like Tvheadend's classic EPG
  * grid — click a programme to record it, its series, or open the channel in VLC.
  */
+import { GENRES, GenreKey, genreInfo, genreOf } from './guide-genre';
+
 @Component({
   selector: 'admin-guide',
   standalone: true,
@@ -132,6 +134,20 @@ function recState(s: string): '' | 'scheduled' | 'recording' | 'recorded' | 'fai
           <mat-label>Find a programme</mat-label>
           <input matInput [ngModel]="query()" (ngModelChange)="onQuery($event)" (keydown.escape)="onQuery('')">
         </mat-form-field>
+      </div>
+
+      <div class="legend" role="group" aria-label="Genres">
+        <mat-slide-toggle [checked]="showGenres()" (change)="setShowGenres($event.checked)">Colour by genre</mat-slide-toggle>
+        @if (showGenres()) {
+          @for (g of legend(); track g.key) {
+            <button type="button" class="chip-g" [class.on]="focusGenre() === g.key" [attr.aria-pressed]="focusGenre() === g.key"
+                    (click)="focusGenre.set(focusGenre() === g.key ? null : g.key)"
+                    [matTooltip]="focusGenre() === g.key ? 'Show all genres' : 'Highlight ' + g.label.toLowerCase()">
+              <span class="swatch" [attr.data-genre]="g.key"></span>{{ g.label }} <span class="muted">{{ g.count }}</span>
+            </button>
+          }
+          @if (unlabelled()) { <span class="muted small">{{ unlabelled() }} without a genre</span> }
+        }
       </div>
 
       @if (loading()) { <mat-progress-bar mode="indeterminate" /> }
@@ -178,6 +194,8 @@ function recState(s: string): '' | 'scheduled' | 'recording' | 'recorded' | 'fai
                               [class.airing]="isAiring(c.ev)" [class.past]="c.ev.stop <= nowSec()"
                               [class.sel]="selected()?.eventId === c.ev.eventId"
                               [attr.data-rec]="rec(c.ev) || null"
+                              [attr.data-genre]="showGenres() ? genreKey(c.ev) : null"
+                              [class.dim]="!!focusGenre() && genreKey(c.ev) !== focusGenre()"
                               [attr.aria-label]="c.ev.title + ', ' + (c.ev.start * 1000 | date:'h:mm a')"
                               (click)="select(c.ev)">
                         <span class="p-title">@if (c.clippedStart) {‹ }{{ c.ev.title }}</span>
@@ -228,6 +246,9 @@ function recState(s: string): '' | 'scheduled' | 'recording' | 'recorded' | 'fai
                 @if (e.episode) { · {{ e.episode }} }
                 @if (e.isNew) { · New } @if (e.isRepeat) { · Repeat } @if (e.hd) { · HD }
               </p>
+              @if (genre(e); as g) {
+                <p class="genre small"><span class="swatch" [attr.data-genre]="g.key"></span>{{ g.label }}@if (g.guessed) { <span class="muted"> (from the title)</span> }</p>
+              }
               @if (rec(e); as r) {
                 <p class="state" [class]="r">
                   <mat-icon inline>{{ r === 'recording' ? 'fiber_manual_record' : r === 'failed' ? 'error' : r === 'recorded' ? 'check_circle' : 'schedule' }}</mat-icon>
@@ -369,6 +390,16 @@ function recState(s: string): '' | 'scheduled' | 'recording' | 'recorded' | 'fai
     .prog:hover { border-color: var(--mat-sys-primary); z-index: 1; }
     .prog:focus-visible { outline: 2px solid var(--mat-sys-primary); outline-offset: 1px; z-index: 2; }
     .prog.airing { background: var(--mat-sys-surface-container-high); }
+    .prog[data-genre] { background: color-mix(in srgb, var(--g) 16%, var(--mat-sys-surface)); box-shadow: inset 0 3px 0 var(--g); }
+    .prog.airing[data-genre] { background: color-mix(in srgb, var(--g) 28%, var(--mat-sys-surface)); }
+    .prog.dim { opacity: .3; }
+    .legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 0 0 8px; }
+    .legend mat-slide-toggle { margin-right: 8px; }
+    .chip-g { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 14px; cursor: pointer;
+      border: 1px solid var(--mat-sys-outline-variant); background: transparent; color: var(--mat-sys-on-surface); font: var(--mat-sys-label-medium); }
+    .chip-g.on { border-color: var(--mat-sys-primary); background: var(--mat-sys-secondary-container); color: var(--mat-sys-on-secondary-container); }
+    .swatch { width: 10px; height: 10px; border-radius: 3px; background: var(--g); flex: none; display: inline-block; }
+    .genre { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; }
     .prog.past { opacity: .6; }
     .prog.sel { border-color: var(--mat-sys-primary); box-shadow: inset 0 0 0 1px var(--mat-sys-primary); }
     .prog[data-rec=scheduled], .prog[data-rec=recording] { border-left: 4px solid var(--mat-sys-error); }
@@ -408,6 +439,17 @@ function recState(s: string): '' | 'scheduled' | 'recording' | 'recorded' | 'fai
                         color: var(--mat-sys-on-surface); font: var(--mat-sys-body-medium); }
     .muted { color: var(--mat-sys-on-surface-variant); }
     .small { font: var(--mat-sys-body-small); }
+  
+    /* Genre colours (guide-genre.ts; validated for colour-blind separation and contrast in both themes). */
+    :host { --g-movie: #2a78d6; --g-news: #eb6834; --g-docs: #1baf7a; --g-kids: #eda100; --g-shows: #e87ba4; --g-sports: #008300; --g-lifestyle: #4a3aa7; }
+    @media (prefers-color-scheme: dark) { :host { --g-movie: #3987e5; --g-news: #d95926; --g-docs: #199e70; --g-kids: #c98500; --g-shows: #d55181; --g-sports: #008300; --g-lifestyle: #9085e9; } }
+    .prog[data-genre=movie], .swatch[data-genre=movie] { --g: var(--g-movie); }
+    .prog[data-genre=news], .swatch[data-genre=news] { --g: var(--g-news); }
+    .prog[data-genre=docs], .swatch[data-genre=docs] { --g: var(--g-docs); }
+    .prog[data-genre=kids], .swatch[data-genre=kids] { --g: var(--g-kids); }
+    .prog[data-genre=shows], .swatch[data-genre=shows] { --g: var(--g-shows); }
+    .prog[data-genre=sports], .swatch[data-genre=sports] { --g: var(--g-sports); }
+    .prog[data-genre=lifestyle], .swatch[data-genre=lifestyle] { --g: var(--g-lifestyle); }
   `],
 })
 export class GuideComponent implements OnInit {
@@ -427,6 +469,35 @@ export class GuideComponent implements OnInit {
   readonly tags = signal<Array<{ uuid: string; name: string }>>([]);
   readonly tag = signal('');
   readonly onlyWithGuide = signal(true);
+
+  // ---- genre colours
+  readonly showGenres = signal((() => { try { return localStorage.getItem('gotvh_admin_guide_genres') !== '0'; } catch { return true; } })());
+  readonly focusGenre = signal<GenreKey | null>(null);
+  private readonly genreCache = new Map<number, ReturnType<typeof genreOf>>();
+  setShowGenres(on: boolean): void {
+    this.showGenres.set(on);
+    if (!on) this.focusGenre.set(null);
+    try { localStorage.setItem('gotvh_admin_guide_genres', on ? '1' : '0'); } catch { /* ignore */ }
+  }
+  private genreFor(e: GuideEvent): ReturnType<typeof genreOf> {
+    if (!this.genreCache.has(e.eventId)) this.genreCache.set(e.eventId, genreOf(e));
+    return this.genreCache.get(e.eventId)!;
+  }
+  genreKey(e: GuideEvent): GenreKey | null { return this.genreFor(e)?.key ?? null; }
+  genre(e: GuideEvent): { key: GenreKey; label: string; guessed: boolean } | null {
+    const g = this.genreFor(e);
+    return g ? { key: g.key, label: genreInfo(g.key).label, guessed: g.guessed } : null;
+  }
+  /** Genres in view, in palette order, with counts. */
+  readonly legend = computed(() => {
+    const counts = new Map<GenreKey, number>();
+    for (const r of this.rows()) for (const c of r.cells) {
+      const k = this.genreKey(c.ev);
+      if (k) counts.set(k, (counts.get(k) || 0) + 1);
+    }
+    return GENRES.filter(g => counts.has(g.key)).map(g => ({ key: g.key, label: g.label, count: counts.get(g.key)! }));
+  });
+  readonly unlabelled = computed(() => this.rows().reduce((n, r) => n + r.cells.filter(c => !this.genreKey(c.ev)).length, 0));
   readonly events = signal<GuideEvent[]>([]);
   readonly loading = signal(false);
   readonly error = signal('');
