@@ -56,12 +56,17 @@ sign-in both work.
 | Key | Does |
 |---|---|
 | Up / Down | Move; Up at the top reaches the Recorded / Upcoming tabs |
-| Right / OK | A show's episodes; OK on an episode: Resume, Play from start, Delete |
+| OK | A show: its recordings (a show with one recording plays it). A recording: play, resuming where you stopped |
+| Right | Options: Resume / Play from start, Mark watched / unwatched, Delete |
+| Left / Back | Back to the shows, then TV |
 | OK (Upcoming) | Don't record / Stop recording |
-| Back | Shows, then TV |
+
+"Continue watching" at the top lists everything stopped partway. Each recording shows a dot when
+it's new, a progress bar and time left when it's in progress, and ✓ (dimmed) when watched.
 
 **Playing a recording**: Left/⏪ back 10 s · Right/⏩ forward 30 s · OK/⏯ pause · Back to Recordings.
-It remembers where you stopped and offers to resume.
+The first 15 s don't count; the last minute counts as watched. Watched state and the resume point are
+stored on the recording in Tvheadend (the same fields Kodi uses), so every TV picks up where you stopped.
 
 **Auto-record rules** (Back → Auto-record rules): OK to switch a rule on or off, or delete it.
 Creating and editing rules is in the guide (Record series) and the admin app.
