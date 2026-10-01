@@ -61,7 +61,9 @@ private const val FORWARD_MS = 30_000L
  *  Up / Ch+ next channel · Down / Ch− previous · OK info banner, OK again pauses (⏯ too) ·
  *  Left channel list · Right / Guide the guide · Menu the menu · digits jump to a number · Last channel ·
  *  Back closes what's open, then opens the menu (Recordings, Settings, Exit…).
- * Paused or behind live: Left / ⏪ back 10 s, Right / ⏩ forward 30 s (forward past live = live).
+ * With the banner showing, it's also the playback bar: OK pause / play, Left back 10 s, Right forward
+ * 30 s (forward past live = live). ⏯ ⏪ ⏩ work any time. With the banner hidden, Left and Right are
+ * always the channel list and the guide, paused or not.
  * Pausing uses Tvheadend's timeshift buffer (over HTSP), so it keeps recording while paused.
  */
 @Composable
@@ -74,9 +76,9 @@ fun WatchScreen(vm: AppViewModel) {
     var listIndex by remember { mutableIntStateOf(vm.currentIndex) }
     var digits by remember { mutableStateOf("") }
     val player = vm.player
-    // Paused or watching behind live: the arrows rewind / go forward instead of opening the list / guide.
-    val shifted = player.paused || player.isBehindLive
-    val bannerVisible = now < bannerUntil || player.paused
+    val bannerVisible = now < bannerUntil
+    // The banner doubles as the playback bar when live TV can be paused.
+    val transport = bannerVisible && player.canPause
     val channels = vm.channels
 
     fun showBanner() {
@@ -110,7 +112,7 @@ fun WatchScreen(vm: AppViewModel) {
     BackHandler(enabled = !vm.menuOpen) {
         when {
             listOpen -> listOpen = false
-            bannerVisible && !player.paused -> bannerUntil = 0
+            bannerVisible -> bannerUntil = 0
             else -> vm.menuOpen = true
         }
     }
@@ -148,15 +150,19 @@ fun WatchScreen(vm: AppViewModel) {
                     KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_CHANNEL_UP -> vm.tune(vm.currentIndex + 1)
                     KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_CHANNEL_DOWN -> vm.tune(vm.currentIndex - 1)
                     KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER ->
-                        if (bannerVisible) { player.togglePause(); showBanner() } else showBanner()
+                        when {
+                            transport -> { player.togglePause(); showBanner() }
+                            bannerVisible -> openList() // can't pause this channel: OK again is the channel list, as before
+                            else -> showBanner()
+                        }
                     KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_SPACE -> { player.togglePause(); showBanner() }
                     KeyEvent.KEYCODE_MEDIA_PAUSE -> { player.pauseLive(); showBanner() }
                     KeyEvent.KEYCODE_MEDIA_PLAY -> { player.resumeLive(); showBanner() }
                     KeyEvent.KEYCODE_MEDIA_REWIND -> { player.seekLive(-BACK_MS); showBanner() }
                     KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { player.seekLive(FORWARD_MS); showBanner() }
                     KeyEvent.KEYCODE_MEDIA_NEXT -> { player.goLive(); showBanner() }
-                    KeyEvent.KEYCODE_DPAD_LEFT -> if (shifted) { player.seekLive(-BACK_MS); showBanner() } else openList()
-                    KeyEvent.KEYCODE_DPAD_RIGHT -> if (shifted) { player.seekLive(FORWARD_MS); showBanner() } else {
+                    KeyEvent.KEYCODE_DPAD_LEFT -> if (transport) { player.seekLive(-BACK_MS); showBanner() } else openList()
+                    KeyEvent.KEYCODE_DPAD_RIGHT -> if (transport) { player.seekLive(FORWARD_MS); showBanner() } else {
                         vm.guideRow = vm.currentIndex
                         vm.screen = Screen.Guide
                     }
@@ -199,6 +205,16 @@ fun WatchScreen(vm: AppViewModel) {
         }
 
         if (bannerVisible && !listOpen) ChannelBanner(vm)
+        // Banner hidden: still show that it's paused or behind live.
+        if (!bannerVisible && (player.paused || player.isBehindLive)) {
+            Box(Modifier.fillMaxSize().padding(36.dp), contentAlignment = Alignment.TopStart) {
+                Text(
+                    if (player.paused) "❚❚  Paused" else "▶  −" + clock(player.behindLiveMs),
+                    color = Tv.accent, fontSize = 20.sp, fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.background(Tv.panel, RoundedCornerShape(10.dp)).padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
+        }
         if (listOpen) ChannelList(vm, listIndex)
     }
 }
@@ -229,8 +245,8 @@ private fun ChannelBanner(vm: AppViewModel) {
                         if (current?.isRecordingNow == true) Box(Modifier.size(14.dp).background(Tv.rec, CircleShape))
                         Spacer(Modifier.weight(1f))
                         Text(
-                            if (vm.player.paused || vm.player.isBehindLive) "OK play / pause · ◀ −10 s · +30 s ▶ · Back menu"
-                            else "OK pause · ◀ channels · ▶ guide · Back menu",
+                            if (vm.player.canPause) "OK ${if (vm.player.paused) "play" else "pause"} · ◀ −10 s · +30 s ▶ · Back hides"
+                            else "◀ channels · ▶ guide · Back menu",
                             color = Tv.muted, fontSize = 14.sp,
                         )
                     }
