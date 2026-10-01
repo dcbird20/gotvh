@@ -157,7 +157,7 @@ fun GuideScreen(vm: AppViewModel) {
                     KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> moveTo(anchor + WINDOW)
                     KeyEvent.KEYCODE_MEDIA_REWIND -> moveTo(anchor - WINDOW)
                     KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER ->
-                        if (selected != null) detail = selected else watch(row)
+                        if (selected != null && !selected.placeholder) detail = selected else watch(row)
                     KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> watch(row)
                     KeyEvent.KEYCODE_GUIDE -> vm.screen = Screen.Watch
                     KeyEvent.KEYCODE_MENU -> vm.menuOpen = true
@@ -207,7 +207,7 @@ fun GuideScreen(vm: AppViewModel) {
 private fun ProgramSummary(p: Program?, channel: Channel?, isNow: Boolean) {
     val context = LocalContext.current
     Column(Modifier.fillMaxWidth().height(92.dp)) {
-        if (p == null) {
+        if (p == null || p.placeholder) {
             Text(channel?.label ?: "", color = Tv.text, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
             Text(
                 if (isNow) "Nothing listed in the guide right now · OK to watch this channel"
@@ -276,6 +276,7 @@ private fun GuideRow(
         Spacer(Modifier.width(8.dp))
         Box(Modifier.weight(1f).fillMaxHeight()) {
             val programs = vm.programsFor(channel.uuid)
+            // Only while the guide for this stretch is still loading: loaded time always has blocks.
             if (gap == null && programs.none { it.stop > windowStart && it.start < windowEnd }) {
                 Text("No guide information", color = Tv.muted, fontSize = 14.sp, modifier = Modifier.align(Alignment.CenterStart).padding(start = 12.dp))
             }
@@ -318,8 +319,9 @@ private fun GuideRow(
 @Composable
 private fun ProgramTile(p: Program, isSelected: Boolean, clippedStart: Boolean, width: Dp, modifier: Modifier) {
     val context = LocalContext.current
-    val genre = Genre.of(p)
-    val base = genre?.color?.copy(alpha = 0.30f) ?: Tv.cell
+    val genre = if (p.placeholder) null else Genre.of(p)
+    // Placeholders are fainter than real programmes, so it's clear the guide lists nothing there.
+    val base = genre?.color?.copy(alpha = 0.30f) ?: if (p.placeholder) Color(0x14FFFFFF) else Tv.cell
     Box(
         modifier
             .width((width - 3.dp).coerceAtLeast(3.dp))
@@ -332,10 +334,12 @@ private fun ProgramTile(p: Program, isSelected: Boolean, clippedStart: Boolean, 
         Column(Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (p.isScheduled) Box(Modifier.size(8.dp).background(Tv.rec, CircleShape))
-                Text((if (clippedStart) "‹ " else "") + p.title, color = if (isSelected) Color.Black else Tv.text,
+                Text((if (clippedStart) "‹ " else "") + p.title, color = if (isSelected) Color.Black else if (p.placeholder) Tv.muted else Tv.text,
                     fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            if (width > 110.dp) {
+            if (width > 110.dp && p.placeholder) {
+                Text("No guide information", color = if (isSelected) Color(0xAA000000) else Tv.muted, fontSize = 12.sp, maxLines = 1)
+            } else if (width > 110.dp) {
                 Text(timeRange(context, p.start, p.stop), color = if (isSelected) Color(0xAA000000) else Tv.muted, fontSize = 12.sp, maxLines = 1)
             }
         }

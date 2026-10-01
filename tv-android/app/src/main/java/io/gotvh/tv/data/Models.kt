@@ -24,6 +24,8 @@ data class Program(
     val dvrState: String,
     val dvrUuid: String,
     val seriesLink: String,
+    /** Made up by the app for time with no guide information: one-hour blocks named after the channel. */
+    val placeholder: Boolean = false,
 ) {
     fun isAiring(nowSec: Long) = start <= nowSec && stop > nowSec
     val isScheduled: Boolean get() = dvrUuid.isNotEmpty() && (dvrState.startsWith("scheduled") || dvrState.startsWith("recording"))

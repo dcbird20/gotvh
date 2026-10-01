@@ -38,6 +38,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var programs by mutableStateOf<Map<String, List<Program>>>(emptyMap())
         private set
+    /** Guide rows with placeholders filled in, per channel; cleared when the guide or channels reload. */
+    private val filled = HashMap<String, List<Program>>()
     var screen by mutableStateOf(if (settings.isConfigured) Screen.Watch else Screen.Setup)
     var currentIndex by mutableIntStateOf(0)
         private set
@@ -86,6 +88,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             loading = true
             try {
+                filled.clear()
                 channels = c.channels()
                 profiles = playbackProfiles(c)
                 val last = channels.indexOfFirst { it.uuid == settings.lastChannel }
@@ -273,17 +276,56 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     // ------------------------------------------------------------------ guide
 
-    fun programsFor(channelUuid: String): List<Program> = programs[channelUuid].orEmpty()
+    /**
+     * The guide row for a channel: its programmes, with every empty stretch filled by one-hour blocks
+     * named after the channel (on the hour, trimmed to fit around real programmes). Placeholders are
+     * only drawn here, never saved in Tvheadend, so real listings replace them as soon as they arrive.
+     */
+    fun programsFor(channelUuid: String): List<Program> {
+        // Read both states every time so Compose redraws the row when either changes.
+        val real = programs[channelUuid].orEmpty()
+        val list = channels
+        return filled.getOrPut(channelUuid) { withPlaceholders(channelUuid, real, list) }
+    }
+
+    /** Only what Tvheadend's guide lists (the banner and channel list use this). */
+    private fun realPrograms(channelUuid: String): List<Program> = programs[channelUuid].orEmpty()
+
+    private fun withPlaceholders(uuid: String, real: List<Program>, channels: List<Channel>): List<Program> {
+        if (loadedTo <= loadedFrom) return real
+        val name = channels.firstOrNull { it.uuid == uuid }?.name ?: "Channel"
+        val out = ArrayList<Program>(real.size + 8)
+        fun fill(from: Long, to: Long) {
+            if (to - from < 120) return // a sliver between programmes isn't worth a tile
+            var s = from
+            while (s < to) {
+                val e = minOf(s - Math.floorMod(s, 3600L) + 3600, to)
+                out += Program(
+                    eventId = -s, channelUuid = uuid, start = s, stop = e, title = name, subtitle = "",
+                    description = "", genre = emptyList(), dvrState = "", dvrUuid = "", seriesLink = "", placeholder = true,
+                )
+                s = e
+            }
+        }
+        var t = loadedFrom - Math.floorMod(loadedFrom, 3600L)
+        for (p in real) {
+            if (p.start > t) fill(t, p.start)
+            out += p
+            t = maxOf(t, p.stop)
+        }
+        fill(t, loadedTo)
+        return out
+    }
 
     fun nowAndNext(channelUuid: String, now: Long = nowSec()): Pair<Program?, Program?> {
-        val list = programsFor(channelUuid)
+        val list = realPrograms(channelUuid)
         val i = list.indexOfFirst { it.isAiring(now) }
         return if (i >= 0) list[i] to list.getOrNull(i + 1) else null to list.firstOrNull { it.start > now }
     }
 
     /** The next [count] programmes after the one on now. */
     fun upNext(channelUuid: String, count: Int, now: Long = nowSec()): List<Program> =
-        programsFor(channelUuid).filter { it.start > now }.take(count)
+        realPrograms(channelUuid).filter { it.start > now }.take(count)
 
     /** Make sure the guide covers [from, to); loads more if not. */
     fun ensureGuide(from: Long, to: Long) {
@@ -294,9 +336,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private suspend fun loadGuide(from: Long, to: Long) {
         val c = client ?: return
         try {
-            programs = c.programs(from, to)
+            val fresh = c.programs(from, to)
             loadedFrom = from
             loadedTo = to
+            filled.clear()
+            programs = fresh
         } catch (e: TvhException) {
             notice = e.message
         } catch (e: IOException) {

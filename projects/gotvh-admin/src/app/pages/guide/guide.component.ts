@@ -42,7 +42,9 @@ interface GuideEvent {
 }
 
 interface Cell { ev: GuideEvent; left: number; width: number; clippedStart: boolean; clippedEnd: boolean }
-interface Row { ch: GuideChannel; cells: Cell[] }
+/** An hour (or the part of one) with nothing in the guide: drawn with the channel's name, never saved anywhere. */
+interface Filler { start: number; stop: number; left: number; width: number }
+interface Row { ch: GuideChannel; cells: Cell[]; fill: Filler[] }
 
 interface Opt { value: string; label: string }
 // Earlier versions remembered choices in the browser, which made one-off choices stick; forget them.
@@ -51,6 +53,30 @@ try { ['start', 'stop', 'removal'].forEach(k => localStorage.removeItem(`gotvh_g
 const HALF_HOUR = 1800;
 const now = () => Math.floor(Date.now() / 1000);
 const floorTo = (t: number, step: number) => Math.floor(t / step) * step;
+
+/**
+ * One-hour blocks (on the hour, trimmed around programmes) for the time in [s, e) that the guide leaves
+ * empty, so every channel has something to click. Real listings take their place as soon as they exist.
+ */
+function fillGaps(evs: Array<{ start: number; stop: number }>, s: number, e: number): Filler[] {
+  const out: Filler[] = [], win = e - s;
+  const fill = (from: number, to: number) => {
+    if (to - from < 120) return;
+    for (let a = from; a < to;) {
+      const b = Math.min(floorTo(a, 3600) + 3600, to);
+      out.push({ start: a, stop: b, left: (a - s) / win * 100, width: Math.max(0.4, (b - a) / win * 100) });
+      a = b;
+    }
+  };
+  let t = s;
+  for (const ev of evs) {
+    if (ev.stop <= s || ev.start >= e) continue;
+    if (ev.start > t) fill(t, ev.start);
+    t = Math.max(t, ev.stop);
+  }
+  fill(t, e);
+  return out;
+}
 
 function toEvent(e: any): GuideEvent {
   return {
@@ -203,11 +229,14 @@ import { GENRES, GenreKey, genreInfo, genreOf } from './guide-genre';
                         <span class="p-title">@if (c.clippedStart) {‹ }{{ c.ev.title }}</span>
                         <span class="p-time">{{ c.ev.start * 1000 | date:'h:mm' }}–{{ c.ev.stop * 1000 | date:'h:mm a' }}@if (c.ev.subtitle) { · {{ c.ev.subtitle }} }</span>
                       </button>
-                    } @empty {
-                      <button class="prog nodata" type="button" role="gridcell" style="left:0;width:100%"
-                              [class.sel]="channelOnly()?.uuid === r.ch.uuid" (click)="selectChannel(r.ch)">
-                        <span class="p-title">Nothing listed</span>
-                        <span class="p-time">No guide data for this channel · click to watch</span>
+                    }
+                    @for (f of r.fill; track f.start) {
+                      <button class="prog nodata" type="button" role="gridcell"
+                              [style.left.%]="f.left" [style.width.%]="f.width" [class.past]="f.stop <= nowSec()"
+                              [class.sel]="channelOnly()?.uuid === r.ch.uuid"
+                              [attr.aria-label]="r.ch.name + ', no guide information'" (click)="selectChannel(r.ch)">
+                        <span class="p-title">{{ r.ch.name }}</span>
+                        <span class="p-time">{{ f.start * 1000 | date:'h:mm' }}–{{ f.stop * 1000 | date:'h:mm a' }} · No guide information</span>
                       </button>
                     }
                     @if (nowLeft() !== null) { <span class="now-line" [style.left.%]="nowLeft()"></span> }
@@ -597,13 +626,17 @@ export class GuideComponent implements OnInit {
     const tag = this.tag();
     return this.channels()
       .filter(ch => !tag || ch.tags.includes(tag))
-      .map(ch => ({
-        ch,
-        cells: (byCh.get(ch.uuid) || []).map(ev => {
-          const a = Math.max(ev.start, s), b = Math.min(ev.stop, e);
-          return { ev, left: (a - s) / win * 100, width: Math.max(0.4, (b - a) / win * 100), clippedStart: ev.start < s, clippedEnd: ev.stop > e };
-        }),
-      }))
+      .map(ch => {
+        const evs = (byCh.get(ch.uuid) || []).sort((a, b) => a.start - b.start);
+        return {
+          ch,
+          cells: evs.map(ev => {
+            const a = Math.max(ev.start, s), b = Math.min(ev.stop, e);
+            return { ev, left: (a - s) / win * 100, width: Math.max(0.4, (b - a) / win * 100), clippedStart: ev.start < s, clippedEnd: ev.stop > e };
+          }),
+          fill: fillGaps(evs, s, e),
+        };
+      })
       .filter(r => !this.onlyWithGuide() || r.cells.length);
   });
 
