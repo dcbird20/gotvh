@@ -66,7 +66,7 @@ class HtspChannels {
         }
         channels.clear()
         // Channels only (no guide): the reply comes at once, the channel list follows.
-        conn.request(HtspMessage("enableAsyncMetadata", "epg" to 0))
+        conn.request(HtspMessage("enableAsyncMetadata", "epg" to 0), timeoutMs = 20_000)
         synced.await(15, TimeUnit.SECONDS)
         connection = conn
         key = k

@@ -25,6 +25,17 @@ First start asks for the Tvheadend address (e.g. `http://192.168.1.222:9981`) an
 same as the admin web app. The account needs web interface and streaming rights. Basic and Digest
 sign-in both work.
 
+## Pausing live TV
+
+Live TV comes over HTSP, Tvheadend's own protocol (the one Kodi uses), on the port after the web
+interface's (9981 → 9982). Pausing and rewinding use Tvheadend's timeshift buffer, so its settings
+apply (Configuration → Recording → Timeshift: how long and how much disk) and it keeps recording
+while you're paused. The account needs the HTSP streaming right. If HTSP can't be reached, or a
+channel needs converting for the TV, it plays over HTTP as before, without pause; the banner says so.
+
+Recordings still being made appear under Recorded (● recording) and play from the start, following
+the file as it grows.
+
 ## Remote
 
 **Watching**
@@ -32,7 +43,9 @@ sign-in both work.
 | Key | Does |
 |---|---|
 | Up / Ch+ · Down / Ch− | Next / previous channel |
-| OK | Info banner: now with progress, and the next few programmes; OK again: channel list |
+| OK | Info banner: now with progress, and the next few programmes; OK again: pause / play |
+| ⏯ (if the remote has it) | Pause / play |
+| Left / Right while paused or behind live (or ⏪ / ⏩) | Back 10 s / forward 30 s; forward past live goes back to live |
 | Left | Channel list (Up/Down, OK to tune, Right for its guide) |
 | Right / Guide | Guide |
 | Back (or Menu) | Closes what's open, then the menu: Live TV, Guide, Recordings, Auto-record rules, Settings, Exit |
