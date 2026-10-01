@@ -70,7 +70,9 @@ private fun alignDown(sec: Long) = sec - Math.floorMod(sec, STEP)
  * The guide. Focus is one programme at a time ("virtual focus"): the grid keeps a channel row and a
  * point in time, so Up/Down stay at the same time of day, like a paper guide.
  *  Left/Right previous/next programme (the window scrolls at the edges) · Up/Down channel ·
- *  Ch+/Ch− a page of channels · ⏪/⏩ two hours · OK details · ▶ watch · Menu · Back TV.
+ *  Ch+/Ch− a page of channels · ⏪/⏩ two hours · Menu · Back TV.
+ *  OK: a programme on now → watch it; a later one → its details (Record…). Hold OK (or ▶ for watch):
+ *  details for any programme — description, Watch, Record, Record series.
  */
 @Composable
 fun GuideScreen(vm: AppViewModel) {
@@ -84,6 +86,7 @@ fun GuideScreen(vm: AppViewModel) {
     var windowStart by remember { mutableLongStateOf(alignDown(nowSec())) }
     var anchor by remember { mutableLongStateOf(nowSec()) }
     var detail by remember { mutableStateOf<Program?>(null) }
+    val okPress = remember { OkPress() }
     val windowEnd = windowStart + WINDOW
 
     val channel: Channel? = channels.getOrNull(row)
@@ -134,8 +137,21 @@ fun GuideScreen(vm: AppViewModel) {
             .focusRequester(focus)
             .focusable()
             .onPreviewKeyEvent { ev ->
-                if (isHeldOk(ev)) return@onPreviewKeyEvent true
-                if (detail != null || ev.type != KeyEventType.KeyDown || channels.isEmpty()) return@onPreviewKeyEvent false
+                if (detail != null || channels.isEmpty()) return@onPreviewKeyEvent false
+                // OK: watch what's on now / details of a later programme. Hold OK: details (info, record…).
+                if (okPress.handle(
+                        ev,
+                        onShort = {
+                            when {
+                                selected == null || selected.placeholder -> watch(row)
+                                selected.isAiring(nowSec()) -> watch(row)
+                                else -> detail = selected
+                            }
+                        },
+                        onLong = { if (selected != null && !selected.placeholder) detail = selected },
+                    )
+                ) return@onPreviewKeyEvent true
+                if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (ev.nativeKeyEvent.keyCode) {
                     KeyEvent.KEYCODE_DPAD_UP -> row = (row - 1).coerceAtLeast(0)
                     KeyEvent.KEYCODE_DPAD_DOWN -> row = (row + 1).coerceAtMost(channels.size - 1)
@@ -156,8 +172,6 @@ fun GuideScreen(vm: AppViewModel) {
                     }
                     KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> moveTo(anchor + WINDOW)
                     KeyEvent.KEYCODE_MEDIA_REWIND -> moveTo(anchor - WINDOW)
-                    KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER ->
-                        if (selected != null && !selected.placeholder) detail = selected else watch(row)
                     KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> watch(row)
                     KeyEvent.KEYCODE_GUIDE -> vm.screen = Screen.Watch
                     KeyEvent.KEYCODE_MENU -> vm.menuOpen = true
@@ -172,7 +186,7 @@ fun GuideScreen(vm: AppViewModel) {
                 Spacer(Modifier.width(18.dp))
                 Text(dayLabel(windowStart), color = Tv.accent, fontSize = 20.sp)
                 Spacer(Modifier.weight(1f))
-                Text("OK details · ▶ watch · ⏪⏩ 2 hours · Back TV", color = Tv.muted, fontSize = 13.sp)
+                Text("OK watch · hold OK info & record · ⏪⏩ 2 hours · Back TV", color = Tv.muted, fontSize = 13.sp)
             }
             Spacer(Modifier.height(10.dp))
             ProgramSummary(selected, channel, isNow = anchor <= now + 60)

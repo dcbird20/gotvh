@@ -105,6 +105,35 @@ fun isOkKey(keyCode: Int): Boolean =
     keyCode == android.view.KeyEvent.KEYCODE_DPAD_CENTER || keyCode == android.view.KeyEvent.KEYCODE_ENTER ||
         keyCode == android.view.KeyEvent.KEYCODE_NUMPAD_ENTER
 
+/**
+ * Tells a short OK press from a held one (about half a second, when the remote starts repeating):
+ * "OK does the obvious thing, hold OK for more". The short action runs when OK is released.
+ */
+class OkPress {
+    private var down = false
+    private var held = false
+
+    /** True if [ev] was OK (handled here); false for any other key. */
+    fun handle(ev: androidx.compose.ui.input.key.KeyEvent, onShort: () -> Unit, onLong: () -> Unit): Boolean {
+        if (!isOkKey(ev.nativeKeyEvent.keyCode)) return false
+        when (ev.type) {
+            androidx.compose.ui.input.key.KeyEventType.KeyDown ->
+                if (ev.nativeKeyEvent.repeatCount == 0) {
+                    down = true
+                    held = false
+                } else if (down && !held) {
+                    held = true
+                    onLong()
+                }
+            androidx.compose.ui.input.key.KeyEventType.KeyUp -> {
+                if (down && !held) onShort()
+                down = false
+            }
+        }
+        return true
+    }
+}
+
 /** Holding OK sends repeats; screens treat only the first press as a press. */
 fun isHeldOk(ev: androidx.compose.ui.input.key.KeyEvent): Boolean =
     isOkKey(ev.nativeKeyEvent.keyCode) && ev.nativeKeyEvent.repeatCount > 0

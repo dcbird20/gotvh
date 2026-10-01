@@ -72,7 +72,8 @@ time behind live for a few seconds.
 | Up / Down | Channel above / below, same time of day |
 | Ch+ / Ch− | A page of channels |
 | ⏪ / ⏩ | Two hours back / ahead |
-| OK | Details: Watch, Record, Record series, Don't record |
+| OK | On now: watch it. Later: its details (Record, Record series, Don't record) |
+| Hold OK | Details for any programme: description, Watch, Record, Record series |
 | ▶ | Watch that channel |
 | Back / Guide | Back to TV |
 
