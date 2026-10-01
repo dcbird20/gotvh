@@ -52,7 +52,12 @@ the file as it grows.
 |---|---|
 | OK | Play / pause |
 | Left / Right | Back 10 s / forward 30 s (forward past live goes back to live) |
-| Down | The bar's buttons: Channels · Guide · Live (Left/Right to choose, OK to open, Up or Back to leave) |
+| Down | The bar's buttons: Channels · Guide · Record · Live (Left/Right to choose, OK to open, Up or Back to leave) |
+| Down again | The mini guide: Left/Right to an upcoming programme, OK for Record / Record series |
+
+Record records the programme on screen (from now: Tvheadend can't add what's already gone by).
+The bar clears after 5 seconds without a key press, paused or not; a corner badge then shows paused /
+time behind live for a few seconds.
 | Left | Channel list (Up/Down, OK to tune, Right for its guide) |
 | Right / Guide | Guide |
 | Back (or Menu) | Closes what's open, then the menu: Live TV, Guide, Recordings, Auto-record rules, Settings, Exit |

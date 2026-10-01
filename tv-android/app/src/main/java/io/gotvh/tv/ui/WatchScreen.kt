@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.gotvh.tv.AppViewModel
 import io.gotvh.tv.Screen
+import io.gotvh.tv.data.Program
 import io.gotvh.tv.nowSec
 import kotlinx.coroutines.delay
 
@@ -55,6 +56,7 @@ private const val LIST_PAGE = 8
 
 private const val BACK_MS = 10_000L
 private const val FORWARD_MS = 30_000L
+private const val BADGE_MS = 4000L
 
 /**
  * Full-screen TV. Keys at live:
@@ -63,7 +65,10 @@ private const val FORWARD_MS = 30_000L
  *  Menu the menu · digits jump to a number · Last channel · Back closes what's open, then the menu.
  * Paused or behind live (Tvheadend's timeshift buffer, over HTSP), the playback bar takes over:
  *  OK play / pause · Left back 10 s · Right forward 30 s (forward past live = live) ·
- *  Down to its buttons — Channels · Guide · Live — Left/Right to choose, OK to open, Up/Back to leave.
+ *  Down to its buttons — Channels · Guide · Record · Live — and Down again to the mini guide, where OK
+ *  on an upcoming programme offers Record / Record series. Left/Right choose, Up/Back go back.
+ * The bar clears after 5 s without a key press (also while paused); a corner badge then shows
+ * paused / time behind live for a few seconds.
  * ⏯ ⏪ ⏩ work any time.
  */
 @Composable
@@ -75,12 +80,17 @@ fun WatchScreen(vm: AppViewModel) {
     var listOpen by remember { mutableStateOf(false) }
     var listIndex by remember { mutableIntStateOf(vm.currentIndex) }
     var digits by remember { mutableStateOf("") }
-    /** Which playback-bar button is selected (0 Channels, 1 Guide, 2 Live), or null while scrubbing. */
+    /** Which playback-bar button is selected (0 Channels, 1 Guide, 2 Record, 3 Live), or null while scrubbing. */
     var button by remember { mutableStateOf<Int?>(null) }
+    /** Which mini-guide programme is selected (below the buttons), or null. */
+    var tile by remember { mutableStateOf<Int?>(null) }
+    /** An upcoming programme picked in the mini guide: its Record / Record series dialog. */
+    var picked by remember { mutableStateOf<Program?>(null) }
     val player = vm.player
     // Paused or watching behind live: the arrows rewind / go forward, and the bar has the buttons.
     val shifted = player.canPause && (player.paused || player.isBehindLive)
-    val bannerVisible = now < bannerUntil || player.paused || button != null
+    // Clears after 5 s without a key press, paused or not (the corner badge then shows for a few seconds).
+    val bannerVisible = now < bannerUntil || picked != null
     val channels = vm.channels
 
     fun showBanner() {
@@ -101,7 +111,7 @@ fun WatchScreen(vm: AppViewModel) {
     }
 
     LaunchedEffect(Unit) { focus.requestFocus() }
-    LaunchedEffect(vm.menuOpen) { if (!vm.menuOpen) focus.requestFocus() }
+    LaunchedEffect(vm.menuOpen, picked) { if (!vm.menuOpen && picked == null) focus.requestFocus() }
     LaunchedEffect(Unit) {
         while (true) {
             delay(1000)
@@ -109,7 +119,9 @@ fun WatchScreen(vm: AppViewModel) {
         }
     }
     LaunchedEffect(vm.currentIndex) { showBanner() }
-    LaunchedEffect(shifted) { if (!shifted) button = null }
+    LaunchedEffect(shifted) { if (!shifted) { button = null; tile = null } }
+    // The bar timed out: leave its buttons too.
+    LaunchedEffect(bannerVisible) { if (!bannerVisible) { button = null; tile = null } }
     LaunchedEffect(digits) {
         if (digits.isEmpty()) return@LaunchedEffect
         delay(1500)
@@ -122,7 +134,8 @@ fun WatchScreen(vm: AppViewModel) {
     BackHandler(enabled = !vm.menuOpen) {
         when {
             listOpen -> listOpen = false
-            button != null -> button = null
+            tile != null -> { tile = null; showBanner() }
+            button != null -> { button = null; showBanner() }
             bannerVisible && !player.paused -> bannerUntil = 0
             else -> vm.menuOpen = true
         }
@@ -134,6 +147,7 @@ fun WatchScreen(vm: AppViewModel) {
             .focusRequester(focus)
             .focusable()
             .onPreviewKeyEvent { ev ->
+                if (picked != null) return@onPreviewKeyEvent false // the dialog has the keys
                 if (isHeldOk(ev)) return@onPreviewKeyEvent true
                 if (ev.type != KeyEventType.KeyDown || channels.isEmpty()) return@onPreviewKeyEvent false
                 val k = ev.nativeKeyEvent.keyCode
@@ -175,18 +189,37 @@ fun WatchScreen(vm: AppViewModel) {
                     }
                 }
                 val b = button
+                val t = tile
+                val upcoming = vm.currentChannel?.let { vm.upNext(it.uuid, 5) }.orEmpty()
                 when {
-                    // On the playback bar's buttons.
-                    b != null -> when {
-                        k == KeyEvent.KEYCODE_DPAD_LEFT -> button = (b - 1).coerceAtLeast(0)
-                        k == KeyEvent.KEYCODE_DPAD_RIGHT -> button = (b + 1).coerceAtMost(2)
-                        k == KeyEvent.KEYCODE_DPAD_UP -> { button = null; showBanner() }
-                        ok -> when (b) {
-                            0 -> openList()
-                            1 -> openGuide(vm.currentIndex)
-                            else -> { button = null; player.goLive(); showBanner() }
+                    // In the mini guide: pick an upcoming programme to record.
+                    t != null -> {
+                        when {
+                            k == KeyEvent.KEYCODE_DPAD_LEFT -> tile = (t - 1).coerceAtLeast(0)
+                            k == KeyEvent.KEYCODE_DPAD_RIGHT -> tile = (t + 1).coerceAtMost((upcoming.size - 1).coerceAtLeast(0))
+                            k == KeyEvent.KEYCODE_DPAD_UP -> tile = null
+                            ok -> upcoming.getOrNull(t)?.let { picked = it }
+                            k == KeyEvent.KEYCODE_DPAD_DOWN -> {}
+                            else -> return@onPreviewKeyEvent false
                         }
-                        else -> return@onPreviewKeyEvent false
+                        showBanner()
+                    }
+                    // On the playback bar's buttons.
+                    b != null -> {
+                        when {
+                            k == KeyEvent.KEYCODE_DPAD_LEFT -> button = (b - 1).coerceAtLeast(0)
+                            k == KeyEvent.KEYCODE_DPAD_RIGHT -> button = (b + 1).coerceAtMost(3)
+                            k == KeyEvent.KEYCODE_DPAD_UP -> button = null
+                            k == KeyEvent.KEYCODE_DPAD_DOWN -> if (upcoming.isNotEmpty()) { button = null; tile = 0 }
+                            ok -> when (b) {
+                                0 -> openList()
+                                1 -> openGuide(vm.currentIndex)
+                                2 -> recordWatched(vm)
+                                else -> { button = null; player.goLive() }
+                            }
+                            else -> return@onPreviewKeyEvent false
+                        }
+                        showBanner()
                     }
                     // Paused or behind live: the playback bar.
                     shifted -> when {
@@ -233,9 +266,9 @@ fun WatchScreen(vm: AppViewModel) {
             }
         }
 
-        if (bannerVisible && !listOpen) ChannelBanner(vm, button)
-        // Banner hidden: still show that it's paused or behind live.
-        if (!bannerVisible && (player.paused || player.isBehindLive)) {
+        if (bannerVisible && !listOpen) ChannelBanner(vm, button, tile)
+        // Banner just hidden: show for a few seconds that it's paused or behind live.
+        if (!bannerVisible && now < bannerUntil + BADGE_MS && (player.paused || player.isBehindLive)) {
             Box(Modifier.fillMaxSize().padding(36.dp), contentAlignment = Alignment.TopStart) {
                 Text(
                     if (player.paused) "❚❚  Paused" else "▶  −" + clock(player.behindLiveMs),
@@ -245,15 +278,49 @@ fun WatchScreen(vm: AppViewModel) {
             }
         }
         if (listOpen) ChannelList(vm, listIndex)
+        picked?.let { p ->
+            val actions = buildList<Pair<String, () -> Unit>> {
+                if (p.isScheduled) add((if (p.isRecordingNow) "Stop recording" else "Don’t record") to { picked = null; vm.cancelRecording(p) })
+                else {
+                    add("Record" to { picked = null; vm.record(p) })
+                    if (p.seriesLink.isNotBlank()) add("Record series" to { picked = null; vm.record(p, series = true) })
+                }
+                add("Close" to { picked = null })
+            }
+            ActionDialog(
+                p.title,
+                listOf("${dayLabel(p.start)} ${timeRange(context, p.start, p.stop)}" + (vm.currentChannel?.let { " · ${it.label}" } ?: ""), p.subtitle, p.description),
+                actions,
+                onClose = { picked = null; showBanner() },
+            )
+        }
     }
 }
 
+/**
+ * Record (or stop recording) the programme on screen — when watching behind live, the one at the
+ * paused / rewound point. Tvheadend records from now; what's already gone by isn't in the recording.
+ */
+private fun recordWatched(vm: AppViewModel) {
+    val ch = vm.currentChannel ?: return
+    val p = vm.nowAndNext(ch.uuid, playingSec(vm)).first
+    when {
+        p == null -> vm.notice = "Nothing in the guide to record here."
+        p.isScheduled -> vm.cancelRecording(p)
+        else -> vm.record(p)
+    }
+}
+
+/** The broadcast time on screen: now, or earlier when paused / behind live. */
+private fun playingSec(vm: AppViewModel): Long = nowSec() - vm.player.behindLiveMs / 1000
+
 /** Bottom banner: channel, what's on now with progress, and what's next. */
 @Composable
-private fun ChannelBanner(vm: AppViewModel, button: Int?) {
+private fun ChannelBanner(vm: AppViewModel, button: Int?, tile: Int?) {
     val context = LocalContext.current
     val ch = vm.currentChannel ?: return
-    val nowS = nowSec()
+    // What's on screen: now, or earlier when paused / behind live.
+    val nowS = playingSec(vm)
     val current = vm.nowAndNext(ch.uuid, nowS).first
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
         Column(
@@ -275,9 +342,10 @@ private fun ChannelBanner(vm: AppViewModel, button: Int?) {
                         Spacer(Modifier.weight(1f))
                         Text(
                             when {
-                                button != null -> "◀ ▶ choose · OK open · ▲ back"
+                                tile != null -> "◀ ▶ choose · OK record… · ▲ back"
+                                button != null -> "◀ ▶ choose · OK open · ▼ coming up · ▲ back"
                                 vm.player.paused || vm.player.isBehindLive ->
-                                    "OK ${if (vm.player.paused) "play" else "pause"} · ◀ −10 s · +30 s ▶ · ▼ channels, guide"
+                                    "OK ${if (vm.player.paused) "play" else "pause"} · ◀ −10 s · +30 s ▶ · ▼ more"
                                 vm.player.canPause -> "OK pause · ◀ channels · ▶ guide · Back menu"
                                 else -> "◀ channels · ▶ guide · Back menu"
                             },
@@ -300,23 +368,32 @@ private fun ChannelBanner(vm: AppViewModel, button: Int?) {
                     }
                 }
             }
-            TimeshiftBar(vm, button)
-            // Mini guide: what's coming up on this channel, across the whole screen.
-            val later = vm.upNext(ch.uuid, 5, nowS)
+            TimeshiftBar(vm, button, current)
+            // Mini guide: what's coming up on this channel, across the whole screen (pick one to record).
+            val later = vm.upNext(ch.uuid, 5)
             if (later.isNotEmpty()) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     later.forEachIndexed { i, p ->
+                        val sel = tile == i
                         Column(
                             Modifier
                                 .weight(1f)
-                                .background(if (i == 0) Color(0x2EF5B63F) else Color(0x1FFFFFFF), RoundedCornerShape(8.dp))
+                                .background(
+                                    when {
+                                        sel -> Tv.accent
+                                        i == 0 -> Color(0x2EF5B63F)
+                                        else -> Color(0x1FFFFFFF)
+                                    },
+                                    RoundedCornerShape(8.dp),
+                                )
                                 .padding(horizontal = 14.dp, vertical = 10.dp),
                             verticalArrangement = Arrangement.spacedBy(2.dp),
                         ) {
-                            Text((if (i == 0) "Next · " else "") + timeOf(context, p.start), color = if (i == 0) Tv.accent else Tv.muted, fontSize = 14.sp)
+                            Text((if (i == 0) "Next · " else "") + timeOf(context, p.start),
+                                color = if (sel) Color(0xAA000000) else if (i == 0) Tv.accent else Tv.muted, fontSize = 14.sp)
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 if (p.isScheduled) Box(Modifier.size(8.dp).background(Tv.rec, CircleShape))
-                                Text(p.title, color = Tv.text, fontSize = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Text(p.title, color = if (sel) Color.Black else Tv.text, fontSize = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             }
                         }
                     }
@@ -377,7 +454,7 @@ private fun ChannelList(vm: AppViewModel, selected: Int) {
  * bar spanning what can be rewound.
  */
 @Composable
-private fun TimeshiftBar(vm: AppViewModel, button: Int?) {
+private fun TimeshiftBar(vm: AppViewModel, button: Int?, current: Program?) {
     val p = vm.player
     if (!p.canPause) {
         p.pauseUnavailable?.let { Text(it, color = Tv.muted, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
@@ -407,7 +484,8 @@ private fun TimeshiftBar(vm: AppViewModel, button: Int?) {
     // Paused or behind live, the arrows scrub: the channel list, guide and live are buttons here (Down).
     if (shifted) {
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            listOf("☰  Channels", "▦  Guide", "●  Live").forEachIndexed { i, label ->
+            val record = if (current?.isScheduled == true) "■  Stop recording" else "●  Record"
+            listOf("☰  Channels", "▦  Guide", record, "⏭  Live").forEachIndexed { i, label ->
                 val sel = button == i
                 Text(
                     label, fontSize = 17.sp, fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal,
