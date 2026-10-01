@@ -89,7 +89,11 @@ fun GuideScreen(vm: AppViewModel) {
     val channel: Channel? = channels.getOrNull(row)
     val rowPrograms = channel?.let { vm.programsFor(it.uuid) }.orEmpty()
     val selected: Program? = rowPrograms.firstOrNull { it.start <= anchor && it.stop > anchor }
-        ?: rowPrograms.firstOrNull { it.start > anchor && it.start < windowEnd }
+    // No programme listed at this time: the empty stretch around it is selectable, and OK watches the channel.
+    val gap: Pair<Long, Long>? = if (selected != null || channel == null) null else Pair(
+        maxOf(rowPrograms.lastOrNull { it.stop <= anchor }?.stop ?: windowStart, windowStart),
+        minOf(rowPrograms.firstOrNull { it.start > anchor }?.start ?: windowEnd, windowEnd),
+    )
 
     LaunchedEffect(Unit) {
         listState.scrollToItem((row - 2).coerceAtLeast(0))
@@ -171,7 +175,7 @@ fun GuideScreen(vm: AppViewModel) {
                 Text("OK details · ▶ watch · ⏪⏩ 2 hours · Back TV", color = Tv.muted, fontSize = 13.sp)
             }
             Spacer(Modifier.height(10.dp))
-            ProgramSummary(selected, channel)
+            ProgramSummary(selected, channel, isNow = anchor <= now + 60)
             Spacer(Modifier.height(12.dp))
             BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
                 val timeline = maxWidth - CHANNEL_COL - 8.dp
@@ -181,7 +185,7 @@ fun GuideScreen(vm: AppViewModel) {
                     LazyColumn(state = listState) {
                         itemsIndexed(channels, key = { _, c -> c.uuid }) { i, ch ->
                             GuideRow(
-                                vm = vm, channel = ch, isRow = i == row, selected = selected,
+                                vm = vm, channel = ch, isRow = i == row, selected = selected, gap = if (i == row) gap else null,
                                 windowStart = windowStart, dpPerSec = dpPerSec, now = now,
                             )
                         }
@@ -200,12 +204,16 @@ fun GuideScreen(vm: AppViewModel) {
 }
 
 @Composable
-private fun ProgramSummary(p: Program?, channel: Channel?) {
+private fun ProgramSummary(p: Program?, channel: Channel?, isNow: Boolean) {
     val context = LocalContext.current
     Column(Modifier.fillMaxWidth().height(92.dp)) {
         if (p == null) {
             Text(channel?.label ?: "", color = Tv.text, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
-            Text("No guide information here", color = Tv.muted, fontSize = 16.sp)
+            Text(
+                if (isNow) "Nothing listed in the guide right now · OK to watch this channel"
+                else "Nothing listed in the guide at this time · OK to watch this channel",
+                color = Tv.muted, fontSize = 16.sp,
+            )
             return@Column
         }
         Text(p.title + if (p.subtitle.isNotBlank()) " · ${p.subtitle}" else "", color = Tv.text, fontSize = 22.sp,
@@ -244,6 +252,7 @@ private fun GuideRow(
     channel: Channel,
     isRow: Boolean,
     selected: Program?,
+    gap: Pair<Long, Long>?,
     windowStart: Long,
     dpPerSec: Float,
     now: Long,
@@ -267,8 +276,25 @@ private fun GuideRow(
         Spacer(Modifier.width(8.dp))
         Box(Modifier.weight(1f).fillMaxHeight()) {
             val programs = vm.programsFor(channel.uuid)
-            if (programs.none { it.stop > windowStart && it.start < windowEnd }) {
+            if (gap == null && programs.none { it.stop > windowStart && it.start < windowEnd }) {
                 Text("No guide information", color = Tv.muted, fontSize = 14.sp, modifier = Modifier.align(Alignment.CenterStart).padding(start = 12.dp))
+            }
+            if (gap != null && gap.second > gap.first) {
+                // The selected empty stretch: highlighted like a programme, OK watches the channel.
+                Box(
+                    Modifier
+                        .offset(x = ((gap.first - windowStart) * dpPerSec).dp)
+                        .width((((gap.second - gap.first) * dpPerSec).dp - 3.dp).coerceAtLeast(3.dp))
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Color(0xFFF5F7FA))
+                        .border(2.dp, Tv.accent, RoundedCornerShape(6.dp))
+                        .padding(horizontal = 10.dp),
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    Text("Nothing listed · OK to watch", color = Color.Black, fontSize = 15.sp, fontWeight = FontWeight.Medium,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
             }
             for (p in programs) {
                 if (p.stop <= windowStart || p.start >= windowEnd) continue
