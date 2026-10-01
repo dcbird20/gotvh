@@ -132,6 +132,7 @@ fun PlaybackScreen(vm: AppViewModel) {
                         Text(if (paused) "❚❚" else "▶", color = Tv.accent, fontSize = 24.sp)
                         Text(r.title, color = Tv.text, fontSize = 24.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         if (r.subtitle.isNotBlank()) Text(r.subtitle, color = Tv.muted, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (vm.player.growing) Text("● Still recording", color = Tv.rec, fontSize = 16.sp)
                     }
                     val f = if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
                     Box(Modifier.fillMaxWidth().height(6.dp).background(Color(0x33FFFFFF), RoundedCornerShape(3.dp))) {

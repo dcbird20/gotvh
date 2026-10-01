@@ -19,7 +19,7 @@ class TvhException(message: String, val status: Int = 0) : Exception(message)
  * Talks to Tvheadend's JSON API (the same API the web apps use).
  * Sign-in is HTTP Basic, sent with every request, including streams and channel icons.
  */
-class TvhClient(server: String, username: String, password: String) {
+class TvhClient(server: String, val username: String, val password: String) {
 
     val base: String = normalize(server)
     val authHeader: String? = if (username.isNotEmpty()) Credentials.basic(username, password) else null

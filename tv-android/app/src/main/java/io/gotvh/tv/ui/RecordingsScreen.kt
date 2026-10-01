@@ -234,8 +234,11 @@ fun RecordingsScreen(vm: AppViewModel) {
                     }
                     if (!r.isWatched) add("Mark watched" to { action = null; vm.markWatched(r, true) })
                     else add("Mark unwatched" to { action = null; vm.markWatched(r, false) })
-                    add("Delete" to { action = null; confirmDelete = r })
+                    if (r.isRecordingNow) add("Stop recording" to { action = null; vm.cancelUpcoming(r) })
+                    else add("Delete" to { action = null; confirmDelete = r })
                 } else {
+                    // Still being recorded: watch it from the start while it records.
+                    if (r.isRecordingNow) add("Watch from start" to { action = null; vm.playRecording(r, fromStart = true) })
                     add((if (r.isRecordingNow) "Stop recording" else "Don’t record") to { action = null; vm.cancelUpcoming(r) })
                 }
                 add("Close" to { action = null })

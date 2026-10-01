@@ -53,11 +53,16 @@ import kotlinx.coroutines.delay
 private const val BANNER_MS = 5000L
 private const val LIST_PAGE = 8
 
+private const val BACK_MS = 10_000L
+private const val FORWARD_MS = 30_000L
+
 /**
  * Full-screen TV. Keys:
- *  Up / Ch+ next channel · Down / Ch− previous · OK info banner (OK again: channel list) ·
+ *  Up / Ch+ next channel · Down / Ch− previous · OK info banner, OK again pauses (⏯ too) ·
  *  Left channel list · Right / Guide the guide · Menu the menu · digits jump to a number · Last channel ·
  *  Back closes what's open, then opens the menu (Recordings, Settings, Exit…).
+ * Paused or behind live: Left / ⏪ back 10 s, Right / ⏩ forward 30 s (forward past live = live).
+ * Pausing uses Tvheadend's timeshift buffer (over HTSP), so it keeps recording while paused.
  */
 @Composable
 fun WatchScreen(vm: AppViewModel) {
@@ -68,7 +73,10 @@ fun WatchScreen(vm: AppViewModel) {
     var listOpen by remember { mutableStateOf(false) }
     var listIndex by remember { mutableIntStateOf(vm.currentIndex) }
     var digits by remember { mutableStateOf("") }
-    val bannerVisible = now < bannerUntil
+    val player = vm.player
+    // Paused or watching behind live: the arrows rewind / go forward instead of opening the list / guide.
+    val shifted = player.paused || player.isBehindLive
+    val bannerVisible = now < bannerUntil || player.paused
     val channels = vm.channels
 
     fun showBanner() {
@@ -102,7 +110,7 @@ fun WatchScreen(vm: AppViewModel) {
     BackHandler(enabled = !vm.menuOpen) {
         when {
             listOpen -> listOpen = false
-            bannerVisible -> bannerUntil = 0
+            bannerVisible && !player.paused -> bannerUntil = 0
             else -> vm.menuOpen = true
         }
     }
@@ -140,9 +148,19 @@ fun WatchScreen(vm: AppViewModel) {
                     KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_CHANNEL_UP -> vm.tune(vm.currentIndex + 1)
                     KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_CHANNEL_DOWN -> vm.tune(vm.currentIndex - 1)
                     KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER ->
-                        if (bannerVisible) openList() else showBanner()
-                    KeyEvent.KEYCODE_DPAD_LEFT -> openList()
-                    KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_GUIDE -> {
+                        if (bannerVisible) { player.togglePause(); showBanner() } else showBanner()
+                    KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_SPACE -> { player.togglePause(); showBanner() }
+                    KeyEvent.KEYCODE_MEDIA_PAUSE -> { player.pauseLive(); showBanner() }
+                    KeyEvent.KEYCODE_MEDIA_PLAY -> { player.resumeLive(); showBanner() }
+                    KeyEvent.KEYCODE_MEDIA_REWIND -> { player.seekLive(-BACK_MS); showBanner() }
+                    KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { player.seekLive(FORWARD_MS); showBanner() }
+                    KeyEvent.KEYCODE_MEDIA_NEXT -> { player.goLive(); showBanner() }
+                    KeyEvent.KEYCODE_DPAD_LEFT -> if (shifted) { player.seekLive(-BACK_MS); showBanner() } else openList()
+                    KeyEvent.KEYCODE_DPAD_RIGHT -> if (shifted) { player.seekLive(FORWARD_MS); showBanner() } else {
+                        vm.guideRow = vm.currentIndex
+                        vm.screen = Screen.Guide
+                    }
+                    KeyEvent.KEYCODE_GUIDE -> {
                         vm.guideRow = vm.currentIndex
                         vm.screen = Screen.Guide
                     }
@@ -158,7 +176,6 @@ fun WatchScreen(vm: AppViewModel) {
                 true
             },
     ) {
-        val player = vm.player
         // Tuning / problem messages.
         val message = player.status ?: when {
             vm.loading && channels.isEmpty() -> "Connecting to Tvheadend…"
@@ -211,7 +228,11 @@ private fun ChannelBanner(vm: AppViewModel) {
                             modifier = Modifier.weight(1f, fill = false))
                         if (current?.isRecordingNow == true) Box(Modifier.size(14.dp).background(Tv.rec, CircleShape))
                         Spacer(Modifier.weight(1f))
-                        Text("OK  channels · ▶  guide · Back  menu", color = Tv.muted, fontSize = 14.sp)
+                        Text(
+                            if (vm.player.paused || vm.player.isBehindLive) "OK play / pause · ◀ −10 s · +30 s ▶ · Back menu"
+                            else "OK pause · ◀ channels · ▶ guide · Back menu",
+                            color = Tv.muted, fontSize = 14.sp,
+                        )
                     }
                     if (current != null) {
                         Text(current.title + if (current.subtitle.isNotBlank()) " · ${current.subtitle}" else "",
@@ -229,6 +250,7 @@ private fun ChannelBanner(vm: AppViewModel) {
                     }
                 }
             }
+            TimeshiftBar(vm)
             // Mini guide: what's coming up on this channel, across the whole screen.
             val later = vm.upNext(ch.uuid, 5, nowS)
             if (later.isNotEmpty()) {
@@ -297,5 +319,39 @@ private fun ChannelList(vm: AppViewModel, selected: Int) {
                 }
             }
         }
+    }
+}
+
+/**
+ * Where you are in Tvheadend's timeshift buffer: LIVE, or paused / behind live with how far, on a
+ * bar spanning what can be rewound.
+ */
+@Composable
+private fun TimeshiftBar(vm: AppViewModel) {
+    val p = vm.player
+    if (!p.canPause) {
+        p.pauseUnavailable?.let { Text(it, color = Tv.muted, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+        return
+    }
+    val behind = p.behindLiveMs
+    val span = p.liveBufferMs.coerceAtLeast(1)
+    val shifted = p.paused || p.isBehindLive
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        Text(
+            when {
+                p.paused -> "❚❚  Paused"
+                shifted -> "▶  Behind live"
+                else -> "●  LIVE"
+            },
+            color = if (shifted) Tv.accent else Tv.rec, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
+        )
+        Box(Modifier.weight(1f).height(5.dp).background(Color(0x33FFFFFF), RoundedCornerShape(3.dp))) {
+            val f = (1f - behind.toFloat() / span).coerceIn(0f, 1f)
+            Box(Modifier.fillMaxHeight().fillMaxWidth(f).background(if (shifted) Tv.accent else Color(0x66FFFFFF), RoundedCornerShape(3.dp)))
+        }
+        Text(
+            if (shifted) "−" + clock(behind) else "Can rewind ${clock(span)}",
+            color = Tv.muted, fontSize = 15.sp,
+        )
     }
 }

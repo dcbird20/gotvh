@@ -1,0 +1,227 @@
+package io.gotvh.tv.player
+
+import android.net.Uri
+import androidx.media3.common.C
+import androidx.media3.common.Format
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.util.ParsableByteArray
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.BaseDataSource
+import androidx.media3.datasource.DataSpec
+import androidx.media3.extractor.AacUtil
+import androidx.media3.extractor.AvcConfig
+import androidx.media3.extractor.Extractor
+import androidx.media3.extractor.ExtractorInput
+import androidx.media3.extractor.ExtractorOutput
+import androidx.media3.extractor.HevcConfig
+import androidx.media3.extractor.PositionHolder
+import androidx.media3.extractor.SeekMap
+import androidx.media3.extractor.SeekPoint
+import androidx.media3.extractor.TrackOutput
+import io.gotvh.tv.htsp.HtspException
+import io.gotvh.tv.htsp.HtspMessage
+import io.gotvh.tv.htsp.HtspSubscription
+import java.io.IOException
+import java.io.InterruptedIOException
+
+/*
+ * Playing an HTSP subscription with Media3, the way Kiall Mac Innes's android-tvheadend does it
+ * (Apache 2.0): a DataSource hands the subscription's messages to an Extractor as a byte stream
+ * ([4-byte length][HTSP message] …), and the Extractor turns "subscriptionStart" into tracks and
+ * each "muxpkt" into a sample. Seeking is done by Tvheadend: the seek map says "time T is at
+ * position T", so a seek reopens the DataSource at position T, which asks Tvheadend to skip there.
+ */
+
+/** Reads one subscription. The first open subscribes; later opens (seeks) skip in the timeshift buffer. */
+@UnstableApi
+class HtspDataSource(private val subscription: HtspSubscription) : BaseDataSource(/* isNetwork= */ true) {
+    private var uri: Uri? = null
+    private var opened = false
+    private var current: ByteArray? = null
+    private var pos = 0
+
+    override fun open(dataSpec: DataSpec): Long {
+        uri = dataSpec.uri
+        transferInitializing(dataSpec)
+        if (!subscription.subscribed) {
+            subscription.subscribe()
+            if (dataSpec.position > 0) subscription.skipTo(dataSpec.position)
+        } else {
+            subscription.skipTo(dataSpec.position)
+        }
+        current = null
+        pos = 0
+        opened = true
+        transferStarted(dataSpec)
+        return C.LENGTH_UNSET.toLong()
+    }
+
+    override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+        if (length == 0) return 0
+        while (current == null || pos >= current!!.size) {
+            if (!opened) return C.RESULT_END_OF_INPUT
+            val body = subscription.take(250)
+            if (body == null) {
+                if (Thread.interrupted()) throw InterruptedIOException()
+                if (subscription.ended) {
+                    val reason = subscription.stopReason
+                    if (reason != null && reason != "Stopped") throw HtspException(reason)
+                    return C.RESULT_END_OF_INPUT
+                }
+                continue
+            }
+            // Frame it: 4-byte length, then the message.
+            current = ByteArray(body.size + 4).also {
+                it[0] = (body.size ushr 24).toByte()
+                it[1] = (body.size ushr 16).toByte()
+                it[2] = (body.size ushr 8).toByte()
+                it[3] = body.size.toByte()
+                System.arraycopy(body, 0, it, 4, body.size)
+            }
+            pos = 0
+        }
+        val chunk = current!!
+        val n = minOf(length, chunk.size - pos)
+        System.arraycopy(chunk, pos, buffer, offset, n)
+        pos += n
+        bytesTransferred(n)
+        return n
+    }
+
+    override fun getUri(): Uri? = uri
+
+    override fun close() {
+        if (opened) {
+            opened = false
+            transferEnded()
+        }
+        uri = null
+    }
+}
+
+/** Turns the framed HTSP messages into Media3 tracks and samples. */
+@UnstableApi
+class HtspExtractor : Extractor {
+    private lateinit var output: ExtractorOutput
+    private val tracks = HashMap<Int, Track>()
+    private var tracksEnded = false
+    private val header = ByteArray(4)
+    private var body = ByteArray(256 * 1024)
+
+    private class Track(val output: TrackOutput, val isVideo: Boolean, val isAac: Boolean)
+
+    override fun sniff(input: ExtractorInput): Boolean = true
+
+    override fun init(output: ExtractorOutput) {
+        this.output = output
+        output.seekMap(object : SeekMap {
+            override fun isSeekable() = true
+            override fun getDurationUs() = C.TIME_UNSET
+            override fun getSeekPoints(timeUs: Long) = SeekMap.SeekPoints(SeekPoint(timeUs, timeUs))
+        })
+    }
+
+    override fun read(input: ExtractorInput, seekPosition: PositionHolder): Int {
+        if (!input.readFully(header, 0, 4, /* allowEndOfInput= */ true)) return Extractor.RESULT_END_OF_INPUT
+        val length = HtspMessage.readInt32(header, 0)
+        if (length < 0 || length > 64 * 1024 * 1024) throw IOException("Bad HTSP frame")
+        if (body.size < length) body = ByteArray(length)
+        input.readFully(body, 0, length)
+        val msg = HtspMessage.decode(body, 0, length)
+        when (msg.method) {
+            "subscriptionStart" -> start(msg)
+            "muxpkt" -> packet(msg)
+        }
+        return Extractor.RESULT_CONTINUE
+    }
+
+    private fun start(msg: HtspMessage) {
+        if (tracksEnded) return // tracks can't change after they're declared
+        for (stream in msg.messages("streams")) {
+            val index = stream.int("index") ?: continue
+            val type = stream.string("type") ?: continue
+            val format = formatFor(index, type, stream) ?: continue
+            val isVideo = MimeTypes.isVideo(format.sampleMimeType)
+            val out = output.track(index, if (isVideo) C.TRACK_TYPE_VIDEO else C.TRACK_TYPE_AUDIO)
+            out.format(format)
+            tracks[index] = Track(out, isVideo, type == "AAC")
+        }
+        output.endTracks()
+        tracksEnded = true
+    }
+
+    private fun packet(msg: HtspMessage) {
+        val track = tracks[msg.int("stream") ?: return] ?: return
+        var payload = msg.bytes("payload") ?: return
+        val timeUs = msg.long("pts") ?: msg.long("dts") ?: return
+        if (track.isAac && payload.size > 9 && (payload[0].toInt() and 0xFF) == 0xFF) {
+            // Tvheadend sends AAC with its ADTS header; the decoder wants the raw frame.
+            val headerSize = if ((payload[1].toInt() and 0x01) == 0) 9 else 7
+            payload = payload.copyOfRange(headerSize, payload.size)
+        }
+        // Video: only I-frames are keyframes ('I' = 73; no frame type = treat as one).
+        val frameType = msg.int("frametype", -1)
+        val flags = if (!track.isVideo || frameType == -1 || frameType == 73) C.BUFFER_FLAG_KEY_FRAME else 0
+        track.output.sampleData(ParsableByteArray(payload), payload.size)
+        track.output.sampleMetadata(timeUs, flags, payload.size, 0, null)
+    }
+
+    override fun seek(position: Long, timeUs: Long) {}
+
+    override fun release() {}
+
+    companion object {
+        // Tvheadend's sample-rate index ("rate") → Hz.
+        private val RATES = intArrayOf(96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350, 0, 0, 0)
+
+        fun formatFor(index: Int, type: String, s: HtspMessage): Format? {
+            val b = Format.Builder().setId(index.toString())
+            val lang = s.string("language")?.takeIf { it.isNotBlank() }
+            when (type) {
+                "H264", "HEVC", "MPEG2VIDEO" -> {
+                    val meta = s.bytes("meta")
+                    val init: List<ByteArray>? = meta?.let {
+                        runCatching {
+                            if (type == "H264") AvcConfig.parse(ParsableByteArray(it)).initializationData
+                            else if (type == "HEVC") HevcConfig.parse(ParsableByteArray(it)).initializationData
+                            else null
+                        }.getOrNull()
+                    }
+                    b.setSampleMimeType(
+                        when (type) {
+                            "H264" -> MimeTypes.VIDEO_H264
+                            "HEVC" -> MimeTypes.VIDEO_H265
+                            else -> MimeTypes.VIDEO_MPEG2
+                        },
+                    )
+                    s.int("width")?.let { b.setWidth(it) }
+                    s.int("height")?.let { b.setHeight(it) }
+                    s.int("duration")?.takeIf { it > 0 }?.let { b.setFrameRate(1_000_000f / it) }
+                    if (!init.isNullOrEmpty()) b.setInitializationData(init)
+                }
+                "AAC", "AC3", "EAC3", "MPEG2AUDIO" -> {
+                    val rate = s.int("rate")?.let { RATES[it and 0xF] }?.takeIf { it > 0 }
+                    val channels = s.int("channels")
+                    b.setSampleMimeType(
+                        when (type) {
+                            "AAC" -> MimeTypes.AUDIO_AAC
+                            "AC3" -> MimeTypes.AUDIO_AC3
+                            "EAC3" -> MimeTypes.AUDIO_E_AC3
+                            else -> if (s.int("audio_version", 2) == 3) MimeTypes.AUDIO_MPEG else MimeTypes.AUDIO_MPEG_L2
+                        },
+                    )
+                    rate?.let { b.setSampleRate(it) }
+                    channels?.let { b.setChannelCount(it) }
+                    lang?.let { b.setLanguage(it) }
+                    b.setSelectionFlags(C.SELECTION_FLAG_AUTOSELECT)
+                    if (type == "AAC") {
+                        val config = s.bytes("meta") ?: if (rate != null && channels != null) AacUtil.buildAacLcAudioSpecificConfig(rate, channels) else null
+                        config?.let { b.setInitializationData(listOf(it)) }
+                    }
+                }
+                else -> return null // subtitles, teletext: not shown yet
+            }
+            return b.build()
+        }
+    }
+}

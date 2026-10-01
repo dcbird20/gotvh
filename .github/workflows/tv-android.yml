@@ -33,7 +33,7 @@ jobs:
       - name: Build APK
         run: |
           set -o pipefail
-          ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee build.log
+          ./gradlew assembleDebug testDebugUnitTest --no-daemon --stacktrace 2>&1 | tee build.log
 
       # Compile errors as annotations, so they're readable from the run summary and the API.
       - name: Report compile errors

@@ -169,11 +169,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val c = client ?: return
         if (screen == Screen.Playback) {
             val r = playing ?: return
-            if (!player.exo.isPlaying && !player.tuning) player.playRecording(c, r.uuid, resumeMs(r))
+            if (!player.exo.isPlaying && !player.tuning) player.playRecording(c, r.uuid, resumeMs(r), recordingUntil(r))
             return
         }
         val ch = currentChannel ?: return
-        if (!player.exo.isPlaying && !player.tuning) player.play(c, ch, profiles)
+        if (!player.exo.isPlaying && !player.tuning && !player.paused) player.play(c, ch, profiles)
     }
 
     /** Back to live TV from anywhere (restarts the channel if a recording was playing). */
@@ -212,8 +212,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             pendingPlayState?.join()
             try {
-                recorded = c.recordings(upcoming = false).sortedByDescending { it.start }
+                val finished = c.recordings(upcoming = false)
                 upcoming = c.recordings(upcoming = true).sortedBy { it.start }
+                // Recordings still being made are watchable too (from the start, following the file as it grows).
+                val inProgress = upcoming.filter { it.isRecordingNow && finished.none { f -> f.uuid == it.uuid } }
+                recorded = (finished + inProgress).sortedByDescending { it.start }
             } catch (e: TvhException) {
                 notice = e.message
             } catch (e: IOException) {
@@ -236,8 +239,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         countedPlay = null
         lastPushedSec = -1
         screen = Screen.Playback
-        player.playRecording(c, r.uuid, if (fromStart) 0 else resumeMs(r))
+        player.playRecording(c, r.uuid, if (fromStart) 0 else resumeMs(r), recordingUntil(r))
     }
+
+    /** For a recording still being made: when it's due to end (Unix seconds); else 0. */
+    private fun recordingUntil(r: Recording): Long = if (r.isRecordingNow) r.stop else 0
 
     /** This playback has already been counted as watched (so seeking around the end doesn't count twice). */
     private var countedPlay: String? = null
@@ -255,7 +261,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val r = playing ?: return
         val pos = player.exo.currentPosition
         val dur = player.exo.duration
-        val finished = player.ended || (dur > 0 && pos > dur - 60_000)
+        // A recording still being made isn't "finished" at the end of what's recorded so far.
+        val finished = player.ended || (!player.growing && dur > 0 && pos > dur - 60_000)
         when {
             finished -> {
                 if (countedPlay == r.uuid && r.playPositionSec == 0L) return
