@@ -107,6 +107,9 @@ export class RecordingsComponent implements OnInit, OnDestroy {
         this.upcoming = this.sortUpcomingFirst(upcoming);
         this.finished = this.sortMostRecentFirst(finished);
         this.failed = this.sortMostRecentFirst(failed);
+        // Watched state and resume points come from Tvheadend, shared with the TV app and Kodi.
+        this.recordingProgress.seed([...finished, ...failed]);
+        this.stacksCacheRevision++;
         this.brokenChannelIcons.clear();
         if (this.expandedStackKey && !this.getProgramStacks().some(stack => stack.key === this.expandedStackKey)) {
           this.expandedStackKey = '';
@@ -1012,8 +1015,9 @@ export class RecordingsComponent implements OnInit, OnDestroy {
     return this.activeTab !== 'upcoming' && !!String(entry?.uuid || '').trim();
   }
 
+  /** Played to the end on any device (Tvheadend's play count), and not restarted since. */
   isMarkedWatched(entry: any): boolean {
-    return Number(entry?.watched ?? 0) > 0;
+    return this.recordingProgress.isWatched(String(entry?.uuid || ''), this.getRecordingRef(entry));
   }
 
   toggleWatched(entry: any): void {
@@ -1026,18 +1030,19 @@ export class RecordingsComponent implements OnInit, OnDestroy {
     this.pendingActionUuid = uuid;
     this.actionError = '';
 
-    this.tvh.markRecordingWatched(uuid, nowWatched).subscribe({
-      next: () => {
+    this.recordingProgress.markWatched(uuid, nowWatched, this.getRecordingRef(entry)).then(
+      () => {
         this.pendingActionUuid = '';
-        entry.watched = nowWatched ? 1 : 0;
         this.stacksCacheRevision++;
         this.actionMessage = nowWatched ? 'Marked as watched.' : 'Marked as unwatched.';
+        this.cdr.markForCheck();
       },
-      error: (error: any) => {
+      (error: any) => {
         this.pendingActionUuid = '';
         this.actionError = this.describeError(error);
+        this.cdr.markForCheck();
       }
-    });
+    );
   }
 
   getWatchedActionLabel(entry: any): string {
@@ -1369,7 +1374,7 @@ export class RecordingsComponent implements OnInit, OnDestroy {
       return;
     }
 
-    this.recordingProgress.clear(recordingRef);
+    this.recordingProgress.restart(String(entry?.uuid || ''), recordingRef);
     await this.watchRecording(entry);
   }
 
@@ -1775,10 +1780,8 @@ export class RecordingsComponent implements OnInit, OnDestroy {
       return '';
     }
 
-    const recordingRef = this.getRecordingRef(entry);
-    const progress = recordingRef ? this.recordingProgress.get(recordingRef) : null;
-    const seconds = Number(progress?.positionSeconds || 0);
-    if (seconds < 30) {
+    const seconds = this.recordingProgress.resumeSeconds(String(entry?.uuid || ''), this.getRecordingRef(entry));
+    if (seconds < 15) {
       return '';
     }
 

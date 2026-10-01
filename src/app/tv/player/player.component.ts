@@ -96,8 +96,11 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
   private hasAppliedResumePosition = false;
   private lastPersistedPositionSeconds = -1;
   private readonly resumePersistIntervalSeconds = 5;
-  private readonly resumeMinimumSeconds = 30;
-  private readonly resumeCompletionThresholdSeconds = 30;
+  // Same rules as the TV app: the first 15 s don't count, the last minute counts as watched.
+  private readonly resumeMinimumSeconds = 15;
+  private readonly resumeCompletionThresholdSeconds = 60;
+  /** This playback was already counted as watched (seeking around the end doesn't count twice). */
+  private countedFinish = false;
   private availableLiveChannels: any[] = [];
   private loadingLiveChannelsPromise: Promise<any[]> | null = null;
   private channelSurfInProgress = false;
@@ -295,7 +298,8 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
-    this.recordingProgress.clear(this.recordingRef);
+    this.recordingProgress.finished(this.recordingUuid(), this.recordingRef, this.countedFinish);
+    this.countedFinish = true;
     this.hasResumePoint = false;
     this.resumePositionLabel = '';
     this.pendingResumePositionSeconds = 0;
@@ -307,7 +311,7 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
-    this.recordingProgress.clear(this.recordingRef);
+    this.recordingProgress.restart(this.recordingUuid(), this.recordingRef);
     this.pendingResumePositionSeconds = 0;
     this.hasResumePoint = false;
     this.resumePositionLabel = '';
@@ -1401,17 +1405,40 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
-    const progress = this.recordingProgress.get(this.recordingRef);
-    if (!progress || progress.positionSeconds < this.resumeMinimumSeconds) {
+    this.countedFinish = false;
+    const uuid = this.recordingUuid();
+    this.applyResumeSeconds(this.recordingProgress.resumeSeconds(uuid, this.recordingRef));
+
+    // Ask Tvheadend where it was left: another device (the TV, Kodi) may have moved on since the list loaded.
+    if (uuid) {
+      void this.recordingProgress.load(uuid, true).then(() => {
+        if (this.hasAppliedResumePosition || this.recordingUuid() !== uuid) {
+          return;
+        }
+        this.applyResumeSeconds(this.recordingProgress.resumeSeconds(uuid, this.recordingRef));
+        const video = this.playerVideo?.nativeElement;
+        if (video && video.readyState >= 1) {
+          this.onVideoLoadedMetadata();
+        }
+      });
+    }
+  }
+
+  private applyResumeSeconds(seconds: number): void {
+    if (!seconds || seconds < this.resumeMinimumSeconds) {
       this.hasResumePoint = false;
       this.resumePositionLabel = '';
       this.pendingResumePositionSeconds = 0;
       return;
     }
-
-    this.pendingResumePositionSeconds = progress.positionSeconds;
-    this.resumePositionLabel = this.formatPlaybackClock(progress.positionSeconds);
+    this.pendingResumePositionSeconds = seconds;
+    this.resumePositionLabel = this.formatPlaybackClock(seconds);
     this.hasResumePoint = true;
+  }
+
+  /** The DVR entry being played (the player's route id for recordings). */
+  private recordingUuid(): string {
+    return this.isRecordingPlayback() ? String(this.channelId || '').trim() : '';
   }
 
   private persistRecordingProgress(force = false): void {
@@ -1433,7 +1460,8 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
 
     const remainingSeconds = durationSeconds > 0 ? durationSeconds - positionSeconds : Number.POSITIVE_INFINITY;
     if (remainingSeconds <= this.resumeCompletionThresholdSeconds) {
-      this.recordingProgress.clear(this.recordingRef);
+      this.recordingProgress.finished(this.recordingUuid(), this.recordingRef, this.countedFinish);
+      this.countedFinish = true;
       this.hasResumePoint = false;
       this.resumePositionLabel = '';
       this.pendingResumePositionSeconds = 0;
@@ -1453,7 +1481,7 @@ export class PlayerComponent implements AfterViewInit, OnDestroy {
       updatedAt: Date.now()
     };
 
-    this.recordingProgress.save(progress);
+    this.recordingProgress.savePosition(this.recordingUuid(), progress, force);
     this.lastPersistedPositionSeconds = positionSeconds;
     this.hasResumePoint = true;
     this.resumePositionLabel = this.formatPlaybackClock(positionSeconds);

@@ -1978,7 +1978,12 @@ export class TvheadendService {
     );
   }
 
-  markRecordingWatched(dvrUuid: string, watched: boolean): Observable<any> {
+  /**
+   * Watched state lives on the recording itself, in the fields Kodi and the GoTVH TV app use:
+   * `playcount` (times played to the end) and `playposition` (where to resume, seconds; 0 = start).
+   * Every device reading this Tvheadend then agrees on what's new, in progress and watched.
+   */
+  setRecordingPlayState(dvrUuid: string, playcount: number, playposition: number): Observable<any> {
     const normalizedUuid = String(dvrUuid || '').trim();
     if (!normalizedUuid) {
       return throwError(new Error('Missing DVR entry UUID.'));
@@ -1986,9 +1991,28 @@ export class TvheadendService {
 
     return this.http.post<any>(
       this.buildUrl('idnode/save'),
-      this.buildFormBody({ node: JSON.stringify({ uuid: normalizedUuid, watched: watched ? 1 : 0 }) }),
+      this.buildFormBody({ node: JSON.stringify({
+        uuid: normalizedUuid,
+        playcount: Math.max(0, Math.round(playcount || 0)),
+        playposition: Math.max(0, Math.round(playposition || 0)),
+      }) }),
       this.getFormRequestOptions()
     );
+  }
+
+  /** The recording's current play count and resume position (seconds). */
+  getRecordingPlayState(dvrUuid: string): Observable<{ playcount: number; playposition: number }> {
+    return this.idnodeLoad(String(dvrUuid || '').trim()).pipe(
+      map(entry => {
+        const value = (id: string) => Number(entry.params.find(p => p.id === id)?.value ?? 0) || 0;
+        return { playcount: value('playcount'), playposition: value('playposition') };
+      })
+    );
+  }
+
+  /** Watched: counted as played once (at least) with no resume point. Unwatched: count and position cleared. */
+  markRecordingWatched(dvrUuid: string, watched: boolean, currentPlaycount = 0): Observable<any> {
+    return this.setRecordingPlayState(dvrUuid, watched ? Math.max(1, currentPlaycount) : 0, 0);
   }
 
   getDvrConfigs(): Observable<any[]> {
