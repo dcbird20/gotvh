@@ -127,7 +127,7 @@ import { GENRES, GenreKey, genreInfo, genreOf } from './guide-genre';
             @for (t of tags(); track t.uuid) { <mat-option [value]="t.uuid">{{ t.name }}</mat-option> }
           </mat-select>
         </mat-form-field>
-        <mat-slide-toggle [checked]="onlyWithGuide()" (change)="onlyWithGuide.set($event.checked)">Hide channels without guide</mat-slide-toggle>
+        <mat-slide-toggle [checked]="onlyWithGuide()" (change)="setOnlyWithGuide($event.checked)">Hide channels without guide</mat-slide-toggle>
         <span class="spacer"></span>
         <mat-form-field appearance="outline" class="f-search">
           <mat-icon matPrefix>search</mat-icon>
@@ -153,7 +153,7 @@ import { GENRES, GenreKey, genreInfo, genreOf } from './guide-genre';
       @if (loading()) { <mat-progress-bar mode="indeterminate" /> }
       @if (error()) { <p class="err">{{ error() }}</p> }
 
-      <div class="layout" adminSplit [class.with-editor]="!!selected()">
+      <div class="layout" adminSplit [class.with-editor]="!!selected() || !!channelOnly()">
         <div class="main">
           @if (query().trim().length >= 2) {
             <!-- ===================== search results -->
@@ -182,7 +182,9 @@ import { GENRES, GenreKey, genreInfo, genreOf } from './guide-genre';
               </div>
               @for (r of rows(); track r.ch.uuid) {
                 <div class="g-row" role="row">
-                  <div class="g-ch" role="rowheader" [title]="r.ch.name">
+                  <div class="g-ch" role="rowheader" [title]="r.ch.name + ' — click to watch'" tabindex="0"
+                       [class.sel]="channelOnly()?.uuid === r.ch.uuid"
+                       (click)="selectChannel(r.ch)" (keydown.enter)="selectChannel(r.ch)">
                     <span class="num">{{ r.ch.number }}</span>
                     @if (r.ch.icon) { <img [src]="r.ch.icon" alt="" loading="lazy" (error)="$any($event.target).style.display='none'"> }
                     <span class="name">{{ r.ch.name }}</span>
@@ -202,7 +204,11 @@ import { GENRES, GenreKey, genreInfo, genreOf } from './guide-genre';
                         <span class="p-time">{{ c.ev.start * 1000 | date:'h:mm' }}–{{ c.ev.stop * 1000 | date:'h:mm a' }}@if (c.ev.subtitle) { · {{ c.ev.subtitle }} }</span>
                       </button>
                     } @empty {
-                      <span class="empty muted small">No guide data</span>
+                      <button class="prog nodata" type="button" role="gridcell" style="left:0;width:100%"
+                              [class.sel]="channelOnly()?.uuid === r.ch.uuid" (click)="selectChannel(r.ch)">
+                        <span class="p-title">Nothing listed</span>
+                        <span class="p-time">No guide data for this channel · click to watch</span>
+                      </button>
                     }
                     @if (nowLeft() !== null) { <span class="now-line" [style.left.%]="nowLeft()"></span> }
                   </div>
@@ -213,6 +219,33 @@ import { GENRES, GenreKey, genreInfo, genreOf } from './guide-genre';
             </div>
           }
         </div>
+
+        <!-- ===================== channel without a programme selected (e.g. no guide data) -->
+        @if (channelOnly(); as ch) {
+          <aside class="admin-side">
+            <section class="card detail">
+              <div class="d-head">
+                <div>
+                  <h2>{{ ch.number ? ch.number + ' · ' : '' }}{{ ch.name }}</h2>
+                  <div class="muted">{{ !nextFor(ch.uuid) ? 'No guide data for this channel' : isAiring(nextFor(ch.uuid)!) ? 'On now' : 'Nothing on now in the guide' }}</div>
+                </div>
+                <button mat-icon-button (click)="channelOnly.set(null)" aria-label="Close"><mat-icon>close</mat-icon></button>
+              </div>
+              @if (nextFor(ch.uuid); as n) {
+                <p class="muted small">{{ isAiring(n) ? 'Now' : 'Next' }}: {{ n.start * 1000 | date:'EEE h:mm a' }} — {{ n.title }}</p>
+              } @else {
+                <p class="muted small">The channel plays normally; it just has nothing in the guide. Map a guide to it, or give
+                  it a dummy guide in your guide source, to see programmes here.</p>
+              }
+              <div class="actions">
+                <button mat-stroked-button (click)="watchChannelInVlc(ch.uuid, ch.name)" [disabled]="busy()" matTooltip="Downloads a playlist (.m3u) — open it with VLC">
+                  <mat-icon>open_in_new</mat-icon> Watch in VLC
+                </button>
+                <a mat-button routerLink="/epg"><mat-icon>search</mat-icon> Find a guide</a>
+              </div>
+            </section>
+          </aside>
+        }
 
         <!-- ===================== details -->
         @if (selected(); as e) {
@@ -390,6 +423,11 @@ import { GENRES, GenreKey, genreInfo, genreOf } from './guide-genre';
     .prog:hover { border-color: var(--mat-sys-primary); z-index: 1; }
     .prog:focus-visible { outline: 2px solid var(--mat-sys-primary); outline-offset: 1px; z-index: 2; }
     .prog.airing { background: var(--mat-sys-surface-container-high); }
+    .prog.nodata { border-style: dashed; background: transparent; }
+    .prog.nodata .p-title { color: var(--mat-sys-on-surface-variant); }
+    .g-ch { cursor: pointer; }
+    .g-ch:hover, .g-ch.sel { background: var(--mat-sys-secondary-container); }
+    .g-ch:focus-visible { outline: 2px solid var(--mat-sys-primary); outline-offset: -2px; }
     .prog[data-genre] { background: color-mix(in srgb, var(--g) 16%, var(--mat-sys-surface)); box-shadow: inset 0 3px 0 var(--g); }
     .prog.airing[data-genre] { background: color-mix(in srgb, var(--g) 28%, var(--mat-sys-surface)); }
     .prog.dim { opacity: .3; }
@@ -468,7 +506,25 @@ export class GuideComponent implements OnInit {
   readonly channels = signal<GuideChannel[]>([]);
   readonly tags = signal<Array<{ uuid: string; name: string }>>([]);
   readonly tag = signal('');
-  readonly onlyWithGuide = signal(true);
+  /** Remembered in this browser; off by default, since some channels never have guide data. */
+  readonly onlyWithGuide = signal((() => { try { return localStorage.getItem('gotvh_admin_guide_only_with') === '1'; } catch { return false; } })());
+  setOnlyWithGuide(on: boolean): void {
+    this.onlyWithGuide.set(on);
+    try { localStorage.setItem('gotvh_admin_guide_only_with', on ? '1' : '0'); } catch { /* ignore */ }
+  }
+
+  /** A channel opened without a programme (clicked its name, or a row with nothing listed). */
+  readonly channelOnly = signal<GuideChannel | null>(null);
+  selectChannel(ch: GuideChannel): void {
+    this.selected.set(null);
+    this.autorecFor.set(null);
+    this.channelOnly.set(this.channelOnly()?.uuid === ch.uuid ? null : ch);
+  }
+  /** The next programme the loaded guide has for a channel, if any. */
+  nextFor(uuid: string): GuideEvent | null {
+    const now = this.nowSec();
+    return this.events().filter(e => e.channelUuid === uuid && e.stop > now).sort((a, b) => a.start - b.start)[0] ?? null;
+  }
 
   // ---- genre colours
   readonly showGenres = signal((() => { try { return localStorage.getItem('gotvh_admin_guide_genres') !== '0'; } catch { return true; } })());
@@ -635,6 +691,7 @@ export class GuideComponent implements OnInit {
   // ---------------------------------------------------------------- details & actions
 
   select(e: GuideEvent): void {
+    this.channelOnly.set(null);
     // Clicking the open programme again closes the panel, and the guide takes the full width back.
     if (this.selected()?.eventId === e.eventId) { this.selected.set(null); this.autorecFor.set(null); return; }
     // Each programme starts from the DVR profile's settings; choices are for that one recording.
@@ -646,6 +703,11 @@ export class GuideComponent implements OnInit {
   minutes(e: GuideEvent): number { return Math.round((e.stop - e.start) / 60); }
   /** Fetch the channel's ticketed playlist (needs our sign-in) and hand it to the browser as a file. */
   watchInVlc(e: GuideEvent): void {
+    this.watchChannelInVlc(e.channelUuid, e.channelName);
+  }
+
+  watchChannelInVlc(channelUuid: string, channelName: string): void {
+    const e = { channelUuid, channelName };
     this.busy.set(true);
     this.tvh.fetchChannelPlaylist(e.channelUuid, e.channelName).subscribe({
       next: text => {
