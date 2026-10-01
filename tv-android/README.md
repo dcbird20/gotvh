@@ -43,9 +43,16 @@ the file as it grows.
 | Key | Does |
 |---|---|
 | Up / Ch+ · Down / Ch− | Next / previous channel |
-| OK | Info banner: now with progress, and the next few programmes |
-| With the banner showing: OK · Left · Right | Pause / play · back 10 s · forward 30 s (forward past live goes back to live) |
+| OK | Pause (a channel that can't pause: info banner; OK again: channel list) |
 | ⏯ ⏪ ⏩ (if the remote has them) | Pause / play, back, forward, any time |
+
+**Paused or behind live** the playback bar takes over:
+
+| Key | Does |
+|---|---|
+| OK | Play / pause |
+| Left / Right | Back 10 s / forward 30 s (forward past live goes back to live) |
+| Down | The bar's buttons: Channels · Guide · Live (Left/Right to choose, OK to open, Up or Back to leave) |
 | Left | Channel list (Up/Down, OK to tune, Right for its guide) |
 | Right / Guide | Guide |
 | Back (or Menu) | Closes what's open, then the menu: Live TV, Guide, Recordings, Auto-record rules, Settings, Exit |

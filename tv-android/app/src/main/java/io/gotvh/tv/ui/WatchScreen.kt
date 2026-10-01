@@ -57,14 +57,14 @@ private const val BACK_MS = 10_000L
 private const val FORWARD_MS = 30_000L
 
 /**
- * Full-screen TV. Keys:
- *  Up / Ch+ next channel · Down / Ch− previous · OK info banner, OK again pauses (⏯ too) ·
- *  Left channel list · Right / Guide the guide · Menu the menu · digits jump to a number · Last channel ·
- *  Back closes what's open, then opens the menu (Recordings, Settings, Exit…).
- * With the banner showing, it's also the playback bar: OK pause / play, Left back 10 s, Right forward
- * 30 s (forward past live = live). ⏯ ⏪ ⏩ work any time. With the banner hidden, Left and Right are
- * always the channel list and the guide, paused or not.
- * Pausing uses Tvheadend's timeshift buffer (over HTSP), so it keeps recording while paused.
+ * Full-screen TV. Keys at live:
+ *  Up / Ch+ next channel · Down / Ch− previous · Left channel list · Right / Guide the guide ·
+ *  OK pause (on a channel that can't pause: info banner, OK again channel list) ·
+ *  Menu the menu · digits jump to a number · Last channel · Back closes what's open, then the menu.
+ * Paused or behind live (Tvheadend's timeshift buffer, over HTSP), the playback bar takes over:
+ *  OK play / pause · Left back 10 s · Right forward 30 s (forward past live = live) ·
+ *  Down to its buttons — Channels · Guide · Live — Left/Right to choose, OK to open, Up/Back to leave.
+ * ⏯ ⏪ ⏩ work any time.
  */
 @Composable
 fun WatchScreen(vm: AppViewModel) {
@@ -75,10 +75,12 @@ fun WatchScreen(vm: AppViewModel) {
     var listOpen by remember { mutableStateOf(false) }
     var listIndex by remember { mutableIntStateOf(vm.currentIndex) }
     var digits by remember { mutableStateOf("") }
+    /** Which playback-bar button is selected (0 Channels, 1 Guide, 2 Live), or null while scrubbing. */
+    var button by remember { mutableStateOf<Int?>(null) }
     val player = vm.player
-    val bannerVisible = now < bannerUntil
-    // The banner doubles as the playback bar when live TV can be paused.
-    val transport = bannerVisible && player.canPause
+    // Paused or watching behind live: the arrows rewind / go forward, and the bar has the buttons.
+    val shifted = player.canPause && (player.paused || player.isBehindLive)
+    val bannerVisible = now < bannerUntil || player.paused || button != null
     val channels = vm.channels
 
     fun showBanner() {
@@ -87,8 +89,15 @@ fun WatchScreen(vm: AppViewModel) {
     }
 
     fun openList() {
+        button = null
         listIndex = vm.currentIndex
         listOpen = true
+    }
+
+    fun openGuide(row: Int) {
+        button = null
+        vm.guideRow = row
+        vm.screen = Screen.Guide
     }
 
     LaunchedEffect(Unit) { focus.requestFocus() }
@@ -100,6 +109,7 @@ fun WatchScreen(vm: AppViewModel) {
         }
     }
     LaunchedEffect(vm.currentIndex) { showBanner() }
+    LaunchedEffect(shifted) { if (!shifted) button = null }
     LaunchedEffect(digits) {
         if (digits.isEmpty()) return@LaunchedEffect
         delay(1500)
@@ -112,11 +122,11 @@ fun WatchScreen(vm: AppViewModel) {
     BackHandler(enabled = !vm.menuOpen) {
         when {
             listOpen -> listOpen = false
-            bannerVisible -> bannerUntil = 0
+            button != null -> button = null
+            bannerVisible && !player.paused -> bannerUntil = 0
             else -> vm.menuOpen = true
         }
     }
-
 
     Box(
         Modifier
@@ -127,6 +137,7 @@ fun WatchScreen(vm: AppViewModel) {
                 if (isHeldOk(ev)) return@onPreviewKeyEvent true
                 if (ev.type != KeyEventType.KeyDown || channels.isEmpty()) return@onPreviewKeyEvent false
                 val k = ev.nativeKeyEvent.keyCode
+                val ok = k == KeyEvent.KEYCODE_DPAD_CENTER || k == KeyEvent.KEYCODE_ENTER || k == KeyEvent.KEYCODE_NUMPAD_ENTER
                 if (listOpen) {
                     when (k) {
                         KeyEvent.KEYCODE_DPAD_UP -> listIndex = Math.floorMod(listIndex - 1, channels.size)
@@ -138,46 +149,64 @@ fun WatchScreen(vm: AppViewModel) {
                             listOpen = false
                         }
                         KeyEvent.KEYCODE_DPAD_LEFT -> listOpen = false
-                        KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_GUIDE -> {
-                            vm.guideRow = listIndex
-                            vm.screen = Screen.Guide
-                        }
+                        KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_GUIDE -> openGuide(listIndex)
                         else -> return@onPreviewKeyEvent false
                     }
                     return@onPreviewKeyEvent true
                 }
+                // Keys that mean the same everywhere.
                 when (k) {
-                    KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_CHANNEL_UP -> vm.tune(vm.currentIndex + 1)
-                    KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_CHANNEL_DOWN -> vm.tune(vm.currentIndex - 1)
-                    KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER ->
-                        when {
-                            transport -> { player.togglePause(); showBanner() }
-                            bannerVisible -> openList() // can't pause this channel: OK again is the channel list, as before
-                            else -> showBanner()
-                        }
-                    KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_SPACE -> { player.togglePause(); showBanner() }
-                    KeyEvent.KEYCODE_MEDIA_PAUSE -> { player.pauseLive(); showBanner() }
-                    KeyEvent.KEYCODE_MEDIA_PLAY -> { player.resumeLive(); showBanner() }
-                    KeyEvent.KEYCODE_MEDIA_REWIND -> { player.seekLive(-BACK_MS); showBanner() }
-                    KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { player.seekLive(FORWARD_MS); showBanner() }
-                    KeyEvent.KEYCODE_MEDIA_NEXT -> { player.goLive(); showBanner() }
-                    KeyEvent.KEYCODE_DPAD_LEFT -> if (transport) { player.seekLive(-BACK_MS); showBanner() } else openList()
-                    KeyEvent.KEYCODE_DPAD_RIGHT -> if (transport) { player.seekLive(FORWARD_MS); showBanner() } else {
-                        vm.guideRow = vm.currentIndex
-                        vm.screen = Screen.Guide
-                    }
-                    KeyEvent.KEYCODE_GUIDE -> {
-                        vm.guideRow = vm.currentIndex
-                        vm.screen = Screen.Guide
-                    }
-                    KeyEvent.KEYCODE_MENU -> vm.menuOpen = true
-                    KeyEvent.KEYCODE_INFO -> showBanner()
-                    KeyEvent.KEYCODE_LAST_CHANNEL -> vm.tunePrevious()
+                    KeyEvent.KEYCODE_CHANNEL_UP -> { vm.tune(vm.currentIndex + 1); return@onPreviewKeyEvent true }
+                    KeyEvent.KEYCODE_CHANNEL_DOWN -> { vm.tune(vm.currentIndex - 1); return@onPreviewKeyEvent true }
+                    KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_SPACE -> { player.togglePause(); showBanner(); return@onPreviewKeyEvent true }
+                    KeyEvent.KEYCODE_MEDIA_PAUSE -> { player.pauseLive(); showBanner(); return@onPreviewKeyEvent true }
+                    KeyEvent.KEYCODE_MEDIA_PLAY -> { player.resumeLive(); showBanner(); return@onPreviewKeyEvent true }
+                    KeyEvent.KEYCODE_MEDIA_REWIND -> { player.seekLive(-BACK_MS); showBanner(); return@onPreviewKeyEvent true }
+                    KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { player.seekLive(FORWARD_MS); showBanner(); return@onPreviewKeyEvent true }
+                    KeyEvent.KEYCODE_MEDIA_NEXT -> { player.goLive(); showBanner(); return@onPreviewKeyEvent true }
+                    KeyEvent.KEYCODE_GUIDE -> { openGuide(vm.currentIndex); return@onPreviewKeyEvent true }
+                    KeyEvent.KEYCODE_MENU -> { vm.menuOpen = true; return@onPreviewKeyEvent true }
+                    KeyEvent.KEYCODE_INFO -> { showBanner(); return@onPreviewKeyEvent true }
+                    KeyEvent.KEYCODE_LAST_CHANNEL -> { vm.tunePrevious(); return@onPreviewKeyEvent true }
                     in KeyEvent.KEYCODE_0..KeyEvent.KEYCODE_9 -> {
                         digits += (k - KeyEvent.KEYCODE_0).toString()
                         showBanner()
+                        return@onPreviewKeyEvent true
                     }
-                    else -> return@onPreviewKeyEvent false
+                }
+                val b = button
+                when {
+                    // On the playback bar's buttons.
+                    b != null -> when {
+                        k == KeyEvent.KEYCODE_DPAD_LEFT -> button = (b - 1).coerceAtLeast(0)
+                        k == KeyEvent.KEYCODE_DPAD_RIGHT -> button = (b + 1).coerceAtMost(2)
+                        k == KeyEvent.KEYCODE_DPAD_UP -> { button = null; showBanner() }
+                        ok -> when (b) {
+                            0 -> openList()
+                            1 -> openGuide(vm.currentIndex)
+                            else -> { button = null; player.goLive(); showBanner() }
+                        }
+                        else -> return@onPreviewKeyEvent false
+                    }
+                    // Paused or behind live: the playback bar.
+                    shifted -> when {
+                        ok -> { player.togglePause(); showBanner() }
+                        k == KeyEvent.KEYCODE_DPAD_LEFT -> { player.seekLive(-BACK_MS); showBanner() }
+                        k == KeyEvent.KEYCODE_DPAD_RIGHT -> { player.seekLive(FORWARD_MS); showBanner() }
+                        k == KeyEvent.KEYCODE_DPAD_DOWN -> { button = 0; showBanner() }
+                        k == KeyEvent.KEYCODE_DPAD_UP -> showBanner()
+                        else -> return@onPreviewKeyEvent false
+                    }
+                    // At live.
+                    else -> when {
+                        k == KeyEvent.KEYCODE_DPAD_UP -> vm.tune(vm.currentIndex + 1)
+                        k == KeyEvent.KEYCODE_DPAD_DOWN -> vm.tune(vm.currentIndex - 1)
+                        k == KeyEvent.KEYCODE_DPAD_LEFT -> openList()
+                        k == KeyEvent.KEYCODE_DPAD_RIGHT -> openGuide(vm.currentIndex)
+                        ok && player.canPause -> { player.pauseLive(); showBanner() }
+                        ok -> if (bannerVisible) openList() else showBanner()
+                        else -> return@onPreviewKeyEvent false
+                    }
                 }
                 true
             },
@@ -204,7 +233,7 @@ fun WatchScreen(vm: AppViewModel) {
             }
         }
 
-        if (bannerVisible && !listOpen) ChannelBanner(vm)
+        if (bannerVisible && !listOpen) ChannelBanner(vm, button)
         // Banner hidden: still show that it's paused or behind live.
         if (!bannerVisible && (player.paused || player.isBehindLive)) {
             Box(Modifier.fillMaxSize().padding(36.dp), contentAlignment = Alignment.TopStart) {
@@ -221,7 +250,7 @@ fun WatchScreen(vm: AppViewModel) {
 
 /** Bottom banner: channel, what's on now with progress, and what's next. */
 @Composable
-private fun ChannelBanner(vm: AppViewModel) {
+private fun ChannelBanner(vm: AppViewModel, button: Int?) {
     val context = LocalContext.current
     val ch = vm.currentChannel ?: return
     val nowS = nowSec()
@@ -245,8 +274,13 @@ private fun ChannelBanner(vm: AppViewModel) {
                         if (current?.isRecordingNow == true) Box(Modifier.size(14.dp).background(Tv.rec, CircleShape))
                         Spacer(Modifier.weight(1f))
                         Text(
-                            if (vm.player.canPause) "OK ${if (vm.player.paused) "play" else "pause"} · ◀ −10 s · +30 s ▶ · Back hides"
-                            else "◀ channels · ▶ guide · Back menu",
+                            when {
+                                button != null -> "◀ ▶ choose · OK open · ▲ back"
+                                vm.player.paused || vm.player.isBehindLive ->
+                                    "OK ${if (vm.player.paused) "play" else "pause"} · ◀ −10 s · +30 s ▶ · ▼ channels, guide"
+                                vm.player.canPause -> "OK pause · ◀ channels · ▶ guide · Back menu"
+                                else -> "◀ channels · ▶ guide · Back menu"
+                            },
                             color = Tv.muted, fontSize = 14.sp,
                         )
                     }
@@ -266,7 +300,7 @@ private fun ChannelBanner(vm: AppViewModel) {
                     }
                 }
             }
-            TimeshiftBar(vm)
+            TimeshiftBar(vm, button)
             // Mini guide: what's coming up on this channel, across the whole screen.
             val later = vm.upNext(ch.uuid, 5, nowS)
             if (later.isNotEmpty()) {
@@ -343,7 +377,7 @@ private fun ChannelList(vm: AppViewModel, selected: Int) {
  * bar spanning what can be rewound.
  */
 @Composable
-private fun TimeshiftBar(vm: AppViewModel) {
+private fun TimeshiftBar(vm: AppViewModel, button: Int?) {
     val p = vm.player
     if (!p.canPause) {
         p.pauseUnavailable?.let { Text(it, color = Tv.muted, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
@@ -369,5 +403,20 @@ private fun TimeshiftBar(vm: AppViewModel) {
             if (shifted) "−" + clock(behind) else "Can rewind ${clock(span)}",
             color = Tv.muted, fontSize = 15.sp,
         )
+    }
+    // Paused or behind live, the arrows scrub: the channel list, guide and live are buttons here (Down).
+    if (shifted) {
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            listOf("☰  Channels", "▦  Guide", "●  Live").forEachIndexed { i, label ->
+                val sel = button == i
+                Text(
+                    label, fontSize = 17.sp, fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal,
+                    color = if (sel) Color.Black else Tv.text,
+                    modifier = Modifier
+                        .background(if (sel) Tv.accent else Color(0x26FFFFFF), RoundedCornerShape(18.dp))
+                        .padding(horizontal = 18.dp, vertical = 8.dp),
+                )
+            }
+        }
     }
 }
