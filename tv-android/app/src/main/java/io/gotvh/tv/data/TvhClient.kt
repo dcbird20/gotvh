@@ -191,8 +191,18 @@ class TvhClient(server: String, username: String, password: String) {
                 filesize = o.optLong("filesize"),
                 status = o.optString("status"),
                 schedStatus = o.optString("sched_status"),
+                playCount = o.optInt("playcount", 0),
+                playPositionSec = o.optLong("playposition", 0),
             )
         }.filter { it.uuid.isNotEmpty() }
+    }
+
+    /**
+     * Save watched state on the recording itself, where every device (and Kodi) reads it:
+     * [playCount] times played to the end, [positionSec] where to resume (0 = start).
+     */
+    suspend fun setPlayState(uuid: String, playCount: Int, positionSec: Long) {
+        post("idnode/save", mapOf("node" to JSONObject().put("uuid", uuid).put("playcount", playCount).put("playposition", positionSec).toString()))
     }
 
     /** Delete a finished recording and its file. */

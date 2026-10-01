@@ -169,7 +169,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val c = client ?: return
         if (screen == Screen.Playback) {
             val r = playing ?: return
-            if (!player.exo.isPlaying && !player.tuning) player.playRecording(c, r.uuid, settings.resumePosition(r.uuid))
+            if (!player.exo.isPlaying && !player.tuning) player.playRecording(c, r.uuid, resumeMs(r))
             return
         }
         val ch = currentChannel ?: return
@@ -210,6 +210,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun loadRecordings() {
         val c = client ?: return
         viewModelScope.launch {
+            pendingPlayState?.join()
             try {
                 recorded = c.recordings(upcoming = false).sortedByDescending { it.start }
                 upcoming = c.recordings(upcoming = true).sortedBy { it.start }
@@ -221,25 +222,83 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Where to resume: Tvheadend's saved position, or this TV's own if the server couldn't store it. */
+    fun resumeMs(r: Recording): Long = when {
+        r.playPositionSec > 0 -> r.playPositionSec * 1000
+        r.playCount == 0 -> settings.resumePosition(r.uuid)
+        else -> 0
+    }
+
     /** Play a recording from where you left off (or from the start). */
     fun playRecording(r: Recording, fromStart: Boolean) {
         val c = client ?: return
         playing = r
+        countedPlay = null
+        lastPushedSec = -1
         screen = Screen.Playback
-        player.playRecording(c, r.uuid, if (fromStart) 0 else settings.resumePosition(r.uuid))
+        player.playRecording(c, r.uuid, if (fromStart) 0 else resumeMs(r))
     }
 
-    /** Remember where playback is, so the recording can resume later. Near the end counts as watched. */
-    fun saveRecordingPosition() {
+    /** This playback has already been counted as watched (so seeking around the end doesn't count twice). */
+    private var countedPlay: String? = null
+    private var lastPushedSec = -1L
+    private var playStateWarned = false
+    /** The last watched-state save, so a reload doesn't fetch the list before it lands. */
+    private var pendingPlayState: kotlinx.coroutines.Job? = null
+
+    /**
+     * Remember where playback is. The first 15 s don't count (a peek leaves it as it was); the last
+     * minute or the end counts as watched. Saved in Tvheadend every 30 s of change, and always when
+     * [force]d (pause, leaving).
+     */
+    fun saveRecordingPosition(force: Boolean = false) {
         val r = playing ?: return
         val pos = player.exo.currentPosition
         val dur = player.exo.duration
-        val watched = player.ended || (dur > 0 && pos > dur - 60_000)
-        settings.saveResumePosition(r.uuid, if (watched || pos < 15_000) 0 else pos)
+        val finished = player.ended || (dur > 0 && pos > dur - 60_000)
+        when {
+            finished -> {
+                if (countedPlay == r.uuid && r.playPositionSec == 0L) return
+                val count = if (countedPlay == r.uuid) r.playCount else r.playCount + 1
+                countedPlay = r.uuid
+                setPlayState(r, count, 0)
+            }
+            pos < 15_000 -> return
+            else -> {
+                val sec = pos / 1000
+                if (!force && lastPushedSec >= 0 && kotlin.math.abs(sec - lastPushedSec) < 30) return
+                setPlayState(r, r.playCount, sec)
+            }
+        }
+    }
+
+    fun markWatched(r: Recording, watched: Boolean) {
+        setPlayState(r, if (watched) maxOf(1, r.playCount) else 0, 0)
+        notice = if (watched) "Marked “${r.title}” as watched" else "Marked “${r.title}” as unwatched"
+    }
+
+    /** Update the list at once, then store it in Tvheadend (and on this TV, in case the server refuses). */
+    private fun setPlayState(r: Recording, count: Int, positionSec: Long) {
+        val updated = r.copy(playCount = count, playPositionSec = positionSec)
+        recorded = recorded.map { if (it.uuid == r.uuid) updated else it }
+        if (playing?.uuid == r.uuid) playing = updated
+        settings.saveResumePosition(r.uuid, positionSec * 1000)
+        lastPushedSec = positionSec
+        val c = client ?: return
+        pendingPlayState = viewModelScope.launch {
+            try {
+                c.setPlayState(r.uuid, count, positionSec)
+            } catch (e: TvhException) {
+                if (!playStateWarned) notice = "Tvheadend didn’t save what you’ve watched (${e.message}). This TV will remember it instead."
+                playStateWarned = true
+            } catch (e: IOException) {
+                // Kept on this TV; the next save tries again.
+            }
+        }
     }
 
     fun leavePlayback() {
-        saveRecordingPosition()
+        saveRecordingPosition(force = true)
         player.stop()
         playing = null
         screen = Screen.Recordings

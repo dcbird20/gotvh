@@ -101,13 +101,13 @@ fun PlaybackScreen(vm: AppViewModel) {
                     KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_SPACE -> {
                         exo.playWhenReady = !exo.playWhenReady
                         paused = !exo.playWhenReady
-                        if (paused) vm.saveRecordingPosition()
+                        if (paused) vm.saveRecordingPosition(force = true)
                         show()
                     }
                     KeyEvent.KEYCODE_MEDIA_PLAY -> { exo.playWhenReady = true; paused = false; show() }
                     KeyEvent.KEYCODE_MEDIA_PAUSE -> { exo.playWhenReady = false; paused = true; show() }
                     KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_INFO -> show()
-                    KeyEvent.KEYCODE_MENU -> { vm.saveRecordingPosition(); vm.menuOpen = true }
+                    KeyEvent.KEYCODE_MENU -> { vm.saveRecordingPosition(force = true); vm.menuOpen = true }
                     else -> return@onPreviewKeyEvent false
                 }
                 true

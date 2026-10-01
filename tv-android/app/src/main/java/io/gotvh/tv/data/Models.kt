@@ -45,9 +45,17 @@ data class Recording(
     /** Tvheadend's status text, e.g. "Completed OK", "Scheduled for recording". */
     val status: String,
     val schedStatus: String,
+    /** Times played to the end, shared by every app using this Tvheadend (Kodi too). */
+    val playCount: Int = 0,
+    /** Where playback stopped, in seconds; 0 = not started or finished. */
+    val playPositionSec: Long = 0,
 ) {
     val durationSec: Long get() = (stop - start).coerceAtLeast(0)
     val isRecordingNow: Boolean get() = schedStatus.startsWith("recording")
+    val inProgress: Boolean get() = playPositionSec > 0
+    val isWatched: Boolean get() = !inProgress && playCount > 0
+    val isNew: Boolean get() = !inProgress && playCount == 0
+    val minutesLeft: Long get() = ((durationSec - playPositionSec).coerceAtLeast(0) + 59) / 60
 }
 
 /** An auto-record rule (Tvheadend "dvr/autorec"). */

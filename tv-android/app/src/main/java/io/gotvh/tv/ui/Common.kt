@@ -142,7 +142,7 @@ fun ActionDialog(
     ) {
         androidx.compose.foundation.layout.Column(
             androidx.compose.ui.Modifier
-                .width(720.dp)
+                .width(880.dp)
                 .background(Tv.panelSolid, RoundedCornerShape(14.dp))
                 .padding(30.dp),
             verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp),
