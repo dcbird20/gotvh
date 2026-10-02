@@ -136,8 +136,10 @@ class TvhClient(server: String, val username: String, val password: String) {
         val params = mutableMapOf("title" to literal, "start" to "0", "limit" to limit.toString(), "sort" to "start", "dir" to "ASC")
         if (fulltext) params["fulltext"] = "1"
         val entries = get("epg/events/grid", params).optJSONArray("entries") ?: JSONArray()
+        // Title matches first (what you're most likely after), then episode names / descriptions; soonest first in each.
         return List(entries.length()) { parseProgram(entries.getJSONObject(it)) }
             .filter { it.channelUuid.isNotEmpty() && it.stop > it.start }
+            .sortedWith(compareBy<Program>({ !it.title.contains(q, ignoreCase = true) }, { it.start }))
     }
 
     private fun parseProgram(o: JSONObject): Program {
