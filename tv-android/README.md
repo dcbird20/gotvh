@@ -110,7 +110,10 @@ stopped is saved).
 
 **Back** always goes one step back and never stops anything: from the guide, recordings, search or the
 rules it returns to whatever is playing (the recording, or live TV).
-stored on the recording in Tvheadend (the same fields Kodi uses), so every TV picks up where you stopped.
+
+The first 15 s of a recording don't count; the last minute counts as watched. Watched state and the
+resume point are stored on the recording in Tvheadend (the same fields Kodi uses), so every TV picks up
+where you stopped.
 
 **Auto-record rules** (Back → Auto-record rules): OK to switch a rule on or off, or delete it.
 Creating and editing rules is in the guide (Record series) and the admin app.
