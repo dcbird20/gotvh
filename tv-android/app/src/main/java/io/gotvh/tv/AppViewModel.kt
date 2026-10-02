@@ -469,9 +469,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun record(p: Program, series: Boolean = false) = dvr(if (series) "Recording every episode of “${p.title}”" else "Recording “${p.title}”") {
-        if (series) it.recordSeries(p.eventId) else it.record(p.eventId)
-    }
+    fun record(p: Program, series: Boolean = false) =
+        dvr(if (series) "Recording every episode of “${p.title}”" else "Recording “${p.title}”", reloadRecordings = true) {
+            if (series) it.recordSeries(p) else it.record(p)
+        }
 
     /** Not recording yet: remove it. Recording now: stop and keep what's recorded so far. */
     fun cancelRecording(p: Program) =

@@ -83,6 +83,13 @@ fun RecordingsScreen(vm: AppViewModel) {
     val dialogOpen = action != null || confirmDelete != null
 
     LaunchedEffect(Unit) { focus.requestFocus() }
+    // Recordings start and finish while this is open: keep the list current.
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(60_000)
+            vm.loadRecordings()
+        }
+    }
     LaunchedEffect(dialogOpen, vm.menuOpen) { if (!dialogOpen && !vm.menuOpen) focus.requestFocus() }
     // The list changed (deleted, finished): keep the selection in range; an emptied show closes.
     LaunchedEffect(groups) {

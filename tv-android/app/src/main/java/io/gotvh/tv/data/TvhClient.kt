@@ -177,13 +177,38 @@ class TvhClient(server: String, val username: String, val password: String) {
         return uuid.also { dvrConfig = it }
     }
 
-    suspend fun record(eventId: Long) {
-        post("dvr/entry/create_by_event", mapOf("event_id" to eventId.toString(), "config_uuid" to defaultDvrConfig()))
+    /**
+     * Record [p]. Tvheadend answers create_by_event with an empty {} when it creates nothing (no
+     * error), so check for the new entry; if there isn't one, record by channel and time instead.
+     */
+    suspend fun record(p: Program) {
+        val config = defaultDvrConfig()
+        if (createdSomething(post("dvr/entry/create_by_event", mapOf("event_id" to p.eventId.toString(), "config_uuid" to config)))) return
+        val conf = JSONObject()
+            .put("enabled", 1)
+            .put("channel", p.channelUuid)
+            .put("start", p.start)
+            .put("stop", p.stop)
+            .put("disp_title", p.title)
+            .put("disp_subtitle", p.subtitle)
+            .put("disp_description", p.description)
+            .put("comment", "GoTVH")
+        if (config.isNotEmpty()) conf.put("config_name", config)
+        if (createdSomething(post("dvr/entry/create", mapOf("conf" to conf.toString())))) return
+        throw TvhException("Tvheadend didn't create the recording. Check that this account may record (Users & access → Video recorder).")
     }
 
     /** Every episode, via the event's series link (becomes an auto-record rule). */
-    suspend fun recordSeries(eventId: Long) {
-        post("dvr/autorec/create_by_series", mapOf("event_id" to eventId.toString(), "config_uuid" to defaultDvrConfig()))
+    suspend fun recordSeries(p: Program) {
+        val reply = post("dvr/autorec/create_by_series", mapOf("event_id" to p.eventId.toString(), "config_uuid" to defaultDvrConfig()))
+        if (!createdSomething(reply)) throw TvhException("Tvheadend couldn't make a series rule for “${p.title}” (the guide may not link its episodes).")
+    }
+
+    /** Tvheadend's create calls return {"uuid": …} (a string or a list) when they made something. */
+    private fun createdSomething(reply: JSONObject): Boolean = when (val u = reply.opt("uuid")) {
+        is String -> u.isNotBlank()
+        is JSONArray -> u.length() > 0
+        else -> false
     }
 
     suspend fun cancelRecording(dvrUuid: String) {
