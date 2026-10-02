@@ -74,7 +74,7 @@ fun SearchScreen(vm: AppViewModel) {
     LaunchedEffect(Unit) { field.requestFocus() }
     LaunchedEffect(detail) { if (detail == null && inList) list.requestFocus() }
 
-    BackHandler(enabled = detail == null) { if (inList) field.requestFocus() else vm.goLive() }
+    BackHandler(enabled = detail == null) { if (inList) field.requestFocus() else vm.backToVideo() }
 
     fun open(hit: Hit) {
         when (hit) {
@@ -91,7 +91,7 @@ fun SearchScreen(vm: AppViewModel) {
         }
     }
 
-    Box(Modifier.fillMaxSize().background(Color(0xF20B1220))) {
+    Box(Modifier.fillMaxSize().background(Color(0xE60B1220))) {
         Column(Modifier.fillMaxSize().padding(horizontal = 48.dp, vertical = 28.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Search", color = Tv.text, fontSize = 26.sp, fontWeight = FontWeight.Bold)

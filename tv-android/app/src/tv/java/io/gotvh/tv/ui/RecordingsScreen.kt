@@ -106,12 +106,13 @@ fun RecordingsScreen(vm: AppViewModel) {
         groups.indexOfFirst { it.key == openKey }.takeIf { it >= 0 }?.let { showIndex = it }
     }
 
-    BackHandler(enabled = !dialogOpen) { if (level == Level.Episodes) closeGroup() else vm.goLive() }
+    BackHandler(enabled = !dialogOpen) { if (level == Level.Episodes) closeGroup() else vm.backToVideo() }
 
     Box(
         Modifier
             .fillMaxSize()
-            .background(Tv.bg)
+            // Translucent: what's playing stays visible (and playing) behind.
+            .background(Color(0xE60B1220))
             .focusRequester(focus)
             .focusable()
             .onPreviewKeyEvent { ev ->

@@ -146,7 +146,30 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         currentIndex = i
         val ch = channels[i]
         settings.lastChannel = ch.uuid
+        endRecordingPlayback()
         player.play(c, ch, profiles)
+    }
+
+    /** Leaving a recording for live TV: remember where it was, and forget it. */
+    private fun endRecordingPlayback() {
+        if (playing == null) return
+        saveRecordingPosition(force = true)
+        playing = null
+    }
+
+    /** Set by the playback bar's Channels button: Live TV opens with the channel list. */
+    var requestChannelList by mutableStateOf(false)
+
+    /** A recording is loaded in the player (playing, or paused behind another screen). */
+    val recordingLoaded: Boolean get() = playing != null && player.recordingUuid != null
+
+    /**
+     * Back from a screen opened over the video (guide, recordings, search…): to whatever was
+     * playing — the recording if one is loaded, else live TV. Never stops anything.
+     */
+    fun backToVideo() {
+        menuOpen = false
+        if (recordingLoaded) screen = Screen.Playback else goLive()
     }
 
     fun tuneUuid(uuid: String) {
@@ -167,7 +190,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun resumeIfStopped() {
         val c = client ?: return
-        if (screen == Screen.Playback) {
+        if (screen == Screen.Playback || recordingLoaded) {
             val r = playing ?: return
             if (!player.exo.isPlaying && !player.tuning) player.playRecording(c, r.uuid, resumeMs(r), recordingUntil(r))
             return
@@ -182,7 +205,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         screen = Screen.Watch
         val c = client ?: return
         val ch = currentChannel ?: return
-        if (!player.isLive) player.play(c, ch, profiles)
+        if (!player.isLive) {
+            endRecordingPlayback()
+            player.play(c, ch, profiles)
+        }
     }
 
     fun open(target: Screen) {
@@ -239,6 +265,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** Play a recording from where you left off (or from the start). */
     fun playRecording(r: Recording, fromStart: Boolean) {
         val c = client ?: return
+        if (playing != null && playing?.uuid != r.uuid) saveRecordingPosition(force = true)
         playing = r
         countedPlay = null
         lastPushedSec = -1

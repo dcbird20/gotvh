@@ -125,7 +125,7 @@ fun GuideScreen(vm: AppViewModel) {
     LaunchedEffect(row, rows) { keepRowVisible() }
     LaunchedEffect(top) { listState.scrollToItem(top) }
 
-    BackHandler(enabled = detail == null) { vm.screen = Screen.Watch }
+    BackHandler(enabled = detail == null) { vm.backToVideo() }
 
     /** Point the grid at [t], scrolling the window so it's comfortably on screen. */
     fun moveTo(t: Long) {
@@ -135,7 +135,8 @@ fun GuideScreen(vm: AppViewModel) {
     }
 
     fun watch(index: Int) {
-        if (index != vm.currentIndex) vm.tune(index)
+        // Same channel while a recording is loaded still means "switch to live TV".
+        if (index != vm.currentIndex || vm.recordingLoaded) vm.tune(index)
         vm.screen = Screen.Watch
     }
 
@@ -182,7 +183,7 @@ fun GuideScreen(vm: AppViewModel) {
                     KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> moveTo(anchor + WINDOW)
                     KeyEvent.KEYCODE_MEDIA_REWIND -> moveTo(anchor - WINDOW)
                     KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> watch(row)
-                    KeyEvent.KEYCODE_GUIDE -> vm.screen = Screen.Watch
+                    KeyEvent.KEYCODE_GUIDE -> vm.backToVideo()
                     KeyEvent.KEYCODE_MENU -> vm.menuOpen = true
                     else -> return@onPreviewKeyEvent false
                 }

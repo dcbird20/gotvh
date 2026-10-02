@@ -47,7 +47,7 @@ fun RulesScreen(vm: AppViewModel) {
     LaunchedEffect(Unit) { focus.requestFocus() }
     LaunchedEffect(dialogOpen, vm.menuOpen) { if (!dialogOpen && !vm.menuOpen) focus.requestFocus() }
     LaunchedEffect(rules.size) { index = index.coerceIn(0, (rules.size - 1).coerceAtLeast(0)) }
-    BackHandler(enabled = !dialogOpen) { vm.goLive() }
+    BackHandler(enabled = !dialogOpen) { vm.backToVideo() }
 
     Box(
         Modifier

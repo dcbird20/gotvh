@@ -65,7 +65,7 @@ the file as it grows.
 |---|---|
 | OK | Play / pause |
 | Left / Right | Back 10 s / forward 30 s (forward past live goes back to live) |
-| Down | The bar's buttons: Channels · Guide · Record · Live (Left/Right to choose, OK to open, Up or Back to leave) |
+| Down | The bar's buttons: Guide · Channels · Recordings · Search · Record · Live (Left/Right to choose, OK to open, Up or Back to leave) |
 | Down again | The mini guide: Left/Right to an upcoming programme, OK for Record / Record series |
 
 Record records the programme on screen (from now: Tvheadend can't add what's already gone by).
@@ -103,8 +103,13 @@ time behind live for a few seconds.
 "Continue watching" at the top lists everything stopped partway. Each recording shows a dot when
 it's new, a progress bar and time left when it's in progress, and ✓ (dimmed) when watched.
 
-**Playing a recording**: Left/⏪ back 10 s · Right/⏩ forward 30 s · OK/⏯ pause · Back to Recordings.
-The first 15 s don't count; the last minute counts as watched. Watched state and the resume point are
+**Playing a recording** uses the same bar as live TV: OK/⏯ pause · Left/⏪ back 10 s · Right/⏩ forward
+30 s · Down for Guide · Channels · Recordings · Search · Restart. The recording keeps playing behind the
+guide, recordings and search, and Back there comes back to it. Back hides the bar, then leaves (where you
+stopped is saved).
+
+**Back** always goes one step back and never stops anything: from the guide, recordings, search or the
+rules it returns to whatever is playing (the recording, or live TV).
 stored on the recording in Tvheadend (the same fields Kodi uses), so every TV picks up where you stopped.
 
 **Auto-record rules** (Back → Auto-record rules): OK to switch a rule on or off, or delete it.

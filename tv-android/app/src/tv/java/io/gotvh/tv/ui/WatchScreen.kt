@@ -80,7 +80,7 @@ fun WatchScreen(vm: AppViewModel) {
     var listOpen by remember { mutableStateOf(false) }
     var listIndex by remember { mutableIntStateOf(vm.currentIndex) }
     var digits by remember { mutableStateOf("") }
-    /** Which playback-bar button is selected (0 Channels, 1 Guide, 2 Record, 3 Live), or null while scrubbing. */
+    /** Selected playback-bar button (0 Guide, 1 Channels, 2 Recordings, 3 Search, 4 Record, 5 Live), or null while scrubbing. */
     var button by remember { mutableStateOf<Int?>(null) }
     /** Which mini-guide programme is selected (below the buttons), or null. */
     var tile by remember { mutableStateOf<Int?>(null) }
@@ -120,6 +120,13 @@ fun WatchScreen(vm: AppViewModel) {
     }
     LaunchedEffect(vm.currentIndex) { showBanner() }
     LaunchedEffect(shifted) { if (!shifted) { button = null; tile = null } }
+    // The recording bar's Channels button: arrive with the channel list open.
+    LaunchedEffect(vm.requestChannelList) {
+        if (vm.requestChannelList) {
+            vm.requestChannelList = false
+            openList()
+        }
+    }
     // The bar timed out: leave its buttons too.
     LaunchedEffect(bannerVisible) { if (!bannerVisible) { button = null; tile = null } }
     LaunchedEffect(digits) {
@@ -208,13 +215,15 @@ fun WatchScreen(vm: AppViewModel) {
                     b != null -> {
                         when {
                             k == KeyEvent.KEYCODE_DPAD_LEFT -> button = (b - 1).coerceAtLeast(0)
-                            k == KeyEvent.KEYCODE_DPAD_RIGHT -> button = (b + 1).coerceAtMost(3)
+                            k == KeyEvent.KEYCODE_DPAD_RIGHT -> button = (b + 1).coerceAtMost(5)
                             k == KeyEvent.KEYCODE_DPAD_UP -> button = null
                             k == KeyEvent.KEYCODE_DPAD_DOWN -> if (upcoming.isNotEmpty()) { button = null; tile = 0 }
                             ok -> when (b) {
-                                0 -> openList()
-                                1 -> openGuide(vm.currentIndex)
-                                2 -> recordWatched(vm)
+                                0 -> openGuide(vm.currentIndex)
+                                1 -> openList()
+                                2 -> { button = null; vm.open(io.gotvh.tv.Screen.Recordings) }
+                                3 -> { button = null; vm.open(io.gotvh.tv.Screen.Search) }
+                                4 -> recordWatched(vm)
                                 else -> { button = null; player.goLive() }
                             }
                             else -> return@onPreviewKeyEvent false
@@ -481,20 +490,10 @@ private fun TimeshiftBar(vm: AppViewModel, button: Int?, current: Program?) {
             color = Tv.muted, fontSize = 15.sp,
         )
     }
-    // Paused or behind live, the arrows scrub: the channel list, guide and live are buttons here (Down).
+    // Paused or behind live, the arrows scrub: the other screens are buttons here (Down) — the same
+    // bar as a recording's, plus Record and Live.
     if (shifted) {
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            val record = if (current?.isScheduled == true) "■  Stop recording" else "●  Record"
-            listOf("☰  Channels", "▦  Guide", record, "⏭  Live").forEachIndexed { i, label ->
-                val sel = button == i
-                Text(
-                    label, fontSize = 17.sp, fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal,
-                    color = if (sel) Color.Black else Tv.text,
-                    modifier = Modifier
-                        .background(if (sel) Tv.accent else Color(0x26FFFFFF), RoundedCornerShape(18.dp))
-                        .padding(horizontal = 18.dp, vertical = 8.dp),
-                )
-            }
-        }
+        val record = if (current?.isScheduled == true) "■  Stop recording" else "●  Record"
+        BarButtons(COMMON_BUTTONS + record + "⏭  Live", button)
     }
 }

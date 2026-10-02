@@ -52,7 +52,7 @@ class MainActivity : ComponentActivity() {
     // Stop the stream when the app goes to the background (frees the tuner), resume on return.
     override fun onStop() {
         super.onStop()
-        if (vm.screen == Screen.Playback) vm.saveRecordingPosition()
+        if (vm.recordingLoaded) vm.saveRecordingPosition(force = true)
         vm.player.stop()
     }
 
