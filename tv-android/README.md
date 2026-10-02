@@ -1,5 +1,11 @@
 # GoTVH for Android TV / Google TV
 
+
+**Two apps, one codebase.** `tv` (src/tv) is the Google TV / Android TV app below. `mobile` (src/mobile)
+is the phone and tablet app: Live TV with pause, a tap-to-record guide, and Recordings with resume and
+watched state, all shared with the TV. Install it from `http://raven1:8090/phone` (home Wi-Fi only
+for now). Both share src/main: the Tvheadend client, HTSP, the player and the view model.
+
 A native TV app for Tvheadend: live TV, a full guide, and recording. Kotlin, Jetpack Compose and
 Media3 (ExoPlayer, the player most Android TV apps use). Setup and fixing stay in the GoTVH admin
 web app; this app is for watching.

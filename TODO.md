@@ -105,3 +105,6 @@ The stock UI needs you to know the chain
 - [x] Digest sign-in (API, logos and streams)
 - [x] Software AC-3 / E-AC-3 audio (FFmpeg); MPEG-2 video still falls back to a converting profile
 
+
+## Phone app
+- [ ] Away from home: reach raven1 safely (Tailscale or VPN, not Tvheadend open to the internet); then downloads for offline viewing.
