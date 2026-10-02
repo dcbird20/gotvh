@@ -105,9 +105,10 @@ fun WatchScreen(vm: AppViewModel) {
             if (controls && !overlay && now - lastKey > CONTROLS_IDLE_MS) controls = false
         }
     }
-    // The root takes the keys whenever nothing focusable is on screen.
-    LaunchedEffect(controls, overlay, vm.menuOpen) {
-        if (!controls && !overlay && !vm.menuOpen) runCatching { root.requestFocus() }
+    // The root takes the keys whenever nothing focusable is on screen (the channel list included:
+    // its highlight is drawn, the keys come here).
+    LaunchedEffect(controls, padOpen, card, vm.menuOpen) {
+        if (!controls && !padOpen && card == null && !vm.menuOpen) runCatching { root.requestFocus() }
     }
     LaunchedEffect(vm.currentIndex) { showBanner() }
     LaunchedEffect(vm.requestChannelList) {
@@ -217,10 +218,10 @@ fun WatchScreen(vm: AppViewModel) {
                 val on = vm.currentChannel?.let { vm.nowAndNext(it.uuid, playingSec(vm)).first }
                 val buttons = buildList<Pair<String, () -> Unit>> {
                     if (player.canPause) add((if (player.paused) "▶  Play" else "❚❚  Pause") to { player.togglePause() })
-                    add("ⓘ  Info" to { on?.let { card = it } ?: run { vm.notice = "Nothing in the guide for this channel now." } })
+                    add("ⓘ  Info" to { on?.let { controls = false; card = it } ?: run { vm.notice = "Nothing in the guide for this channel now." } })
                     add("▦  Guide" to { openGuide(vm.currentIndex) })
                     add("☰  Channels" to { openList() })
-                    add("123" to { padOpen = true })
+                    add("123" to { controls = false; padOpen = true })
                     add("Recordings" to { controls = false; vm.open(Screen.Recordings) })
                     add("⌕  Search" to { controls = false; vm.open(Screen.Search) })
                     add((if (on?.isScheduled == true) "■  Stop recording" else "●  Record") to { recordWatched(vm) })
@@ -231,7 +232,7 @@ fun WatchScreen(vm: AppViewModel) {
                     progress = { focused -> TimeshiftProgress(vm, focused) },
                     onScrub = { forward -> player.seekLive(if (forward) FORWARD_MS else -BACK_MS) },
                     buttons = buttons,
-                    below = { MiniGuide(vm, interactive = true, onPick = { card = it }) },
+                    below = { MiniGuide(vm, interactive = true, onPick = { controls = false; card = it }) },
                 )
             }
             now < bannerUntil -> Banner { ChannelHeader(vm); TimeshiftProgress(vm, false); MiniGuide(vm, interactive = false, onPick = {}) }

@@ -51,31 +51,31 @@ the file as it grows.
 
 ## Remote
 
-**Watching**
+Built for any Google TV remote: the arrows, OK and Back are all you need. Everywhere, the arrows move
+a visible highlight, OK presses it and Back goes one step back. Nothing needs a long press, and no key
+changes meaning on a timer. ⏯ ⏪ ⏩, Guide and Ch± keys work too on remotes that have them.
+
+**Watching** (live TV or a recording), nothing on screen — these never change:
 
 | Key | Does |
 |---|---|
-| Up / Ch+ · Down / Ch− | Next / previous channel |
-| OK | Pause (a channel that can't pause: info banner; OK again: channel list) |
-| ⏯ ⏪ ⏩ (if the remote has them) | Pause / play, back, forward, any time |
+| OK | The player controls |
+| Left / Right | Back 10 s / forward 30 s (live TV: into Tvheadend's pause buffer; forward stops at live) |
+| Up / Down | Next / previous channel (live TV); on a recording, the controls |
+| Back | Live TV: the menu. A recording: back to Recordings (where you stopped is saved) |
+| 0–9 (or the TV's 123 pad) | A channel number |
 
-**Paused or behind live** the playback bar takes over:
+**The player controls** (the same for live TV and recordings): what's playing, a progress row, and a
+row of buttons — ⏯ · Info · Guide · Channels · 123 · Recordings · Search · Record (live TV; · Live when
+behind) or Restart (a recording). The highlight starts on ⏯, so OK, OK pauses. Up moves to the progress
+row, where Left/Right go back / forward. On live TV, Down reaches the mini guide (OK on a programme: its
+card). 123 opens an on-screen number pad. The controls close after 8 seconds without a key press, and
+Back closes them. Whatever is playing keeps playing behind the guide, recordings and search; Back there
+comes back to it.
 
-| Key | Does |
-|---|---|
-| OK | Play / pause |
-| Left / Right | Back 10 s / forward 30 s (forward past live goes back to live) |
-| Down | The bar's buttons: Guide · Channels · Recordings · Search · Record · Live (Left/Right to choose, OK to open, Up or Back to leave) |
-| Down again | The mini guide: Left/Right to an upcoming programme, OK for Record / Record series |
-
-Record records the programme on screen (from now: Tvheadend can't add what's already gone by).
-The bar clears after 5 seconds without a key press, paused or not; a corner badge then shows paused /
-time behind live for a few seconds.
-| Left | Channel list (Up/Down, OK to tune, Right for its guide) |
-| Right / Guide | Guide |
-| Back (or Menu) | Closes what's open, then the menu: Live TV, Guide, Search, Recordings, Auto-record rules, Settings, Exit |
-| 0–9 | Type a channel number |
-| Last channel | Back to the previous channel |
+**One details card** for every programme and recording — from the guide, search, the mini guide, Info
+or Recordings: the description, and the most likely action first (Watch for something on now, Record
+for later, Resume or Play for a recording), so OK, OK does the obvious thing.
 
 **Guide** (drawn over the channel you're watching)
 
@@ -85,35 +85,15 @@ time behind live for a few seconds.
 | Up / Down | Channel above / below, same time of day |
 | Ch+ / Ch− | A page of channels |
 | ⏪ / ⏩ | Two hours back / ahead |
-| OK | On now: watch it. Later: its details (Record, Record series, Don't record) |
-| Hold OK | Details for any programme: description, Watch, Record, Record series |
+| OK | The programme's card: Watch, Record, Record series |
 | ▶ | Watch that channel |
-| Back / Guide | Back to TV |
+| Back | Back to what's playing |
 
-**Recordings** (Back → Recordings)
-
-| Key | Does |
-|---|---|
-| Up / Down | Move; Up at the top reaches the Recorded / Upcoming tabs |
-| OK | A show: its recordings (a show with one recording plays it). A recording: play, resuming where you stopped |
-| Right | Options: Resume / Play from start, Mark watched / unwatched, Delete |
-| Left / Back | Back to the shows, then TV |
-| OK (Upcoming) | Don't record / Stop recording |
-
-"Continue watching" at the top lists everything stopped partway. Each recording shows a dot when
-it's new, a progress bar and time left when it's in progress, and ✓ (dimmed) when watched.
-
-**Playing a recording** uses the same bar as live TV: OK/⏯ pause · Left/⏪ back 10 s · Right/⏩ forward
-30 s · Down for Guide · Channels · Recordings · Search · Restart. The recording keeps playing behind the
-guide, recordings and search, and Back there comes back to it. Back hides the bar, then leaves (where you
-stopped is saved).
-
-**Back** always goes one step back and never stops anything: from the guide, recordings, search or the
-rules it returns to whatever is playing (the recording, or live TV).
-
-The first 15 s of a recording don't count; the last minute counts as watched. Watched state and the
-resume point are stored on the recording in Tvheadend (the same fields Kodi uses), so every TV picks up
-where you stopped.
+**Recordings**: Up/Down move; OK on a show lists its recordings, OK on a recording opens its card
+(Resume / Play, From the start, Mark watched / unwatched, Delete or Stop recording); Back goes up a level,
+then back to what's playing. "Continue watching" at the top lists everything stopped partway; a dot means
+new, a bar and time left in progress, ✓ watched. Watched state and the resume point are stored on the
+recording in Tvheadend (the same fields Kodi uses), so every device picks up where you stopped.
 
 **Auto-record rules** (Back → Auto-record rules): OK to switch a rule on or off, or delete it.
 Creating and editing rules is in the guide (Record series) and the admin app.

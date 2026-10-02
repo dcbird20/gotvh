@@ -152,7 +152,7 @@ fun PlaybackScreen(vm: AppViewModel) {
                 onScrub = { forward -> seek(if (forward) FORWARD_MS else -BACK_MS) },
                 buttons = listOf(
                     (if (paused) "▶  Play" else "❚❚  Pause") to { togglePause() },
-                    "ⓘ  Info" to { info = true },
+                    "ⓘ  Info" to { controls = false; info = true },
                     "▦  Guide" to { leaveFor(Screen.Guide) },
                     "☰  Channels" to { controls = false; vm.saveRecordingPosition(force = true); vm.requestChannelList = true; vm.goLive() },
                     "Recordings" to { leaveFor(Screen.Recordings) },
