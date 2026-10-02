@@ -60,9 +60,9 @@ import kotlinx.coroutines.delay
 /** Two hours across the screen, moving in half-hour steps. */
 private const val WINDOW = 2 * 3600L
 private const val STEP = 1800L
-private const val PAGE = 7
 private val CHANNEL_COL = 220.dp
-private val ROW_HEIGHT = 60.dp
+private val ROW_HEIGHT = 42.dp
+private val RULER_HEIGHT = 28.dp
 
 private fun alignDown(sec: Long) = sec - Math.floorMod(sec, STEP)
 
@@ -98,8 +98,23 @@ fun GuideScreen(vm: AppViewModel) {
         minOf(rowPrograms.firstOrNull { it.start > anchor }?.start ?: windowEnd, windowEnd),
     )
 
+    // Paging is exact: [top] is the first row on screen and [rows] how many fit completely, so
+    // Ch+/Ch− move a whole page and every channel shows up on exactly one page.
+    var rows by remember { mutableIntStateOf(8) }
+    var top by remember { mutableIntStateOf((row - 2).coerceAtLeast(0)) }
+    fun keepRowVisible() {
+        val maxTop = (channels.size - rows).coerceAtLeast(0)
+        if (row < top) top = row
+        if (row >= top + rows) top = row - rows + 1
+        top = top.coerceIn(0, maxTop)
+    }
+    fun page(dir: Int) {
+        val maxTop = (channels.size - rows).coerceAtLeast(0)
+        val offset = row - top
+        top = (top + dir * rows).coerceIn(0, maxTop)
+        row = (top + offset).coerceIn(0, (channels.size - 1).coerceAtLeast(0))
+    }
     LaunchedEffect(Unit) {
-        listState.scrollToItem((row - 2).coerceAtLeast(0))
         while (true) {
             delay(30_000)
             now = nowSec()
@@ -107,14 +122,8 @@ fun GuideScreen(vm: AppViewModel) {
     }
     LaunchedEffect(windowStart) { vm.ensureGuide(windowStart - 3600, windowStart + 6 * 3600) }
     LaunchedEffect(detail, vm.menuOpen) { if (detail == null && !vm.menuOpen) focus.requestFocus() }
-    LaunchedEffect(row) {
-        val visible = listState.layoutInfo.visibleItemsInfo
-        if (visible.isEmpty()) return@LaunchedEffect
-        val first = visible.first().index
-        val last = visible.last().index
-        if (row <= first) listState.animateScrollToItem((row - 1).coerceAtLeast(0))
-        else if (row >= last) listState.animateScrollToItem((row - (last - first) + 2).coerceAtLeast(0))
-    }
+    LaunchedEffect(row, rows) { keepRowVisible() }
+    LaunchedEffect(top) { listState.scrollToItem(top) }
 
     BackHandler(enabled = detail == null) { vm.screen = Screen.Watch }
 
@@ -155,8 +164,8 @@ fun GuideScreen(vm: AppViewModel) {
                 when (ev.nativeKeyEvent.keyCode) {
                     KeyEvent.KEYCODE_DPAD_UP -> row = (row - 1).coerceAtLeast(0)
                     KeyEvent.KEYCODE_DPAD_DOWN -> row = (row + 1).coerceAtMost(channels.size - 1)
-                    KeyEvent.KEYCODE_CHANNEL_UP, KeyEvent.KEYCODE_PAGE_UP -> row = (row - PAGE).coerceAtLeast(0)
-                    KeyEvent.KEYCODE_CHANNEL_DOWN, KeyEvent.KEYCODE_PAGE_DOWN -> row = (row + PAGE).coerceAtMost(channels.size - 1)
+                    KeyEvent.KEYCODE_CHANNEL_UP, KeyEvent.KEYCODE_PAGE_UP -> page(-1)
+                    KeyEvent.KEYCODE_CHANNEL_DOWN, KeyEvent.KEYCODE_PAGE_DOWN -> page(1)
                     KeyEvent.KEYCODE_DPAD_RIGHT -> {
                         val next = if (selected != null) rowPrograms.firstOrNull { it.start >= selected.stop - 1 }
                         else rowPrograms.firstOrNull { it.start > anchor }
@@ -194,9 +203,13 @@ fun GuideScreen(vm: AppViewModel) {
             BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
                 val timeline = maxWidth - CHANNEL_COL - 8.dp
                 val dpPerSec = timeline.value / WINDOW
+                // Whole rows that fit under the time ruler: one page.
+                val fit = ((maxHeight - RULER_HEIGHT) / ROW_HEIGHT).toInt().coerceAtLeast(1)
+                LaunchedEffect(fit) { rows = fit }
                 Column {
                     TimeRuler(windowStart, timeline, dpPerSec, now)
-                    LazyColumn(state = listState) {
+                    // Scrolled only by the page logic above (no scrolling of its own), so pages stay exact.
+                    LazyColumn(state = listState, userScrollEnabled = false) {
                         itemsIndexed(channels, key = { _, c -> c.uuid }) { i, ch ->
                             GuideRow(
                                 vm = vm, channel = ch, isRow = i == row, selected = selected, gap = if (i == row) gap else null,
@@ -284,7 +297,7 @@ private fun GuideRow(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text(channel.number, color = Tv.accent, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(44.dp), maxLines = 1)
-            ChannelLogo(channel, vm.imageLoader, 30.dp)
+            ChannelLogo(channel, vm.imageLoader, 26.dp)
             Text(channel.name, color = Tv.text, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         Spacer(Modifier.width(8.dp))
@@ -345,16 +358,12 @@ private fun ProgramTile(p: Program, isSelected: Boolean, clippedStart: Boolean, 
             .then(if (isSelected) Modifier.border(2.dp, Tv.accent, RoundedCornerShape(6.dp)) else Modifier),
     ) {
         if (genre != null) Box(Modifier.fillMaxWidth().height(3.dp).background(genre.color))
-        Column(Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
+        // One line: the title (times are on the ruler above, and in the summary for the selected one).
+        Box(Modifier.fillMaxHeight().padding(horizontal = 8.dp), contentAlignment = Alignment.CenterStart) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (p.isScheduled) Box(Modifier.size(8.dp).background(Tv.rec, CircleShape))
                 Text((if (clippedStart) "‹ " else "") + p.title, color = if (isSelected) Color.Black else if (p.placeholder) Tv.muted else Tv.text,
                     fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-            if (width > 110.dp && p.placeholder) {
-                Text("No guide information", color = if (isSelected) Color(0xAA000000) else Tv.muted, fontSize = 12.sp, maxLines = 1)
-            } else if (width > 110.dp) {
-                Text(timeRange(context, p.start, p.stop), color = if (isSelected) Color(0xAA000000) else Tv.muted, fontSize = 12.sp, maxLines = 1)
             }
         }
     }
