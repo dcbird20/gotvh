@@ -33,7 +33,7 @@ jobs:
       - name: Build APK
         run: |
           set -o pipefail
-          ./gradlew assembleDebug testDebugUnitTest --no-daemon --stacktrace 2>&1 | tee build.log
+          ./gradlew assembleTvDebug assembleMobileDebug testTvDebugUnitTest --no-daemon --stacktrace 2>&1 | tee build.log
 
       # Compile errors as annotations, so they're readable from the run summary and the API.
       - name: Report compile errors
@@ -43,13 +43,17 @@ jobs:
             echo "::error title=Build::${line//%/%25}"
           done
 
-      - name: Name the APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk gotvh-tv.apk
+      - name: Name the APKs
+        run: |
+          cp app/build/outputs/apk/tv/debug/app-tv-debug.apk gotvh-tv.apk
+          cp app/build/outputs/apk/mobile/debug/app-mobile-debug.apk gotvh-mobile.apk
 
       - uses: actions/upload-artifact@v4
         with:
           name: gotvh-tv-apk
-          path: tv-android/gotvh-tv.apk
+          path: |
+            tv-android/gotvh-tv.apk
+            tv-android/gotvh-mobile.apk
 
       # A fixed download link for the newest build from main:
       # https://github.com/<owner>/<repo>/releases/download/tv-latest/gotvh-tv.apk
@@ -60,7 +64,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete tv-latest --cleanup-tag -y || true
-          gh release create tv-latest gotvh-tv.apk --prerelease \
-            --title "GoTVH TV – latest build (#${{ github.run_number }})" \
-            --notes "Built from ${{ github.sha }}. Sideload gotvh-tv.apk on Android TV / Google TV." \
+          gh release create tv-latest gotvh-tv.apk gotvh-mobile.apk --prerelease \
+            --title "GoTVH – latest build (#${{ github.run_number }})" \
+            --notes "Built from ${{ github.sha }}. gotvh-tv.apk: Android TV / Google TV. gotvh-mobile.apk: Android phones and tablets." \
             --target ${{ github.sha }}

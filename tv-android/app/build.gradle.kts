@@ -19,6 +19,21 @@ android {
         versionName = "0.1.$buildNumber"
     }
 
+    // One codebase, two apps sharing the Tvheadend / HTSP / player core (src/main):
+    //   tv     — the Google TV / Android TV app, driven by the remote (src/tv)
+    //   mobile — the phone and tablet app, touch (src/mobile)
+    flavorDimensions += "device"
+    productFlavors {
+        create("tv") {
+            dimension = "device"
+            applicationId = "io.gotvh.tv"
+        }
+        create("mobile") {
+            dimension = "device"
+            applicationId = "io.gotvh.mobile"
+        }
+    }
+
     signingConfigs {
         // A fixed key checked into the repo, so sideloaded builds can update each other.
         // Only for test builds; a store release would use a private key.
