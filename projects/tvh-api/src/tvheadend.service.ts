@@ -1640,6 +1640,17 @@ export class TvheadendService {
    * the browser wouldn't send the Authorization header, and Tvheadend answers 401. The playlist's
    * stream URL carries a one-off ticket, so the player itself needs no password.
    */
+  /** Like [channelPlaylistUrl], for a recording: an .m3u with a one-off ticket, for VLC and similar players. */
+  recordingPlaylistUrl(dvrUuid: string, title = ''): string {
+    const path = `play/ticket/dvrfile/${encodeURIComponent(dvrUuid)}${title ? `?title=${encodeURIComponent(title)}` : ''}`;
+    const root = this.apiBase.replace(/\/api\/?$/, '');
+    return new URL(`${root}/${path}`, window.location.origin).toString();
+  }
+
+  fetchRecordingPlaylist(dvrUuid: string, title = ''): Observable<string> {
+    return this.http.get(this.recordingPlaylistUrl(dvrUuid, title), { ...this.getRequestOptions(), responseType: 'text' });
+  }
+
   fetchChannelPlaylist(channelUuid: string, title = ''): Observable<string> {
     return this.http.get(this.channelPlaylistUrl(channelUuid, title), { ...this.getRequestOptions(), responseType: 'text' });
   }

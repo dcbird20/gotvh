@@ -26,6 +26,7 @@ import { IdnodeFormComponent } from '../../shared/idnode-form/idnode-form.compon
 import { AddRecordingData, AddRecordingDialogComponent, AddRecordingResult } from './add-recording-dialog.component';
 import { FailureExplanation, explainRecording } from './recording-status';
 import { SplitHandleDirective } from '../../shared/split-handle.directive';
+import { RecordingPlayerData, RecordingPlayerDialogComponent } from './recording-player-dialog.component';
 
 type RecordingView = 'upcoming' | 'finished' | 'failed';
 
@@ -101,7 +102,15 @@ type RecordingView = 'upcoming' | 'finished' | 'failed';
         <ng-container matColumnDef="title">
           <th mat-header-cell *matHeaderCellDef mat-sort-header>Title</th>
           <td mat-cell *matCellDef="let r">
-            <div class="title">{{ r.disp_title || r.title || '(untitled)' }}</div>
+            <div class="title">{{ r.disp_title || r.title || '(untitled)' }}
+              @if (view() === 'finished') {
+                @switch (watchState(r)) {
+                  @case ('new') { <span class="ws ws-new" matTooltip="Not watched yet">New</span> }
+                  @case ('progress') { <span class="ws ws-progress" [matTooltip]="'Stopped at ' + clock(r.playposition)">{{ minutesLeft(r) }} min left</span> }
+                  @case ('watched') { <span class="ws ws-watched" matTooltip="Watched (on any device)">✓ Watched</span> }
+                }
+              }
+            </div>
             @if (r.disp_subtitle) { <div class="muted small">{{ r.disp_subtitle }}</div> }
           </td>
         </ng-container>
@@ -184,6 +193,12 @@ type RecordingView = 'upcoming' | 'finished' | 'failed';
                 <button mat-stroked-button class="danger-text" (click)="cancelOne(r)">Cancel recording</button>
               }
               @if (view() !== 'upcoming' && r.filesize > 0) {
+                @if (watchState(r) === 'progress') {
+                  <button mat-flat-button (click)="play(r, false)"><mat-icon>play_arrow</mat-icon> Resume from {{ clock(r.playposition) }}</button>
+                  <button mat-stroked-button (click)="play(r, true)"><mat-icon>replay</mat-icon> From the start</button>
+                } @else {
+                  <button mat-flat-button (click)="play(r, true)"><mat-icon>play_arrow</mat-icon> Play</button>
+                }
                 <a mat-stroked-button [href]="downloadUrl(r)" target="_blank" rel="noopener"><mat-icon>download</mat-icon> Download</a>
               }
               @if (view() === 'failed') {
@@ -248,6 +263,10 @@ type RecordingView = 'upcoming' | 'finished' | 'failed';
     .col-select { width: 48px; padding-right: 0 !important; }
     td.col-select { cursor: pointer; }
     .display-only { pointer-events: none; }
+    .ws { display: inline-block; margin-left: 8px; padding: 1px 7px; border-radius: 10px; font-size: 11px; font-weight: 500; vertical-align: 1px; }
+    .ws-new { background: var(--mat-sys-primary-container); color: var(--mat-sys-on-primary-container); }
+    .ws-progress { background: var(--mat-sys-tertiary-container); color: var(--mat-sys-on-tertiary-container); }
+    .ws-watched { color: var(--mat-sys-on-surface-variant); }
     tr.clickable { cursor: pointer; }
     tr.clickable:hover td { background: var(--mat-sys-surface-container-low); }
     tr.clickable:focus-visible { outline: 2px solid var(--mat-sys-primary); outline-offset: -2px; }
@@ -354,6 +373,39 @@ export class RecordingsComponent implements OnInit, AfterViewInit {
   formatTime(seconds: number | undefined): string {
     if (!seconds) return '—';
     return new Date(seconds * 1000).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  }
+
+  /**
+   * Watched state from Tvheadend (shared with the TV app and Kodi): in progress if there's a resume
+   * point, watched if played to the end, else new.
+   */
+  watchState(r: any): 'new' | 'progress' | 'watched' {
+    if (Number(r?.playposition) > 0) return 'progress';
+    return Number(r?.playcount) > 0 ? 'watched' : 'new';
+  }
+
+  minutesLeft(r: any): number {
+    const total = Number(r?.duration) || Math.max(0, (Number(r?.stop) || 0) - (Number(r?.start) || 0));
+    return Math.max(1, Math.ceil((total - (Number(r?.playposition) || 0)) / 60));
+  }
+
+  clock(seconds: number): string {
+    const s = Math.max(0, Math.floor(Number(seconds) || 0));
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+    return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}` : `${m}:${String(sec).padStart(2, '0')}`;
+  }
+
+  /** Play in the browser; afterwards the list shows where you stopped (saved in Tvheadend). */
+  play(r: any, fromStart: boolean): void {
+    const data: RecordingPlayerData = {
+      uuid: String(r.uuid),
+      title: r.disp_title || r.title || 'Recording',
+      subtitle: r.disp_subtitle || '',
+      playcount: Number(r.playcount) || 0,
+      startSeconds: fromStart ? 0 : Number(r.playposition) || 0,
+    };
+    this.dialog.open(RecordingPlayerDialogComponent, { data, width: '960px', maxWidth: '96vw', autoFocus: false })
+      .afterClosed().subscribe(() => setTimeout(() => this.load(), 600));
   }
 
   downloadUrl(r: any): string {
