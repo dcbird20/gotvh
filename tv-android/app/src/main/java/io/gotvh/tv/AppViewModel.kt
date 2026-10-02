@@ -381,11 +381,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var searching by mutableStateOf(false)
         private set
-    /** Also search descriptions (remembered). Off: titles only, which keeps common words manageable. */
+    /** Also search descriptions (remembered; on by default). Off: titles only, to narrow common words. */
     var searchDescriptions by mutableStateOf(settings.searchDescriptions)
         private set
 
-    fun setSearchDescriptions(on: Boolean) {
+    fun toggleSearchDescriptions() {
+        val on = !searchDescriptions
         searchDescriptions = on
         settings.searchDescriptions = on
         search(searchQuery)
@@ -415,6 +416,21 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 searching = false
             }
         }
+    }
+
+    /**
+     * Where the search text appears outside the title, as a short snippet ("…hosts Penn State in a
+     * Big Ten…"), so a result like "College Football" shows why it matched. Null when the title matches.
+     */
+    fun matchSnippet(title: String, subtitle: String, description: String): String? {
+        val q = searchQuery.trim()
+        if (q.length < 2 || title.contains(q, ignoreCase = true)) return null
+        if (subtitle.contains(q, ignoreCase = true)) return subtitle
+        val i = description.indexOf(q, ignoreCase = true)
+        if (i < 0) return null
+        val from = (i - 40).coerceAtLeast(0)
+        val to = (i + q.length + 60).coerceAtMost(description.length)
+        return (if (from > 0) "…" else "") + description.substring(from, to).replace('\n', ' ').trim() + (if (to < description.length) "…" else "")
     }
 
     /** Recordings (finished or in progress) whose title or subtitle matches the search. */

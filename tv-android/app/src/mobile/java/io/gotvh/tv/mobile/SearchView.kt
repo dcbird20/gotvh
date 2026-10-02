@@ -86,7 +86,7 @@ fun SearchView(vm: AppViewModel, onClose: () -> Unit, onWatch: () -> Unit) {
         }
         FilterChip(
             selected = vm.searchDescriptions,
-            onClick = { vm.setSearchDescriptions(!vm.searchDescriptions) },
+            onClick = { vm.toggleSearchDescriptions() },
             label = { Text("Include descriptions") },
             modifier = Modifier.padding(start = 16.dp, top = 4.dp),
         )
@@ -143,6 +143,9 @@ fun SearchView(vm: AppViewModel, onClose: () -> Unit, onWatch: () -> Unit) {
                                 ).joinToString(" · "),
                                 color = Tv.muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                             )
+                            vm.matchSnippet(p.title, p.subtitle, p.description)?.let {
+                                Text(it, color = Tv.accent, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            }
                         }
                     }
                 }

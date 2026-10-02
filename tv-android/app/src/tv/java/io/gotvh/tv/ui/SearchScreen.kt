@@ -134,7 +134,7 @@ fun SearchScreen(vm: AppViewModel) {
                                 else -> false
                             }
                         },
-                ) { vm.setSearchDescriptions(!vm.searchDescriptions) }
+                ) { vm.toggleSearchDescriptions() }
                 Text(if (vm.searchDescriptions) "Searching titles and descriptions" else "Searching titles", color = Tv.muted, fontSize = 14.sp)
             }
             Spacer(Modifier.height(10.dp))
@@ -198,6 +198,9 @@ fun SearchScreen(vm: AppViewModel) {
                                         if (h.p.isScheduled) "will record" else null).joinToString(" · "),
                                     color = sub, fontSize = 14.sp, maxLines = 1,
                                 )
+                                vm.matchSnippet(h.p.title, h.p.subtitle, h.p.description)?.let {
+                                    Text(it, color = if (sel) Color(0xCC000000) else Tv.accent, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
                             }
                         }
                     }

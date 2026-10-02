@@ -24,9 +24,9 @@ class Settings(context: Context) {
         set(value) = prefs.edit().putString("lastChannel", value).apply()
 
     /** Tvheadend stream profile tried first ("pass" = the broadcast as-is). */
-    /** Search also looks in programme descriptions (off: titles only). */
+    /** Search also looks in programme descriptions (on by default: teams, actors are often only there). */
     var searchDescriptions: Boolean
-        get() = prefs.getBoolean("searchDescriptions", false)
+        get() = prefs.getBoolean("searchDescriptions", true)
         set(value) = prefs.edit().putBoolean("searchDescriptions", value).apply()
 
     var profile: String

@@ -33,9 +33,10 @@ sign-in both work.
 
 ## Search
 
-Menu → Search (TV) or the 🔍 in the phone app's top bar: searches the guide's titles, and your
-recordings, as you type. Switch on **Include descriptions** (remembered) to search episode names and
-descriptions too. On the TV, OK on the box opens the keyboard (its microphone works too); Down reaches
+Menu → Search (TV) or the 🔍 in the phone app's top bar: searches the guide and your recordings as
+you type — titles, episode names and descriptions (a game titled "College Football" is found by
+"Penn State"; the matching words show under it). Switch off **Include descriptions** (remembered) to
+search titles only. On the TV, OK on the box opens the keyboard (its microphone works too); Down reaches
 the switch, then the results. OK on a result opens its card.
 
 ## Pausing live TV
