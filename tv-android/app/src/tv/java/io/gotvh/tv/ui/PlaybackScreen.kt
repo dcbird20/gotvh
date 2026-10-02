@@ -50,6 +50,7 @@ private const val FORWARD_MS = 30_000L
  */
 @Composable
 fun PlaybackScreen(vm: AppViewModel) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val r = vm.playing ?: return
     val exo = vm.player.exo
     val focus = remember { FocusRequester() }
@@ -60,6 +61,8 @@ fun PlaybackScreen(vm: AppViewModel) {
     var clockNow by remember { mutableLongStateOf(System.currentTimeMillis()) }
     /** Selected bar button (0 Guide, 1 Channels, 2 Recordings, 3 Search, 4 Restart), or null. */
     var button by remember { mutableStateOf<Int?>(null) }
+    /** The full description and details, over the picture (Up or Info; Up / Back / Info again closes). */
+    var info by remember { mutableStateOf(false) }
     val labels = COMMON_BUTTONS + "⏮  Restart"
 
     fun show() {
@@ -114,6 +117,7 @@ fun PlaybackScreen(vm: AppViewModel) {
     // Back: off the buttons, then hide the bar, then leave (never just stops).
     BackHandler {
         when {
+            info -> info = false
             button != null -> { button = null; show() }
             visible -> { overlayUntil = 0; clockNow = System.currentTimeMillis() }
             else -> vm.leavePlayback()
@@ -147,11 +151,12 @@ fun PlaybackScreen(vm: AppViewModel) {
                         ok -> act(b)
                         else -> return@onPreviewKeyEvent false
                     }
+                    ok && info -> info = false
                     ok -> togglePause()
                     k == KeyEvent.KEYCODE_DPAD_LEFT -> seek(-BACK_MS)
                     k == KeyEvent.KEYCODE_DPAD_RIGHT -> seek(FORWARD_MS)
                     k == KeyEvent.KEYCODE_DPAD_DOWN -> { button = 0; show() }
-                    k == KeyEvent.KEYCODE_DPAD_UP || k == KeyEvent.KEYCODE_INFO -> show()
+                    k == KeyEvent.KEYCODE_DPAD_UP || k == KeyEvent.KEYCODE_INFO -> { info = !info; show() }
                     else -> return@onPreviewKeyEvent false
                 }
                 true
@@ -161,6 +166,24 @@ fun PlaybackScreen(vm: AppViewModel) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(msg, color = Tv.text, fontSize = 20.sp,
                     modifier = Modifier.background(Tv.panel, RoundedCornerShape(12.dp)).padding(horizontal = 26.dp, vertical = 16.dp))
+            }
+        }
+        if (info) {
+            Box(Modifier.fillMaxSize().padding(start = 48.dp, end = 48.dp, top = 36.dp), contentAlignment = Alignment.TopStart) {
+                Column(
+                    Modifier.fillMaxWidth(0.62f).background(Tv.panel, RoundedCornerShape(14.dp)).padding(24.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(r.title, color = Tv.text, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                    if (r.subtitle.isNotBlank()) Text(r.subtitle, color = Tv.text, fontSize = 18.sp)
+                    Text(
+                        listOfNotNull("${dayLabel(r.start)} ${timeRange(context, r.start, r.stop)}", r.channelName.ifBlank { null },
+                            "${r.durationSec / 60} min", if (vm.player.growing) "● still recording" else null).joinToString("  ·  "),
+                        color = Tv.muted, fontSize = 15.sp,
+                    )
+                    Text(r.description.ifBlank { "No description in the guide." }, color = Tv.text, fontSize = 17.sp, maxLines = 14, overflow = TextOverflow.Ellipsis)
+                    Text("▲ / Back / OK closes", color = Tv.muted, fontSize = 13.sp)
+                }
             }
         }
         if (!visible && paused) {
@@ -185,9 +208,12 @@ fun PlaybackScreen(vm: AppViewModel) {
                         if (vm.player.growing) Text("● Still recording", color = Tv.rec, fontSize = 16.sp)
                         Spacer(Modifier.weight(1f))
                         Text(
-                            if (button != null) "◀ ▶ choose · OK open · ▲ back" else "OK ${if (paused) "play" else "pause"} · ◀ −10 s · +30 s ▶ · ▼ more",
+                            if (button != null) "◀ ▶ choose · OK open · ▲ back" else "OK ${if (paused) "play" else "pause"} · ◀ −10 s · +30 s ▶ · ▼ buttons · ▲ info",
                             color = Tv.muted, fontSize = 14.sp,
                         )
+                    }
+                    if (r.description.isNotBlank() && !info) {
+                        Text(r.description, color = Tv.muted, fontSize = 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
                     val f = if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
                     Box(Modifier.fillMaxWidth().height(6.dp).background(Color(0x33FFFFFF), RoundedCornerShape(3.dp))) {

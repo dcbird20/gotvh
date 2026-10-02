@@ -80,7 +80,10 @@ fun MainMenu(vm: AppViewModel) {
             Modifier.fillMaxHeight().width(380.dp).background(Tv.panelSolid).padding(vertical = 40.dp, horizontal = 20.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Text("GoTVH", color = Tv.accent, fontSize = 28.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 14.dp, bottom = 18.dp))
+            Text("GoTVH", color = Tv.accent, fontSize = 28.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 14.dp))
+            // Which build is installed (the number in the release name), to tell an old install from a new one.
+            val version = remember { runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "" }
+            Text("Build ${version.substringAfterLast('.')}", color = Tv.muted, fontSize = 14.sp, modifier = Modifier.padding(start = 14.dp, bottom = 18.dp))
             ITEMS.forEachIndexed { i, (label, _) ->
                 val sel = i == index
                 Text(
