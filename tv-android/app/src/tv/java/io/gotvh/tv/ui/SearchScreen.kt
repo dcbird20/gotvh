@@ -67,26 +67,22 @@ fun SearchScreen(vm: AppViewModel) {
     var inList by remember { mutableStateOf(false) }
     var index by remember { mutableIntStateOf(0) }
     var detail by remember { mutableStateOf<Program?>(null) }
+    var recording by remember { mutableStateOf<Recording?>(null) }
     val now = nowSec()
 
     val hits: List<Hit> = vm.searchRecordings().take(20).map { Hit.Rec(it) } + vm.searchResults.map { Hit.Prog(it) }
     LaunchedEffect(hits.size) { index = index.coerceIn(0, (hits.size - 1).coerceAtLeast(0)) }
     LaunchedEffect(Unit) { field.requestFocus() }
-    LaunchedEffect(detail) { if (detail == null && inList) list.requestFocus() }
+    LaunchedEffect(detail, recording) { if (detail == null && recording == null && inList) list.requestFocus() }
 
-    BackHandler(enabled = detail == null) { if (inList) field.requestFocus() else vm.backToVideo() }
+    BackHandler(enabled = detail == null && recording == null) { if (inList) field.requestFocus() else vm.backToVideo() }
 
     fun open(hit: Hit) {
         when (hit) {
-            is Hit.Rec -> vm.playRecording(hit.r, fromStart = !hit.r.inProgress)
+            is Hit.Rec -> recording = hit.r
             is Hit.Prog -> {
                 val p = hit.p
-                if (p.isAiring(nowSec())) {
-                    vm.tuneUuid(p.channelUuid)
-                    vm.screen = io.gotvh.tv.Screen.Watch
-                } else {
-                    detail = p
-                }
+                detail = p // the card: Watch first if it's on now, else Record
             }
         }
     }
@@ -96,7 +92,7 @@ fun SearchScreen(vm: AppViewModel) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Search", color = Tv.text, fontSize = 26.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.weight(1f))
-                Text("OK on the box to type · ▼ results · OK watch / record · Back TV", color = Tv.muted, fontSize = 13.sp)
+                Text("OK on the box to type · ▼ results · OK details · Back", color = Tv.muted, fontSize = 13.sp)
             }
             Spacer(Modifier.height(12.dp))
             OutlinedTextField(
@@ -142,7 +138,7 @@ fun SearchScreen(vm: AppViewModel) {
                     .onFocusChanged { inList = it.isFocused }
                     .focusable()
                     .onPreviewKeyEvent { ev ->
-                        if (detail != null) return@onPreviewKeyEvent false
+                        if (detail != null || recording != null) return@onPreviewKeyEvent false
                         if (isHeldOk(ev)) return@onPreviewKeyEvent true
                         if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                         when (ev.nativeKeyEvent.keyCode) {
@@ -150,7 +146,6 @@ fun SearchScreen(vm: AppViewModel) {
                             KeyEvent.KEYCODE_DPAD_DOWN -> index = (index + 1).coerceAtMost((hits.size - 1).coerceAtLeast(0))
                             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER ->
                                 hits.getOrNull(index)?.let { open(it) }
-                            KeyEvent.KEYCODE_DPAD_RIGHT -> (hits.getOrNull(index) as? Hit.Prog)?.let { detail = it.p }
                             else -> return@onPreviewKeyEvent false
                         }
                         true
@@ -190,6 +185,7 @@ fun SearchScreen(vm: AppViewModel) {
                 }
             }
         }
+        recording?.let { r -> RecordingCard(vm, r, onClose = { recording = null }) }
         detail?.let { p ->
             ProgramDetails(vm, p, onClose = { detail = null }, onWatch = {
                 detail = null

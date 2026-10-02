@@ -71,8 +71,7 @@ private fun alignDown(sec: Long) = sec - Math.floorMod(sec, STEP)
  * point in time, so Up/Down stay at the same time of day, like a paper guide.
  *  Left/Right previous/next programme (the window scrolls at the edges) · Up/Down channel ·
  *  Ch+/Ch− a page of channels · ⏪/⏩ two hours · Menu · Back TV.
- *  OK: a programme on now → watch it; a later one → its details (Record…). Hold OK (or ▶ for watch):
- *  details for any programme — description, Watch, Record, Record series.
+ *  OK: the programme's card (description; Watch first if it's on now, else Record) · ▶ watch the channel.
  */
 @Composable
 fun GuideScreen(vm: AppViewModel) {
@@ -86,7 +85,6 @@ fun GuideScreen(vm: AppViewModel) {
     var windowStart by remember { mutableLongStateOf(alignDown(nowSec())) }
     var anchor by remember { mutableLongStateOf(nowSec()) }
     var detail by remember { mutableStateOf<Program?>(null) }
-    val okPress = remember { OkPress() }
     val windowEnd = windowStart + WINDOW
 
     val channel: Channel? = channels.getOrNull(row)
@@ -148,19 +146,7 @@ fun GuideScreen(vm: AppViewModel) {
             .focusable()
             .onPreviewKeyEvent { ev ->
                 if (detail != null || channels.isEmpty()) return@onPreviewKeyEvent false
-                // OK: watch what's on now / details of a later programme. Hold OK: details (info, record…).
-                if (okPress.handle(
-                        ev,
-                        onShort = {
-                            when {
-                                selected == null || selected.placeholder -> watch(row)
-                                selected.isAiring(nowSec()) -> watch(row)
-                                else -> detail = selected
-                            }
-                        },
-                        onLong = { if (selected != null && !selected.placeholder) detail = selected },
-                    )
-                ) return@onPreviewKeyEvent true
+                if (isHeldOk(ev)) return@onPreviewKeyEvent true
                 if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (ev.nativeKeyEvent.keyCode) {
                     KeyEvent.KEYCODE_DPAD_UP -> row = (row - 1).coerceAtLeast(0)
@@ -182,6 +168,9 @@ fun GuideScreen(vm: AppViewModel) {
                     }
                     KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> moveTo(anchor + WINDOW)
                     KeyEvent.KEYCODE_MEDIA_REWIND -> moveTo(anchor - WINDOW)
+                    // OK: the programme's card (Watch first if it's on now). Empty time: watch the channel.
+                    KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER ->
+                        if (selected != null) detail = selected else watch(row)
                     KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> watch(row)
                     KeyEvent.KEYCODE_GUIDE -> vm.backToVideo()
                     KeyEvent.KEYCODE_MENU -> vm.menuOpen = true
@@ -196,7 +185,7 @@ fun GuideScreen(vm: AppViewModel) {
                 Spacer(Modifier.width(18.dp))
                 Text(dayLabel(windowStart), color = Tv.accent, fontSize = 20.sp)
                 Spacer(Modifier.weight(1f))
-                Text("OK watch · hold OK info & record · ⏪⏩ 2 hours · Back TV", color = Tv.muted, fontSize = 13.sp)
+                Text("OK details · ▶ watch · ⏪⏩ 2 hours · Back TV", color = Tv.muted, fontSize = 13.sp)
             }
             Spacer(Modifier.height(10.dp))
             ProgramSummary(selected, channel, isNow = anchor <= now + 60)
@@ -370,45 +359,7 @@ private fun ProgramTile(p: Program, isSelected: Boolean, clippedStart: Boolean, 
     }
 }
 
-/** Details over the guide: Watch, Record / Cancel, Record series. */
+/** A programme's card (kept under this name for the screens that use it). */
 @Composable
-internal fun ProgramDetails(vm: AppViewModel, p: Program, onClose: () -> Unit, onWatch: () -> Unit) {
-    val context = LocalContext.current
-    val first = remember { FocusRequester() }
-    val nowS = nowSec()
-    val channel = vm.channels.firstOrNull { it.uuid == p.channelUuid }
-    LaunchedEffect(p.eventId) { first.requestFocus() }
-    BackHandler { onClose() }
-    Box(Modifier.fillMaxSize().background(Color(0xAA000000)), contentAlignment = Alignment.Center) {
-        Column(
-            Modifier
-                .width(760.dp)
-                .background(Tv.panelSolid, RoundedCornerShape(14.dp))
-                .padding(30.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Text(p.title, color = Tv.text, fontSize = 28.sp, fontWeight = FontWeight.Bold)
-            if (p.subtitle.isNotBlank()) Text(p.subtitle, color = Tv.muted, fontSize = 18.sp)
-            Text(
-                listOfNotNull(dayLabel(p.start) + " " + timeRange(context, p.start, p.stop), channel?.label, Genre.of(p)?.label).joinToString("  ·  "),
-                color = Tv.muted, fontSize = 16.sp,
-            )
-            when {
-                p.isRecordingNow -> Text("● Recording now", color = Tv.rec, fontSize = 16.sp)
-                p.isScheduled -> Text("● Will be recorded", color = Tv.rec, fontSize = 16.sp)
-            }
-            if (p.description.isNotBlank()) Text(p.description, color = Tv.text, fontSize = 17.sp, maxLines = 7, overflow = TextOverflow.Ellipsis)
-            Spacer(Modifier.height(6.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                TvButton(if (p.isAiring(nowS)) "Watch now" else "Watch channel", Modifier.focusRequester(first)) { onWatch() }
-                if (p.isScheduled) {
-                    TvButton(if (p.isRecordingNow) "Stop recording" else "Don’t record") { vm.cancelRecording(p); onClose() }
-                } else if (p.stop > nowS) {
-                    TvButton("Record") { vm.record(p); onClose() }
-                    if (p.seriesLink.isNotBlank()) TvButton("Record series") { vm.record(p, series = true); onClose() }
-                }
-                TvButton("Close") { onClose() }
-            }
-        }
-    }
-}
+internal fun ProgramDetails(vm: AppViewModel, p: Program, onClose: () -> Unit, onWatch: () -> Unit) =
+    ProgramCard(vm, p, onClose, onWatch)

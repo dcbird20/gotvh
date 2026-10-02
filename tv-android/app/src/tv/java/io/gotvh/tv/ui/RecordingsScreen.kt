@@ -56,7 +56,7 @@ private const val CONTINUE = "\u0000continue"
  * Recordings, full width. "Recorded" lists shows (Continue watching first, then shows with something
  * new or unfinished); OK on a show lists its recordings. Each recording is New (dot), In progress
  * (bar, time left) or Watched (✓, dimmed): kept in Tvheadend, so every TV and Kodi agree.
- *  Up/Down move · OK play (resumes where you stopped) · Right options · Left/Back up a level · Menu.
+ *  Up/Down move · OK: a show's recordings, or a recording's card (Resume / Play first) · Left/Back up a level.
  */
 @Composable
 fun RecordingsScreen(vm: AppViewModel) {
@@ -141,7 +141,7 @@ fun RecordingsScreen(vm: AppViewModel) {
                             k == KeyEvent.KEYCODE_DPAD_UP -> if (showIndex == 0) level = Level.Tabs else showIndex--
                             k == KeyEvent.KEYCODE_DPAD_DOWN -> showIndex = (showIndex + 1).coerceAtMost((groups.size - 1).coerceAtLeast(0))
                             g == null -> return@onPreviewKeyEvent false
-                            ok -> if (single) play(g.items[0]) else openGroup(g)
+                            ok -> if (single) action = g.items[0] else openGroup(g)
                             k == KeyEvent.KEYCODE_DPAD_RIGHT -> if (single) action = g.items[0] else openGroup(g)
                             else -> return@onPreviewKeyEvent false
                         }
@@ -150,7 +150,7 @@ fun RecordingsScreen(vm: AppViewModel) {
                         k == KeyEvent.KEYCODE_DPAD_UP -> epIndex = (epIndex - 1).coerceAtLeast(0)
                         k == KeyEvent.KEYCODE_DPAD_DOWN -> epIndex = (epIndex + 1).coerceAtMost((episodes.size - 1).coerceAtLeast(0))
                         k == KeyEvent.KEYCODE_DPAD_LEFT -> closeGroup()
-                        ok -> episodes.getOrNull(epIndex)?.let { play(it) }
+                        ok -> episodes.getOrNull(epIndex)?.let { action = it }
                         k == KeyEvent.KEYCODE_DPAD_RIGHT -> episodes.getOrNull(epIndex)?.let { action = it }
                         else -> return@onPreviewKeyEvent false
                     }
@@ -184,8 +184,8 @@ fun RecordingsScreen(vm: AppViewModel) {
                 Text(
                     when {
                         tab == 1 && level != Level.Episodes -> "OK options · Back TV"
-                        level == Level.Episodes -> "OK play · → options · ← shows"
-                        else -> "OK open / play · → options · Back TV"
+                        level == Level.Episodes -> "OK details · ← shows"
+                        else -> "OK open · Back TV"
                     },
                     color = Tv.muted, fontSize = 13.sp,
                 )
@@ -229,38 +229,7 @@ fun RecordingsScreen(vm: AppViewModel) {
             }
         }
 
-        action?.let { r ->
-            val finished = vm.recorded.any { it.uuid == r.uuid }
-            val lines = listOf("${dayLabel(r.start)} ${timeRange(context, r.start, r.stop)} · ${r.channelName}", r.subtitle, r.description)
-            val actions = buildList<Pair<String, () -> Unit>> {
-                if (finished) {
-                    if (r.inProgress) {
-                        add("Resume from ${clock(vm.resumeMs(r))}" to { action = null; vm.playRecording(r, fromStart = false) })
-                        add("Play from start" to { action = null; vm.playRecording(r, fromStart = true) })
-                    } else {
-                        add("Play" to { action = null; vm.playRecording(r, fromStart = true) })
-                    }
-                    if (!r.isWatched) add("Mark watched" to { action = null; vm.markWatched(r, true) })
-                    else add("Mark unwatched" to { action = null; vm.markWatched(r, false) })
-                    if (r.isRecordingNow) add("Stop recording" to { action = null; vm.cancelUpcoming(r) })
-                    else add("Delete" to { action = null; confirmDelete = r })
-                } else {
-                    // Still being recorded: watch it from the start while it records.
-                    if (r.isRecordingNow) add("Watch from start" to { action = null; vm.playRecording(r, fromStart = true) })
-                    add((if (r.isRecordingNow) "Stop recording" else "Don’t record") to { action = null; vm.cancelUpcoming(r) })
-                }
-                add("Close" to { action = null })
-            }
-            ActionDialog(r.title, lines, actions, onClose = { action = null })
-        }
-        confirmDelete?.let { r ->
-            ActionDialog(
-                "Delete “${r.title}”?",
-                listOf("The recording and its file are removed from Tvheadend. This can’t be undone."),
-                listOf("Cancel" to { confirmDelete = null }, "Delete" to { confirmDelete = null; vm.deleteRecording(r) }),
-                onClose = { confirmDelete = null },
-            )
-        }
+        action?.let { r -> RecordingCard(vm, r, onClose = { action = null }) }
     }
 }
 
