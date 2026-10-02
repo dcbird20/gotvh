@@ -117,9 +117,32 @@ class TvhClient(server: String, val username: String, val password: String) {
         ).optJSONArray("entries") ?: JSONArray()
         val out = HashMap<String, MutableList<Program>>()
         for (i in 0 until entries.length()) {
-            val o = entries.getJSONObject(i)
+            val p = parseProgram(entries.getJSONObject(i))
+            if (p.channelUuid.isNotEmpty() && p.stop > p.start) out.getOrPut(p.channelUuid) { mutableListOf() } += p
+        }
+        return out.mapValues { (_, list) -> list.sortedBy { it.start } }
+    }
+
+    /**
+     * Programmes whose title matches [query] (and, with [fulltext], whose subtitle or description
+     * does), on now or later, soonest first. Tvheadend searches its whole guide.
+     */
+    suspend fun search(query: String, fulltext: Boolean = true, limit: Int = 300): List<Program> {
+        val q = query.trim()
+        if (q.isEmpty()) return emptyList()
+        // Tvheadend treats the text as a (case-insensitive) regular expression: match it literally.
+        val special = ".^$*+?()[]{}|\\"
+        val literal = buildString { q.forEach { c -> if (c in special) append('\\'); append(c) } }
+        val params = mutableMapOf("title" to literal, "start" to "0", "limit" to limit.toString(), "sort" to "start", "dir" to "ASC")
+        if (fulltext) params["fulltext"] = "1"
+        val entries = get("epg/events/grid", params).optJSONArray("entries") ?: JSONArray()
+        return List(entries.length()) { parseProgram(entries.getJSONObject(it)) }
+            .filter { it.channelUuid.isNotEmpty() && it.stop > it.start }
+    }
+
+    private fun parseProgram(o: JSONObject): Program {
             val genres = o.optJSONArray("genre")
-            val p = Program(
+            return Program(
                 eventId = o.optLong("eventId"),
                 channelUuid = o.optString("channelUuid"),
                 start = o.optLong("start"),
@@ -132,9 +155,6 @@ class TvhClient(server: String, val username: String, val password: String) {
                 dvrUuid = o.optString("dvrUuid"),
                 seriesLink = o.optString("serieslinkUri"),
             )
-            if (p.channelUuid.isNotEmpty() && p.stop > p.start) out.getOrPut(p.channelUuid) { mutableListOf() } += p
-        }
-        return out.mapValues { (_, list) -> list.sortedBy { it.start } }
     }
 
     /** Stream profile names the server offers ("pass", "webtv-h264-aac-mpegts", …). */

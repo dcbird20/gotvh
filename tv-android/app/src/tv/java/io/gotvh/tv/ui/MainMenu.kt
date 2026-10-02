@@ -38,6 +38,7 @@ import io.gotvh.tv.Screen
 private val ITEMS: List<Pair<String, Screen?>> = listOf(
     "Live TV" to Screen.Watch,
     "Guide" to Screen.Guide,
+    "Search" to Screen.Search,
     "Recordings" to Screen.Recordings,
     "Auto-record rules" to Screen.Rules,
     "Settings" to Screen.Setup,

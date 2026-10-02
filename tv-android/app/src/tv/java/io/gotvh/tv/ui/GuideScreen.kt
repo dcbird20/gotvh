@@ -362,7 +362,7 @@ private fun ProgramTile(p: Program, isSelected: Boolean, clippedStart: Boolean, 
 
 /** Details over the guide: Watch, Record / Cancel, Record series. */
 @Composable
-private fun ProgramDetails(vm: AppViewModel, p: Program, onClose: () -> Unit, onWatch: () -> Unit) {
+internal fun ProgramDetails(vm: AppViewModel, p: Program, onClose: () -> Unit, onWatch: () -> Unit) {
     val context = LocalContext.current
     val first = remember { FocusRequester() }
     val nowS = nowSec()

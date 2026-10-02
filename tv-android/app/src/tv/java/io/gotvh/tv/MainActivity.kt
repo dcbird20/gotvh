@@ -29,6 +29,7 @@ import io.gotvh.tv.ui.MainMenu
 import io.gotvh.tv.ui.PlaybackScreen
 import io.gotvh.tv.ui.RecordingsScreen
 import io.gotvh.tv.ui.RulesScreen
+import io.gotvh.tv.ui.SearchScreen
 import io.gotvh.tv.ui.SetupScreen
 import io.gotvh.tv.ui.Tv
 import io.gotvh.tv.ui.WatchScreen
@@ -72,6 +73,7 @@ fun GoTvhApp(vm: AppViewModel) {
             Screen.Recordings -> RecordingsScreen(vm)
             Screen.Rules -> RulesScreen(vm)
             Screen.Playback -> PlaybackScreen(vm)
+            Screen.Search -> SearchScreen(vm)
         }
         if (vm.menuOpen) MainMenu(vm)
         Notice(vm)

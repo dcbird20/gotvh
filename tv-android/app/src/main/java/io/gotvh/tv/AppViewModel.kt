@@ -20,7 +20,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.IOException
 
-enum class Screen { Setup, Watch, Guide, Recordings, Rules, Playback }
+enum class Screen { Setup, Watch, Guide, Recordings, Rules, Playback, Search }
 
 fun nowSec(): Long = System.currentTimeMillis() / 1000
 
@@ -201,6 +201,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 screen = Screen.Rules
                 loadRules()
             }
+            Screen.Search -> {
+                screen = Screen.Search
+                loadRecordings() // recordings are searched too
+            }
             else -> screen = target
         }
     }
@@ -340,6 +344,50 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun channelName(uuid: String): String? = channels.firstOrNull { it.uuid == uuid }?.label
 
+    // ------------------------------------------------------------------ search
+
+    /** What's being searched for (title, subtitle or description). */
+    var searchQuery by mutableStateOf("")
+        private set
+    /** Programmes in the guide that match, soonest first. */
+    var searchResults by mutableStateOf<List<Program>>(emptyList())
+        private set
+    var searching by mutableStateOf(false)
+        private set
+    private var searchJob: kotlinx.coroutines.Job? = null
+
+    /** Search the guide as you type (waits for a pause in typing). */
+    fun search(query: String) {
+        searchQuery = query
+        searchJob?.cancel()
+        val c = client ?: return
+        if (query.trim().length < 2) {
+            searchResults = emptyList()
+            searching = false
+            return
+        }
+        searchJob = viewModelScope.launch {
+            delay(350)
+            searching = true
+            try {
+                searchResults = c.search(query)
+            } catch (e: TvhException) {
+                notice = e.message
+            } catch (e: IOException) {
+                notice = "Couldn't reach Tvheadend."
+            } finally {
+                searching = false
+            }
+        }
+    }
+
+    /** Recordings (finished or in progress) whose title or subtitle matches the search. */
+    fun searchRecordings(): List<Recording> {
+        val q = searchQuery.trim()
+        if (q.length < 2) return emptyList()
+        return recorded.filter { it.title.contains(q, ignoreCase = true) || it.subtitle.contains(q, ignoreCase = true) }
+    }
+
     // ------------------------------------------------------------------ guide
 
     /**
@@ -439,6 +487,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 if (reloadRecordings) loadRecordings()
                 if (reloadRules) loadRules()
                 refreshGuide()
+                // Search results show what's set to record: refresh them too.
+                if (searchQuery.trim().length >= 2) runCatching { searchResults = c.search(searchQuery) }
             } catch (e: TvhException) {
                 notice = e.message
             } catch (e: IOException) {

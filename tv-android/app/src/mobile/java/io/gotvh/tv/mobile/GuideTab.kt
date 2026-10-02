@@ -148,7 +148,7 @@ fun GuideTab(vm: AppViewModel, onWatch: () -> Unit) {
 /** A programme's details, what it can do, and what's on the channel after it. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ProgramSheet(vm: AppViewModel, ch: Channel, p: Program, onPick: (Program) -> Unit, onWatch: () -> Unit, onDone: () -> Unit) {
+internal fun ProgramSheet(vm: AppViewModel, ch: Channel, p: Program, onPick: (Program) -> Unit, onWatch: () -> Unit, onDone: () -> Unit) {
     val context = LocalContext.current
     val now = nowSec()
     Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {

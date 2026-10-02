@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -71,6 +72,7 @@ fun MobileApp(vm: AppViewModel) {
         ),
     ) {
         var tab by rememberSaveable { mutableStateOf(Tab.Live) }
+        var searchOpen by rememberSaveable { mutableStateOf(false) }
         val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
 
         // Keep the view model's idea of the screen in step: it decides what resumes after the app returns.
@@ -96,13 +98,21 @@ fun MobileApp(vm: AppViewModel) {
             }
         }
 
-        val fullScreenVideo = (vm.screen == Screen.Playback) || (landscape && tab == Tab.Live && vm.screen != Screen.Setup)
+        val fullScreenVideo = (vm.screen == Screen.Playback) || (landscape && tab == Tab.Live && vm.screen != Screen.Setup && !searchOpen)
         SystemBars(hidden = fullScreenVideo)
 
         Box(Modifier.fillMaxSize().background(Tv.bg)) {
             when {
                 vm.screen == Screen.Setup -> SetupScreen(vm)
                 vm.screen == Screen.Playback -> RecordingPlayer(vm)
+                searchOpen -> SearchView(
+                    vm,
+                    onClose = {
+                        searchOpen = false
+                        if (tab == Tab.Live) vm.tune(vm.currentIndex)
+                    },
+                    onWatch = { searchOpen = false; tab = Tab.Live },
+                )
                 fullScreenVideo -> LiveTab(vm, fullScreen = true)
                 else -> Scaffold(
                     containerColor = Tv.bg,
@@ -110,6 +120,9 @@ fun MobileApp(vm: AppViewModel) {
                         TopAppBar(
                             title = { Text(if (tab == Tab.Live) "GoTVH" else tab.label, fontWeight = FontWeight.SemiBold) },
                             actions = {
+                                IconButton(onClick = { vm.player.stop(); searchOpen = true }) {
+                                    Icon(Icons.Filled.Search, contentDescription = "Search")
+                                }
                                 IconButton(onClick = { vm.player.stop(); vm.screen = Screen.Setup }) {
                                     Icon(Icons.Filled.Settings, contentDescription = "Settings")
                                 }

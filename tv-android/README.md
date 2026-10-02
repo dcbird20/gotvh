@@ -31,6 +31,13 @@ First start asks for the Tvheadend address (e.g. `http://192.168.1.222:9981`) an
 same as the admin web app. The account needs web interface and streaming rights. Basic and Digest
 sign-in both work.
 
+## Search
+
+Menu → Search (TV) or the 🔍 in the phone app's top bar: searches the whole guide (titles, episode
+names and descriptions) and your recordings as you type. On the TV, OK on the box opens the keyboard
+(its microphone works too); Down moves into the results. OK / tap: on now → watch; later → Record /
+Record series; a recording → play.
+
 ## Pausing live TV
 
 Live TV comes over HTSP, Tvheadend's own protocol (the one Kodi uses), on the port after the web
@@ -66,7 +73,7 @@ The bar clears after 5 seconds without a key press, paused or not; a corner badg
 time behind live for a few seconds.
 | Left | Channel list (Up/Down, OK to tune, Right for its guide) |
 | Right / Guide | Guide |
-| Back (or Menu) | Closes what's open, then the menu: Live TV, Guide, Recordings, Auto-record rules, Settings, Exit |
+| Back (or Menu) | Closes what's open, then the menu: Live TV, Guide, Search, Recordings, Auto-record rules, Settings, Exit |
 | 0–9 | Type a channel number |
 | Last channel | Back to the previous channel |
 
