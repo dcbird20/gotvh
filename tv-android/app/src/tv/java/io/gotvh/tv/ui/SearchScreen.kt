@@ -64,6 +64,7 @@ fun SearchScreen(vm: AppViewModel) {
     val context = LocalContext.current
     val field = remember { FocusRequester() }
     val list = remember { FocusRequester() }
+    val toggle = remember { FocusRequester() }
     var inList by remember { mutableStateOf(false) }
     var index by remember { mutableIntStateOf(0) }
     var detail by remember { mutableStateOf<Program?>(null) }
@@ -92,7 +93,7 @@ fun SearchScreen(vm: AppViewModel) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Search", color = Tv.text, fontSize = 26.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.weight(1f))
-                Text("OK on the box to type · ▼ results · OK details · Back", color = Tv.muted, fontSize = 13.sp)
+                Text("OK on the box to type · ▼ options, results · OK details · Back", color = Tv.muted, fontSize = 13.sp)
             }
             Spacer(Modifier.height(12.dp))
             OutlinedTextField(
@@ -101,7 +102,7 @@ fun SearchScreen(vm: AppViewModel) {
                 singleLine = true,
                 placeholder = { Text("A programme, team, actor…") },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { if (hits.isNotEmpty()) list.requestFocus() }),
+                keyboardActions = KeyboardActions(onSearch = { if (hits.isNotEmpty()) list.requestFocus() else toggle.requestFocus() }),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedTextColor = Tv.text, unfocusedTextColor = Tv.text,
                     focusedBorderColor = Tv.accent, cursorColor = Tv.accent,
@@ -110,14 +111,32 @@ fun SearchScreen(vm: AppViewModel) {
                     .fillMaxWidth()
                     .focusRequester(field)
                     .onPreviewKeyEvent { ev ->
-                        if (ev.type == KeyEventType.KeyDown && ev.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_DOWN && hits.isNotEmpty()) {
-                            list.requestFocus()
+                        if (ev.type == KeyEventType.KeyDown && ev.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+                            toggle.requestFocus()
                             true
                         } else {
                             false
                         }
                     },
             )
+            Spacer(Modifier.height(10.dp))
+            // Titles only, or titles and descriptions (remembered). Down from here: the results.
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                TvButton(
+                    if (vm.searchDescriptions) "✓  Include descriptions" else "Include descriptions",
+                    Modifier
+                        .focusRequester(toggle)
+                        .onPreviewKeyEvent { ev ->
+                            if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                            when (ev.nativeKeyEvent.keyCode) {
+                                KeyEvent.KEYCODE_DPAD_DOWN -> { if (hits.isNotEmpty()) list.requestFocus(); true }
+                                KeyEvent.KEYCODE_DPAD_UP -> { field.requestFocus(); true }
+                                else -> false
+                            }
+                        },
+                ) { vm.setSearchDescriptions(!vm.searchDescriptions) }
+                Text(if (vm.searchDescriptions) "Searching titles and descriptions" else "Searching titles", color = Tv.muted, fontSize = 14.sp)
+            }
             Spacer(Modifier.height(10.dp))
             Text(
                 when {
@@ -142,7 +161,7 @@ fun SearchScreen(vm: AppViewModel) {
                         if (isHeldOk(ev)) return@onPreviewKeyEvent true
                         if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                         when (ev.nativeKeyEvent.keyCode) {
-                            KeyEvent.KEYCODE_DPAD_UP -> if (index == 0) field.requestFocus() else index--
+                            KeyEvent.KEYCODE_DPAD_UP -> if (index == 0) toggle.requestFocus() else index--
                             KeyEvent.KEYCODE_DPAD_DOWN -> index = (index + 1).coerceAtMost((hits.size - 1).coerceAtLeast(0))
                             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER ->
                                 hits.getOrNull(index)?.let { open(it) }

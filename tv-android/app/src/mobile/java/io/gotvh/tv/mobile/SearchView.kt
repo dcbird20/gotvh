@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
@@ -83,6 +84,12 @@ fun SearchView(vm: AppViewModel, onClose: () -> Unit, onWatch: () -> Unit) {
                 modifier = Modifier.weight(1f).focusRequester(focus),
             )
         }
+        FilterChip(
+            selected = vm.searchDescriptions,
+            onClick = { vm.setSearchDescriptions(!vm.searchDescriptions) },
+            label = { Text("Include descriptions") },
+            modifier = Modifier.padding(start = 16.dp, top = 4.dp),
+        )
         val recordings = vm.searchRecordings()
         val programmes = vm.searchResults
         Text(

@@ -33,10 +33,10 @@ sign-in both work.
 
 ## Search
 
-Menu → Search (TV) or the 🔍 in the phone app's top bar: searches the whole guide (titles, episode
-names and descriptions) and your recordings as you type. On the TV, OK on the box opens the keyboard
-(its microphone works too); Down moves into the results. OK / tap: on now → watch; later → Record /
-Record series; a recording → play.
+Menu → Search (TV) or the 🔍 in the phone app's top bar: searches the guide's titles, and your
+recordings, as you type. Switch on **Include descriptions** (remembered) to search episode names and
+descriptions too. On the TV, OK on the box opens the keyboard (its microphone works too); Down reaches
+the switch, then the results. OK on a result opens its card.
 
 ## Pausing live TV
 

@@ -381,6 +381,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var searching by mutableStateOf(false)
         private set
+    /** Also search descriptions (remembered). Off: titles only, which keeps common words manageable. */
+    var searchDescriptions by mutableStateOf(settings.searchDescriptions)
+        private set
+
+    fun setSearchDescriptions(on: Boolean) {
+        searchDescriptions = on
+        settings.searchDescriptions = on
+        search(searchQuery)
+    }
     private var searchJob: kotlinx.coroutines.Job? = null
 
     /** Search the guide as you type (waits for a pause in typing). */
@@ -397,7 +406,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             delay(350)
             searching = true
             try {
-                searchResults = c.search(query)
+                searchResults = c.search(query, fulltext = searchDescriptions)
             } catch (e: TvhException) {
                 notice = e.message
             } catch (e: IOException) {
@@ -412,7 +421,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun searchRecordings(): List<Recording> {
         val q = searchQuery.trim()
         if (q.length < 2) return emptyList()
-        return recorded.filter { it.title.contains(q, ignoreCase = true) || it.subtitle.contains(q, ignoreCase = true) }
+        return recorded.filter {
+            it.title.contains(q, ignoreCase = true) || it.subtitle.contains(q, ignoreCase = true) ||
+                (searchDescriptions && it.description.contains(q, ignoreCase = true))
+        }
     }
 
     // ------------------------------------------------------------------ guide
@@ -516,7 +528,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 if (reloadRules) loadRules()
                 refreshGuide()
                 // Search results show what's set to record: refresh them too.
-                if (searchQuery.trim().length >= 2) runCatching { searchResults = c.search(searchQuery) }
+                if (searchQuery.trim().length >= 2) runCatching { searchResults = c.search(searchQuery, fulltext = searchDescriptions) }
             } catch (e: TvhException) {
                 notice = e.message
             } catch (e: IOException) {
