@@ -37,22 +37,22 @@ services:
     image: neilpang/acme.sh:3.1.0
     restart: unless-stopped
     entrypoint: ["/bin/sh", "/start.sh"]
-    environment:
-      DUCKDNS_SUBDOMAIN: ${DUCKDNS_SUBDOMAIN}
-      DuckDNS_Token: ${DUCKDNS_TOKEN}
+    env_file: .env        # BASE_DOMAIN, ACME_DNS and your DNS provider's API credentials
     volumes:
       - ./acme/start.sh:/start.sh:ro
       - acme:/acme.sh
       - certs:/certs
 
-  duckdns:
-    image: lscr.io/linuxserver/duckdns:latest
+  # Optional: keeps the DNS record on your Xfinity address if it ever changes.
+  # Start with:  docker compose --profile ddns up -d   (needs ddclient/ddclient.conf, see .env.example)
+  ddns:
+    image: lscr.io/linuxserver/ddclient:latest
     restart: unless-stopped
+    profiles: [ddns]
     environment:
-      SUBDOMAINS: ${DUCKDNS_SUBDOMAIN}
-      TOKEN: ${DUCKDNS_TOKEN}
-      UPDATE_IP: ipv4
       TZ: America/New_York
+    volumes:
+      - ./ddclient:/config
 
   pair:
     build: ./pair

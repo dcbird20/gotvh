@@ -42,3 +42,4 @@ coverage/
 .angular/cache/
 *.apk
 remote/.env
+remote/ddclient/
