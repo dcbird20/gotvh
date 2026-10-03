@@ -29,5 +29,7 @@ class MainActivity : ComponentActivity() {
         super.onStart()
         // Only where a video was showing: live TV or a recording, not while browsing the guide.
         if (vm.screen == Screen.Watch || vm.screen == Screen.Playback) vm.resumeIfStopped()
+        // Left home, or came back: switch between the home and away addresses.
+        vm.checkRoute()
     }
 }

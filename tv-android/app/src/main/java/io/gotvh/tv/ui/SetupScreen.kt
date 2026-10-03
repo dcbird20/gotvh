@@ -8,7 +8,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.OutlinedTextField
@@ -59,7 +62,10 @@ fun SetupScreen(vm: AppViewModel) {
     }
 
     Box(Modifier.fillMaxSize().background(Tv.bg), contentAlignment = Alignment.Center) {
-        Column(Modifier.width(560.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Column(
+            Modifier.width(560.dp).verticalScroll(rememberScrollState()).padding(vertical = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
             Text("GoTVH", color = Tv.accent, fontSize = 34.sp, fontWeight = FontWeight.Bold)
             Text("Connect to your Tvheadend server", color = Tv.muted, fontSize = 18.sp)
             OutlinedTextField(
@@ -92,6 +98,64 @@ fun SetupScreen(vm: AppViewModel) {
             }
             error?.let { Text(it, color = Tv.error, fontSize = 16.sp) }
             Text("Use the same address and account as the GoTVH admin web app.", color = Tv.muted, fontSize = 14.sp)
+            if (vm.settings.isConfigured) AwaySection(vm)
         }
     }
+}
+
+/**
+ * Watching away from home: pair this device once, at home, with a code from the admin app
+ * (Devices). After that the app uses the home address when it answers and the server's away
+ * address otherwise, with a smaller stream.
+ */
+@Composable
+private fun AwaySection(vm: AppViewModel) {
+    var code by remember { mutableStateOf("") }
+    var profile by remember { mutableStateOf(vm.settings.awayProfile) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val a = vm.away
+
+    Text("Away from home", color = Tv.text, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 18.dp))
+    if (a == null) {
+        Text("Pair this device to watch outside your home. Do it at home: in the admin app open Devices → Pair a device, then enter the code here.",
+            color = Tv.muted, fontSize = 15.sp)
+        OutlinedTextField(
+            value = code, onValueChange = { code = it.filter(Char::isDigit).take(8) },
+            label = { Text("Pairing code") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        TvButton(if (busy) "Pairing…" else "Pair") {
+            if (busy || code.length < 8) { error = "The code has 8 digits."; return@TvButton }
+            busy = true
+            error = null
+            scope.launch {
+                error = vm.pair(code)
+                busy = false
+                if (error == null) code = ""
+            }
+        }
+    } else {
+        Text(
+            (if (vm.isAway) "Connected away from home" else "At home now") + ". Away, this device connects to ${a.tvHost}.",
+            color = Tv.muted, fontSize = 15.sp,
+        )
+        OutlinedTextField(
+            value = profile, onValueChange = { profile = it },
+            label = { Text("Away quality (Tvheadend stream profile)") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { vm.setAwayProfile(profile) }),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            TvButton("Save quality") { vm.setAwayProfile(profile) }
+            TvButton("Unpair") { vm.unpair() }
+        }
+        Text("Lost this device? Remove it in the admin app (Devices) and it's locked out.", color = Tv.muted, fontSize = 14.sp)
+    }
+    error?.let { Text(it, color = Tv.error, fontSize = 16.sp) }
 }

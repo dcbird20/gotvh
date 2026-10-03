@@ -127,13 +127,22 @@ class HtspConnection private constructor(private val socket: Socket) : Closeable
          * Connect, say hello and sign in. Blocking: call off the main thread.
          * An empty [username] stays anonymous (works when Tvheadend allows it).
          */
-        fun open(host: String, port: Int, username: String, password: String, clientName: String, clientVersion: String): HtspConnection {
-            val socket = Socket()
+        fun open(
+            host: String, port: Int, username: String, password: String, clientName: String, clientVersion: String,
+            /** Away from home: wraps the connection in TLS with the device certificate. */
+            wrap: ((Socket) -> Socket)? = null,
+        ): HtspConnection {
+            val plain = Socket()
+            val socket: Socket
             try {
-                socket.tcpNoDelay = true
-                socket.connect(InetSocketAddress(host, port), 5000)
+                plain.tcpNoDelay = true
+                plain.connect(InetSocketAddress(host, port), 5000)
+                socket = wrap?.invoke(plain) ?: plain
+            } catch (e: javax.net.ssl.SSLException) {
+                runCatching { plain.close() }
+                throw HtspException("The server refused this device away from home. Pair it again at home (Settings → Away from home).")
             } catch (e: IOException) {
-                runCatching { socket.close() }
+                runCatching { plain.close() }
                 throw HtspException("Can't reach Tvheadend's HTSP port ($host:$port)")
             }
             val c = HtspConnection(socket)

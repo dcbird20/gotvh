@@ -35,6 +35,16 @@ class Settings(context: Context) {
         get() = prefs.getBoolean("searchDescriptions", true)
         set(value) = prefs.edit().putBoolean("searchDescriptions", value).apply()
 
+    /** Away-from-home access from pairing (JSON, see [AwayAccess]); empty when not paired. */
+    var away: String
+        get() = prefs.getString("away", "") ?: ""
+        set(value) = prefs.edit().putString("away", value).apply()
+
+    /** The Tvheadend stream profile used away from home (smaller, converted stream). */
+    var awayProfile: String
+        get() = prefs.getString("awayProfile", "webtv-h264-aac-mpegts") ?: "webtv-h264-aac-mpegts"
+        set(value) = prefs.edit().putString("awayProfile", value).apply()
+
     var profile: String
         get() = prefs.getString("profile", "pass") ?: "pass"
         set(value) = prefs.edit().putString("profile", value).apply()

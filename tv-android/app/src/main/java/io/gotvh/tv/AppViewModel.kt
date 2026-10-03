@@ -19,6 +19,8 @@ import io.gotvh.tv.player.TvPlayer
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.IOException
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 
 enum class Screen { Setup, Watch, Guide, Recordings, Rules, Playback, Search }
 
@@ -91,7 +93,20 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun connect() {
-        val c = TvhClient(settings.server, settings.username, settings.password)
+        val a = away
+        if (a == null) {
+            start(TvhClient(settings.server, settings.username, settings.password))
+            return
+        }
+        // Paired for away from home: at home if the home address answers, else through the front door.
+        viewModelScope.launch {
+            loading = true
+            val home = TvhClient(settings.server, settings.username, settings.password)
+            start(if (home.reachable()) home else TvhClient(settings.server, settings.username, settings.password, a))
+        }
+    }
+
+    private fun start(c: TvhClient) {
         client = c
         imageLoader = ImageLoader.Builder(getApplication()).okHttpClient(c.http).build()
         viewModelScope.launch {
@@ -108,11 +123,70 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             } catch (e: TvhException) {
                 notice = e.message
             } catch (e: IOException) {
-                notice = "Can't reach Tvheadend at ${c.base}. Check the address under Settings (Menu in the guide)."
+                notice = if (c.isAway) "Can't reach your server from here (${c.base}). Check that the away-from-home setup is running."
+                else "Can't reach Tvheadend at ${c.base}. Check the address under Settings (Menu in the guide)."
             } finally {
                 loading = false
             }
         }
+    }
+
+    // ------------------------------------------------------------------ away from home
+
+    /** This device's away-from-home pairing (null: home network only). */
+    var away by mutableStateOf(io.gotvh.tv.data.AwayAccess.fromJson(settings.away))
+        private set
+
+    /** Connected through the front door, i.e. not on the home network. */
+    val isAway: Boolean get() = client?.isAway == true
+
+    /** Back in the app (or the network changed): switch between home and away if needed. */
+    fun checkRoute() {
+        val c = client ?: return
+        if (away == null || !settings.isConfigured) return
+        viewModelScope.launch {
+            val homeOk = TvhClient(settings.server, settings.username, settings.password).reachable()
+            if (homeOk == c.isAway) connect()
+        }
+    }
+
+    /**
+     * Pair this device for away from home with a code from the admin app (Devices). Works on the
+     * home network only. Returns an error message, or null when paired.
+     */
+    suspend fun pair(code: String): String? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val host = runCatching { java.net.URI(TvhClient(settings.server, "", "").base).host }.getOrNull()
+            ?: return@withContext "Set the server address first."
+        val name = listOf(android.os.Build.MANUFACTURER, android.os.Build.MODEL).distinct().joinToString(" ").trim()
+        val body = org.json.JSONObject().put("code", code.filter { it.isDigit() }).put("name", name).toString()
+        val req = okhttp3.Request.Builder().url("http://$host:8095/pair/api/redeem")
+            .post(body.toRequestBody("application/json".toMediaType())).build()
+        try {
+            okhttp3.OkHttpClient.Builder().callTimeout(30, java.util.concurrent.TimeUnit.SECONDS).build().newCall(req).execute().use { r ->
+                val text = r.body?.string().orEmpty()
+                if (!r.isSuccessful) {
+                    return@withContext runCatching { org.json.JSONObject(text).getString("error") }.getOrDefault("Pairing failed (${r.code}).")
+                }
+                val a = io.gotvh.tv.data.AwayAccess.fromJson(text) ?: return@withContext "The pairing service isn't set up with its away-from-home addresses yet."
+                settings.away = a.toJson()
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { away = a }
+                null
+            }
+        } catch (e: IOException) {
+            "Couldn't reach the pairing service on $host. Pair at home, with the away-from-home setup running on the server."
+        }
+    }
+
+    /** Forget the pairing (the device stays listed in the admin app until removed there). */
+    fun unpair() {
+        settings.away = ""
+        away = null
+        if (isAway) connect()
+    }
+
+    fun setAwayProfile(profile: String) {
+        settings.awayProfile = profile.trim().ifEmpty { "webtv-h264-aac-mpegts" }
+        if (isAway) connect()
     }
 
     /** The preferred profile first, then any H.264 profile the server has, as a fallback for codecs the TV can't play. */
@@ -121,7 +195,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val preferred = settings.profile
         val converting = server.filter { it != preferred && Regex("h264|avc|x264", RegexOption.IGNORE_CASE).containsMatchIn(it) }
             .sortedBy { if (it.contains("mpegts", ignoreCase = true)) 0 else 1 }
-        return listOf(preferred) + converting
+        // Away from home: the smaller, converted stream first.
+        return (if (c.isAway) listOf(settings.awayProfile) else emptyList()) + (listOf(preferred) + converting).filter { !c.isAway || it != settings.awayProfile }
     }
 
     /** Check the address and sign-in; on success save them and start watching. Returns an error message or null. */

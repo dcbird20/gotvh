@@ -193,7 +193,9 @@ class TvPlayer(context: Context) {
     private fun startHtsp(channelId: Long) {
         val conn = htsp.connection ?: return startHttpLive()
         stopSubscription()
-        val sub = HtspSubscription(conn, channelId, profile = null, timeshiftSeconds = TIMESHIFT_SECONDS)
+        // Away from home: ask Tvheadend for the smaller, converted stream (first in the list).
+        val profile = if (client?.isAway == true) profiles.firstOrNull() else null
+        val sub = HtspSubscription(conn, channelId, profile = profile, timeshiftSeconds = TIMESHIFT_SECONDS)
         subscription = sub
         httpLive = false
         val source = ProgressiveMediaSource.Factory({ HtspDataSource(sub) }, ExtractorsFactory { arrayOf<Extractor>(HtspExtractor()) })

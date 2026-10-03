@@ -59,6 +59,8 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         vm.resumeIfStopped()
+        // Left home, or came back: switch between the home and away addresses.
+        vm.checkRoute()
     }
 }
 

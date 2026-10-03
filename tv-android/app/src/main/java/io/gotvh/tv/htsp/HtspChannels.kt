@@ -36,13 +36,15 @@ class HtspChannels {
     }
 
     private fun ensureConnected(client: TvhClient) {
-        val (host, port) = htspAddress(client.base)
+        val away = client.away
+        val (host, port) = if (away != null) away.htspHost to away.port else htspAddress(client.base)
         val k = "$host:$port:${client.username}"
         val current = connection
         if (current != null && !current.closed && key == k) return
         close()
         val synced = CountDownLatch(1)
-        val conn = HtspConnection.open(host, port, client.username, client.password, "GoTVH", "1")
+        val conn = HtspConnection.open(host, port, client.username, client.password, "GoTVH", "1",
+            wrap = away?.let { a -> { socket: java.net.Socket -> a.wrap(socket, host) } })
         conn.onAsync = { msg ->
             when (msg.method) {
                 "channelAdd", "channelUpdate" -> {

@@ -19,9 +19,13 @@ class TvhException(message: String, val status: Int = 0) : Exception(message)
  * Talks to Tvheadend's JSON API (the same API the web apps use).
  * Sign-in is HTTP Basic, sent with every request, including streams and channel icons.
  */
-class TvhClient(server: String, val username: String, val password: String) {
+class TvhClient(server: String, val username: String, val password: String, val away: AwayAccess? = null) {
 
-    val base: String = normalize(server)
+    /** At home: the server address as entered. Away: the front door (HTTPS, device certificate). */
+    val base: String = away?.base ?: normalize(server)
+
+    /** Connected through the front door from outside the home. */
+    val isAway: Boolean get() = away != null
     val authHeader: String? = if (username.isNotEmpty()) Credentials.basic(username, password) else null
 
     /** Adds the sign-in to every request to this server (API calls, icons). */
@@ -39,7 +43,16 @@ class TvhClient(server: String, val username: String, val password: String) {
         }
         // Digest-only servers answer the Basic attempt with a challenge; this signs the retry.
         .authenticator(DigestAuthenticator(username, password))
+        .apply { away?.let { sslSocketFactory(it.sslContext.socketFactory, it.trustManager) } }
         .build()
+
+    /** Quick check that Tvheadend answers at [base] (a few seconds at most). */
+    suspend fun reachable(): Boolean = withContext(Dispatchers.IO) {
+        runCatching {
+            http.newBuilder().connectTimeout(2, TimeUnit.SECONDS).callTimeout(4, TimeUnit.SECONDS).build()
+                .newCall(Request.Builder().url("$base/api/serverinfo").build()).execute().use { it.isSuccessful }
+        }.getOrDefault(false)
+    }
 
     private var dvrConfig: String? = null
 
