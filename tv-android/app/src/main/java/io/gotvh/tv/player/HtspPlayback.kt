@@ -154,7 +154,9 @@ class HtspExtractor : Extractor {
             // AAC (always the case for converted streams away from home): Tvheadend's description can
             // disagree with what its converter sends (e.g. 5.1 described, stereo sent), which garbles
             // the sound. Each ADTS frame says what it really is, so take the format from the first one.
-            if (track.isAac) track.pendingFormat = format else out.format(format)
+            // (adtsFormat is kept for later: overriding with the frame's own header made this phone's
+            // decoder refuse the converted sound outright, so for now the format is Tvheadend's.)
+            out.format(format)
             tracks[index] = track
         }
         if (tracks.values.any { it.isVideo }) {

@@ -585,6 +585,15 @@ class TvPlayer(context: Context) {
             code == 401 -> status = "Tvheadend rejected the sign-in. Check it under Settings."
             // Away from home, the converted stream over HTSP didn't decode: the same converted stream
             // over plain HTTP next (not the full-size original), then the other profiles.
+            recording == null && decoderProblem && !httpLive && away && client?.convertProfile != null -> {
+                // The converted stream didn't decode: the original instead, still with pause.
+                noteProblem("Switched to the original stream (converting didn't decode).")
+                client?.convertProfile = null
+                status = "The converted stream's $part didn't decode on this device; playing the original instead."
+                holdStatusUntil = System.currentTimeMillis() + 8_000
+                later(8_000) { if (!tuning) status = null }
+                startLive()
+            }
             recording == null && decoderProblem && !httpLive && away -> {
                 profileIndex = 0
                 status = "This device couldn't decode the $part$detail. Trying the ${profiles[0]} stream without pause."
