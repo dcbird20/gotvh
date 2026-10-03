@@ -26,6 +26,7 @@ export const NAV_ITEMS: AdminNavItem[] = [
   { path: 'channel-tags', label: 'Channel tags', icon: 'label', section: 'Configuration' },
   { path: 'epg', label: 'EPG sources', icon: 'calendar_view_week', section: 'Configuration' },
   { path: 'users', label: 'Users & access', icon: 'group', section: 'Configuration' },
+  { path: 'devices', label: 'Devices', icon: 'devices', section: 'Configuration' },
   { path: 'streaming', label: 'Stream profiles', icon: 'movie', section: 'Configuration' },
 ];
 
@@ -91,6 +92,11 @@ export const routes: Routes = [
     path: 'users',
     title: 'Users & access · GoTVH Admin',
     loadComponent: () => import('./pages/users/users.component').then(m => m.UsersComponent),
+  },
+  {
+    path: 'devices',
+    title: 'Devices · GoTVH Admin',
+    loadComponent: () => import('./pages/devices/devices.component').then(m => m.DevicesComponent),
   },
   {
     path: 'add-source',

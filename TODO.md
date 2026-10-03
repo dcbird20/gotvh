@@ -109,4 +109,7 @@ The stock UI needs you to know the chain
 
 
 ## Phone app
-- [ ] Away from home: reach raven1 safely (Tailscale or VPN, not Tvheadend open to the internet); then downloads for offline viewing.
+- [x] Away from home: front door on raven1 (device certificates, no VPN needed) — built; server setup per docs/remote-access.md.
+- [ ] Recordings at reduced quality away from home (today: full quality).
+- [ ] Downloads for offline viewing.
+- [ ] Phone: scan the pairing code as a QR code.

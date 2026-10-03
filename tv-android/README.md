@@ -125,3 +125,11 @@ MPEG-TS) and the app uses it automatically.
 Open `tv-android/` in Android Studio, or `./gradlew assembleDebug`. The debug key
 (`app/debug.keystore`) is checked in on purpose so GitHub builds can update each other; it's not a
 secret and isn't for store releases.
+
+## Away from home
+
+Settings → **Away from home**: pair the device once, at home, with a code from the admin app
+(Devices → Pair a device). From then on the app uses the home address when it answers and the
+server's away address otherwise (HTTPS and HTSP over TLS, with this device's certificate), asking
+Tvheadend for a smaller stream (the "Away quality" profile, `webtv-h264-aac-mpegts` by default).
+Server side: `remote/` and docs/remote-access.md.
