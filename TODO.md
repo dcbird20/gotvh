@@ -76,6 +76,8 @@ The stock UI needs you to know the chain
       `projects/tvh-api/src/autorec-rules.ts`.
 - [ ] Upgrade Angular 19 → 21 on its own branch (clears most `npm audit` findings).
 - [ ] `npm audit fix` (non-breaking) for build-tool advisories.
+- [ ] (Low priority) US spelling: "programme" → "program" in UI text, comments and docs across the
+      TV/phone apps, admin and web app (~29 files).
 
 ## Done
 
