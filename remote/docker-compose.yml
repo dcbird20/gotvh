@@ -1,6 +1,6 @@
 # GoTVH away-from-home access, alongside SWAG on raven1 — see docs/remote-access.md first.
 #
-#   cd ~/gotvh/remote && cp .env.example .env    (fill it in)
+#   cd ~/Code/gotvh/remote && cp .env.example .env    (fill it in)
 #   docker compose up -d --build                  (shows up in Portainer as stack "gotvh-remote")
 #   ./install-swag-site.sh                        (adds the web side to SWAG)
 #   docker compose down; ./install-swag-site.sh --remove    (switches it all off)

@@ -51,7 +51,7 @@ The old one was shared in a chat.
 
 ### 1. Settings (no change to anything)
 ```
-cd ~/gotvh && git pull && cd remote
+cd ~/Code/gotvh && git pull && cd remote
 cp .env.example .env && nano .env        # DuckDNS_Token = the new token; TV_HOST / HTSP_HOST:
 echo tv-$(openssl rand -hex 4); echo htsp-$(openssl rand -hex 4)
 mkdir -p /opt/swag/gotvh/certs /opt/swag/gotvh/pki   # SWAG's folder; owned by you (PUID 1000)
@@ -79,7 +79,7 @@ Undo: `./install-swag-site.sh --remove`.
 
 ### 4. raven1's nginx: `/pair/` for the admin app's Devices page
 ```
-cd ~/gotvh && scripts/deploy-admin.sh --install
+cd ~/Code/gotvh && scripts/deploy-admin.sh --install
 ```
 Undo: revert `nginx/gotvh-admin.conf` and run it again.
 
