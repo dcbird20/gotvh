@@ -109,7 +109,10 @@ class HtspExtractor : Extractor {
     private val header = ByteArray(4)
     private var body = ByteArray(256 * 1024)
 
-    private class Track(val output: TrackOutput, val isVideo: Boolean, val isAac: Boolean, val codec: String)
+    private class Track(val output: TrackOutput, val isVideo: Boolean, val isAac: Boolean, val codec: String) {
+        /** AAC: the format waits for the first frame, whose own header says how to decode it. */
+        var pendingFormat: Format? = null
+    }
 
     /** Closed captions (CEA-608, carried inside the video frames). One track, chosen or not by the player. */
     private var captions: Array<TrackOutput> = emptyArray()
@@ -147,8 +150,12 @@ class HtspExtractor : Extractor {
             val format = formatFor(index, type, stream) ?: continue
             val isVideo = MimeTypes.isVideo(format.sampleMimeType)
             val out = output.track(index, if (isVideo) C.TRACK_TYPE_VIDEO else C.TRACK_TYPE_AUDIO)
-            out.format(format)
-            tracks[index] = Track(out, isVideo, type == "AAC", type)
+            val track = Track(out, isVideo, type == "AAC", type)
+            // AAC (always the case for converted streams away from home): Tvheadend's description can
+            // disagree with what its converter sends (e.g. 5.1 described, stereo sent), which garbles
+            // the sound. Each ADTS frame says what it really is, so take the format from the first one.
+            if (track.isAac) track.pendingFormat = format else out.format(format)
+            tracks[index] = track
         }
         if (tracks.values.any { it.isVideo }) {
             // ATSC / cable captions ride in the video (H.264/HEVC SEI, MPEG-2 user data): offer them as a text track.
@@ -164,6 +171,10 @@ class HtspExtractor : Extractor {
         val track = tracks[msg.int("stream") ?: return] ?: return
         var payload = msg.bytes("payload") ?: return
         val timeUs = msg.long("pts") ?: msg.long("dts") ?: return
+        track.pendingFormat?.let { described ->
+            track.output.format(adtsFormat(described, payload) ?: described)
+            track.pendingFormat = null
+        }
         if (track.isAac && payload.size > 9 && (payload[0].toInt() and 0xFF) == 0xFF) {
             // Tvheadend sends AAC with its ADTS header; the decoder wants the raw frame.
             val headerSize = if ((payload[1].toInt() and 0x01) == 0) 9 else 7
@@ -183,6 +194,26 @@ class HtspExtractor : Extractor {
 
     companion object {
         private const val CAPTION_TRACK_ID = 9999
+
+        /**
+         * The AAC format as the ADTS header at the start of [frame] states it (profile, sample rate,
+         * channels), on top of [described]; null when there's no ADTS header.
+         */
+        fun adtsFormat(described: Format, frame: ByteArray): Format? {
+            if (frame.size < 7 || (frame[0].toInt() and 0xFF) != 0xFF || (frame[1].toInt() and 0xF0) != 0xF0) return null
+            val b2 = frame[2].toInt() and 0xFF
+            val b3 = frame[3].toInt() and 0xFF
+            val objectType = ((b2 shr 6) and 0x3) + 1
+            val rateIndex = (b2 shr 2) and 0xF
+            val channelConfig = ((b2 and 0x1) shl 2) or ((b3 shr 6) and 0x3)
+            val rate = RATES.getOrNull(rateIndex)?.takeIf { it > 0 } ?: return null
+            val channels = when (channelConfig) { 0 -> return null; 7 -> 8; else -> channelConfig }
+            return described.buildUpon()
+                .setSampleRate(rate)
+                .setChannelCount(channels)
+                .setInitializationData(listOf(AacUtil.buildAudioSpecificConfig(objectType, rateIndex, channelConfig)))
+                .build()
+        }
 
         // Tvheadend's sample-rate index ("rate") → Hz.
         private val RATES = intArrayOf(96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350, 0, 0, 0)
