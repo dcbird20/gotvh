@@ -172,6 +172,11 @@ private fun AwaySection(vm: AppViewModel) {
             TvButton("Unpair") { vm.unpair() }
         }
         Text("Lost this device? Remove it in the admin app (Devices) and it's locked out.", color = Tv.muted, fontSize = 14.sp)
+        val problems = vm.player.problems
+        if (problems.isNotEmpty()) {
+            Text("Recent playback problems", color = Tv.text, fontSize = 17.sp, modifier = Modifier.padding(top = 10.dp))
+            problems.forEach { Text(it, color = Tv.muted, fontSize = 13.sp) }
+        }
     }
     error?.let { Text(it, color = Tv.error, fontSize = 16.sp) }
 }

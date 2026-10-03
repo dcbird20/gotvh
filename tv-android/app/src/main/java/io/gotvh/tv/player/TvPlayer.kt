@@ -71,6 +71,15 @@ class TvPlayer(context: Context) {
             .build()
     }
 
+    /** The last few playback problems, newest first (shown in Settings, to read at leisure). */
+    var problems by mutableStateOf<List<String>>(emptyList())
+        private set
+
+    private fun noteProblem(text: String) {
+        val time = java.text.SimpleDateFormat("h:mm:ss a", java.util.Locale.US).format(java.util.Date())
+        problems = (listOf("$time  $text") + problems).take(5)
+    }
+
     /** A decoder message stays readable until then, even once playing again. */
     private var holdStatusUntil = 0L
 
@@ -562,6 +571,12 @@ class TvPlayer(context: Context) {
             ).joinToString(", ")
         }?.let { " ($it)" } ?: ""
         val away = client?.isAway == true
+        noteProblem(
+            (if (away) "Away" else "Home") + (if (httpLive) ", plain stream" else ", pausable stream") +
+                (client?.convertProfile?.let { ", converting ($it)" } ?: ", original") + ": " +
+                (if (decoderProblem) "couldn't decode the $part$detail" else error.errorCodeName) +
+                (error.cause?.message?.let { " — ${it.take(160)}" } ?: ""),
+        )
         when {
             code == 503 -> status = "No free tuner or stream right now: everything is in use (recordings, other viewers, or the IPTV stream limit)."
             code == 403 -> status = "Tvheadend won't stream this: it's switched off, or this account isn't allowed to watch it."
