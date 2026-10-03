@@ -47,7 +47,9 @@ class Settings(context: Context) {
 
     /** The Tvheadend stream profile used when converting away from home (smaller stream). */
     var awayProfile: String
-        get() = prefs.getString("awayProfile", "webtv-h264-aac-mpegts") ?: "webtv-h264-aac-mpegts"
+        // gotvh-away: H.264 + AAC-LC in Matroska. Tvheadend's own webtv-* profiles use AAC "Main",
+        // which Android can't decode properly (garbled or refused), so the old default is moved over.
+        get() = (prefs.getString("awayProfile", null) ?: AWAY_PROFILE).let { if (it == "webtv-h264-aac-mpegts") AWAY_PROFILE else it }
         set(value) = prefs.edit().putString("awayProfile", value).apply()
 
     var profile: String
@@ -63,5 +65,10 @@ class Settings(context: Context) {
         prefs.edit().apply {
             if (positionMs <= 0) remove("resume.$recordingUuid") else putLong("resume.$recordingUuid", positionMs)
         }.apply()
+    }
+
+    companion object {
+        /** The converting profile GoTVH sets up in Tvheadend for watching away from home. */
+        const val AWAY_PROFILE = "gotvh-away"
     }
 }

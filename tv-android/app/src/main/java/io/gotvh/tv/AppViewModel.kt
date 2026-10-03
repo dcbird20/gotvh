@@ -186,7 +186,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun setAwayProfile(profile: String) {
-        settings.awayProfile = profile.trim().ifEmpty { "webtv-h264-aac-mpegts" }
+        settings.awayProfile = profile.trim().ifEmpty { io.gotvh.tv.data.Settings.AWAY_PROFILE }
         if (isAway) connect()
     }
 
@@ -221,11 +221,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val server = runCatching { c.streamProfiles() }.getOrDefault(emptyList())
         val preferred = settings.profile
         val converting = server.filter { it != preferred && Regex("h264|avc|x264", RegexOption.IGNORE_CASE).containsMatchIn(it) }
-            .sortedBy { if (it.contains("mpegts", ignoreCase = true)) 0 else 1 }
+            // GoTVH's own converter first (Android-friendly sound, and it works over HTTP), then the rest.
+            .sortedBy { if (it == io.gotvh.tv.data.Settings.AWAY_PROFILE) 0 else if (it.contains("matroska", ignoreCase = true)) 1 else 2 }
         // Away from home and converting: the smaller stream first.
         val convert = c.isAway && convertAway()
-        c.convertProfile = if (convert) settings.awayProfile else null
-        return (if (convert) listOf(settings.awayProfile) else emptyList()) + (listOf(preferred) + converting).filter { !convert || it != settings.awayProfile }
+        // The chosen converting profile if this server has it, else Tvheadend's own (sound may be poor).
+        val awayProfile = settings.awayProfile.takeIf { server.isEmpty() || it in server }
+            ?: "webtv-h264-aac-matroska".takeIf { it in server } ?: settings.awayProfile
+        c.convertProfile = if (convert) awayProfile else null
+        return (if (convert) listOf(awayProfile) else emptyList()) + (listOf(preferred) + converting).filter { !convert || it != awayProfile }
     }
 
     /** Check the address and sign-in; on success save them and start watching. Returns an error message or null. */
