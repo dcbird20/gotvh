@@ -18,8 +18,8 @@ Nothing here touches Tvheadend's own settings except step 6, and nothing is forw
                                    │  anything else → hung up before a handshake
                                    └──────────────────────┘
    at home only:  pair (container, :8095 on the LAN address) — makes and removes device certificates
-                  acme (container) — the web certificate, renewed automatically
-                  duckdns (container) — keeps the name pointed at your Xfinity address
+                  acme (container) — the web certificate, renewed via your DNS provider's API
+                  ddns (container, optional) — moves the DNS record if your Xfinity address changes
 ```
 
 Not reachable from outside, ever: Tvheadend's ports (9981/9982), raven1's nginx (8080/8090/8091),
@@ -38,14 +38,15 @@ Portainer (9000/9443), SSH, the pairing service, omv-dell.
   door reloads by itself).
 
 What's visible on the internet: port 443 on your address. The certificate log (public for every
-Let's Encrypt certificate) shows `*.<yourname>.duckdns.org`, so the base name and your address can
-be found. The two names the apps use (`tv-<random>…`, `htsp-<random>…`) appear nowhere; a connection
+Let's Encrypt certificate) shows `*.<BASE_DOMAIN>` (e.g. `*.tv.example.com`), so that name and your
+address can be found. The two names the apps use (`tv-<random>…`, `htsp-<random>…`) appear nowhere; a connection
 for any other name, or for the bare IP, is closed before any handshake.
 
 ## Before you start
 
-- DuckDNS account (free, sign in with Google) → create a subdomain that doesn't identify you
-  (e.g. `quietfox7731`), note the token.
+- Your domain, and an API key from its DNS provider that can edit DNS records (the provider's
+  acme.sh name is in the list linked from `remote/.env.example`).
+- A name used only for this, e.g. `tv.example.com`, so it stays apart from the rest of your domain.
 - Tvheadend container: its ports 9981 and 9982 published on raven1 (they are today: the TV uses them).
 
 ## Steps
@@ -58,6 +59,11 @@ echo tv-$(openssl rand -hex 4); echo htsp-$(openssl rand -hex 4)   # for TV_HOST
 ```
 Undo: delete `remote/.env`.
 
+### 1b. DNS record (at your DNS provider)
+`*.<BASE_DOMAIN>  A  <your Xfinity address>` (whatismyip.com shows the address). Optional: the
+`ddns` updater keeps it current; Xfinity addresses rarely change.
+Undo: delete the record.
+
 ### 2. Start the stack (still unreachable from outside)
 ```
 docker compose up -d --build
@@ -65,7 +71,7 @@ docker compose logs -f acme        # wait for "certificate in place" (2–3 minu
 docker compose logs frontdoor      # "front door: open for tv-… and htsp-…"
 ```
 Shows up in Portainer as **gotvh-remote** (logs, restart, stop from there).
-Changes: four containers, four Docker volumes, port 443 on raven1 (LAN), port 8095 on raven1's LAN address.
+Changes: three containers (four with the optional address updater), four Docker volumes, port 443 on raven1 (LAN), port 8095 on raven1's LAN address.
 Undo: `docker compose down` (keeps the volumes; `down -v` also deletes certificates and paired devices).
 
 ### 3. Update raven1's nginx (adds `/pair/` for the admin app's Devices page)
@@ -95,7 +101,7 @@ Undo: nothing to undo; the apps go back to the original stream if the profile is
 
 ## Keeping it safe
 
-- Updates: `docker compose pull && docker compose up -d` monthly (nginx, acme.sh, duckdns), or let
+- Updates: `docker compose pull && docker compose up -d` monthly (nginx, acme.sh), or let
   Watchtower do it. raven1 itself: `unattended-upgrades` for security fixes.
 - Watch: `docker compose logs frontdoor` shows every connection with the device name.
 - Lost a phone: admin app → Devices → Remove.
