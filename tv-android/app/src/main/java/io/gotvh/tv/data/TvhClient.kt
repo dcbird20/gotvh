@@ -26,6 +26,9 @@ class TvhClient(server: String, val username: String, val password: String, val 
 
     /** Connected through the front door from outside the home. */
     val isAway: Boolean get() = away != null
+
+    /** Away and converting: the Tvheadend profile to ask for (null = the original broadcast). */
+    var convertProfile: String? = null
     val authHeader: String? = if (username.isNotEmpty()) Credentials.basic(username, password) else null
 
     /** Adds the sign-in to every request to this server (API calls, icons). */

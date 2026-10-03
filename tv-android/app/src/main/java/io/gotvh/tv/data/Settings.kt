@@ -40,7 +40,12 @@ class Settings(context: Context) {
         get() = prefs.getString("away", "") ?: ""
         set(value) = prefs.edit().putString("away", value).apply()
 
-    /** The Tvheadend stream profile used away from home (smaller, converted stream). */
+    /** Away from home: "auto" (original on Wi-Fi, converted on mobile data), "original" or "converted". */
+    var awayQuality: String
+        get() = prefs.getString("awayQuality", "auto") ?: "auto"
+        set(value) = prefs.edit().putString("awayQuality", value).apply()
+
+    /** The Tvheadend stream profile used when converting away from home (smaller stream). */
     var awayProfile: String
         get() = prefs.getString("awayProfile", "webtv-h264-aac-mpegts") ?: "webtv-h264-aac-mpegts"
         set(value) = prefs.edit().putString("awayProfile", value).apply()

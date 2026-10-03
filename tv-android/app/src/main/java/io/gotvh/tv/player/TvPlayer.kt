@@ -197,7 +197,7 @@ class TvPlayer(context: Context) {
         val conn = htsp.connection ?: return startHttpLive()
         stopSubscription()
         // Away from home: ask Tvheadend for the smaller, converted stream (first in the list).
-        val profile = if (client?.isAway == true) profiles.firstOrNull() else null
+        val profile = client?.convertProfile
         val sub = HtspSubscription(conn, channelId, profile = profile, timeshiftSeconds = TIMESHIFT_SECONDS)
         subscription = sub
         httpLive = false

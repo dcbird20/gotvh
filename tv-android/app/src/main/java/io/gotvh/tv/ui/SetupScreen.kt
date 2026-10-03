@@ -143,16 +143,32 @@ private fun AwaySection(vm: AppViewModel) {
             (if (vm.isAway) "Connected away from home" else "At home now") + ". Away, this device connects to ${a.tvHost}.",
             color = Tv.muted, fontSize = 15.sp,
         )
-        OutlinedTextField(
-            value = profile, onValueChange = { profile = it },
-            label = { Text("Away quality (Tvheadend stream profile)") },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-            keyboardActions = KeyboardActions(onDone = { vm.setAwayProfile(profile) }),
-            modifier = Modifier.fillMaxWidth(),
+        Text("Away quality", color = Tv.text, fontSize = 17.sp, modifier = Modifier.padding(top = 6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            listOf("auto" to "Automatic", "original" to "Always original", "converted" to "Always converted").forEach { (key, label) ->
+                TvButton((if (vm.awayQuality == key) "✓  " else "") + label) { vm.setAwayQuality(key) }
+            }
+        }
+        Text(
+            when (vm.awayQuality) {
+                "original" -> "The broadcast as is, everywhere: best picture, but needs a fast home upload (antenna channels about 12–19 Mbps)."
+                "converted" -> "raven1 converts to a smaller stream (about 2–4 Mbps) everywhere away from home."
+                else -> "Original on Wi-Fi, converted to a smaller stream on mobile data."
+            },
+            color = Tv.muted, fontSize = 14.sp,
         )
+        if (vm.awayQuality != "original") {
+            OutlinedTextField(
+                value = profile, onValueChange = { profile = it },
+                label = { Text("Converting profile (Tvheadend stream profile)") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { vm.setAwayProfile(profile) }),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            TvButton("Save quality") { vm.setAwayProfile(profile) }
+            if (vm.awayQuality != "original") TvButton("Save profile") { vm.setAwayProfile(profile) }
             TvButton("Unpair") { vm.unpair() }
         }
         Text("Lost this device? Remove it in the admin app (Devices) and it's locked out.", color = Tv.muted, fontSize = 14.sp)

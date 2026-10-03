@@ -190,14 +190,42 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (isAway) connect()
     }
 
+    /** "auto", "original" or "converted" (see [io.gotvh.tv.data.Settings.awayQuality]). */
+    var awayQuality by mutableStateOf(settings.awayQuality)
+        private set
+
+    fun setAwayQuality(quality: String) {
+        awayQuality = quality
+        settings.awayQuality = quality
+        if (isAway) connect()
+    }
+
+    /** On mobile data (not Wi-Fi or Ethernet) right now. */
+    private fun onMobileData(): Boolean = runCatching {
+        val cm = getApplication<Application>().getSystemService(android.net.ConnectivityManager::class.java)
+        val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return false
+        caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) &&
+            !caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) &&
+            !caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET)
+    }.getOrDefault(false)
+
+    /** Away from home, convert to the smaller stream? */
+    private fun convertAway(): Boolean = when (settings.awayQuality) {
+        "original" -> false
+        "converted" -> true
+        else -> onMobileData()
+    }
+
     /** The preferred profile first, then any H.264 profile the server has, as a fallback for codecs the TV can't play. */
     private suspend fun playbackProfiles(c: TvhClient): List<String> {
         val server = runCatching { c.streamProfiles() }.getOrDefault(emptyList())
         val preferred = settings.profile
         val converting = server.filter { it != preferred && Regex("h264|avc|x264", RegexOption.IGNORE_CASE).containsMatchIn(it) }
             .sortedBy { if (it.contains("mpegts", ignoreCase = true)) 0 else 1 }
-        // Away from home: the smaller, converted stream first.
-        return (if (c.isAway) listOf(settings.awayProfile) else emptyList()) + (listOf(preferred) + converting).filter { !c.isAway || it != settings.awayProfile }
+        // Away from home and converting: the smaller stream first.
+        val convert = c.isAway && convertAway()
+        c.convertProfile = if (convert) settings.awayProfile else null
+        return (if (convert) listOf(settings.awayProfile) else emptyList()) + (listOf(preferred) + converting).filter { !convert || it != settings.awayProfile }
     }
 
     /** Check the address and sign-in; on success save them and start watching. Returns an error message or null. */
