@@ -196,3 +196,59 @@ fun NumberPad(onTune: (String) -> Unit, onClose: () -> Unit) {
         }
     }
 }
+
+/**
+ * Left / Right with nothing on screen, for live TV and recordings: a tap skips ([tap]); holding
+ * starts rewinding / fast-forwarding at 2×. While that runs: Left / Right change speed
+ * (−32× … 32×), OK plays from there (Back, handled by the screen, cancels). Remotes with ⏪ ⏩
+ * keys start it straight away.
+ */
+class TrickKeys {
+    /** Left or Right went down and hasn't been released or held long enough yet. */
+    private var pending = 0
+
+    fun handle(ev: androidx.compose.ui.input.key.KeyEvent, player: io.gotvh.tv.player.TvPlayer, tap: (forward: Boolean) -> Unit): Boolean {
+        val k = ev.nativeKeyEvent.keyCode
+        val down = ev.type == KeyEventType.KeyDown
+        val first = down && ev.nativeKeyEvent.repeatCount == 0
+        val left = android.view.KeyEvent.KEYCODE_DPAD_LEFT
+        val right = android.view.KeyEvent.KEYCODE_DPAD_RIGHT
+        if (player.trickSpeed != 0) {
+            pending = 0
+            when {
+                k == right || k == android.view.KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { if (first) player.trickFaster(); return true }
+                k == left || k == android.view.KeyEvent.KEYCODE_MEDIA_REWIND -> { if (first) player.trickSlower(); return true }
+                isOkKey(k) || k == android.view.KeyEvent.KEYCODE_MEDIA_PLAY || k == android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
+                    if (first) player.trickPlay(); return true
+                }
+                k == android.view.KeyEvent.KEYCODE_DPAD_UP || k == android.view.KeyEvent.KEYCODE_DPAD_DOWN || k == android.view.KeyEvent.KEYCODE_INFO -> return true
+                else -> return false
+            }
+        }
+        if (k == android.view.KeyEvent.KEYCODE_MEDIA_FAST_FORWARD || k == android.view.KeyEvent.KEYCODE_MEDIA_REWIND) {
+            val forward = k == android.view.KeyEvent.KEYCODE_MEDIA_FAST_FORWARD
+            if (first) { if (player.canTrick(forward)) player.trickStart(forward) else tap(forward) }
+            return true
+        }
+        if (k != left && k != right) return false
+        val forward = k == right
+        when {
+            first -> pending = k
+            down && pending == k && player.canTrick(forward) -> { pending = 0; player.trickStart(forward) }
+            down -> {}
+            ev.type == KeyEventType.KeyUp && pending == k -> { pending = 0; tap(forward) }
+        }
+        return true
+    }
+}
+
+/** Top left while rewinding / fast-forwarding: the speed, and what the keys do. */
+@Composable
+fun TrickBadge(speed: Int) {
+    Box(Modifier.fillMaxSize().padding(36.dp), contentAlignment = Alignment.TopStart) {
+        Column(Modifier.background(Tv.panel, RoundedCornerShape(12.dp)).padding(horizontal = 22.dp, vertical = 12.dp)) {
+            Text((if (speed > 0) "⏩  " else "⏪  ") + "${kotlin.math.abs(speed)}×", color = Tv.accent, fontSize = 36.sp, fontWeight = FontWeight.Bold)
+            Text("◀ ▶ speed  ·  OK play  ·  Back cancel", color = Tv.muted, fontSize = 14.sp)
+        }
+    }
+}

@@ -60,6 +60,7 @@ fun PlaybackScreen(vm: AppViewModel) {
     var flashUntil by remember { mutableLongStateOf(System.currentTimeMillis() + 3000) }
     var controls by remember { mutableStateOf(false) }
     var info by remember { mutableStateOf(false) }
+    val trick = remember { TrickKeys() }
 
     fun flash() {
         now = System.currentTimeMillis()
@@ -104,6 +105,8 @@ fun PlaybackScreen(vm: AppViewModel) {
     LaunchedEffect(vm.player.ended) { if (vm.player.ended) vm.leavePlayback() }
     // Back: close the controls first; with nothing on screen, back to Recordings (place saved).
     BackHandler(enabled = !info) { if (controls) controls = false else vm.leavePlayback() }
+    // Fast-forwarding: Back returns to where it started (registered last, so it comes first).
+    BackHandler(enabled = vm.player.trickSpeed != 0) { vm.player.trickCancel(); flash() }
 
     Box(
         Modifier
@@ -111,6 +114,11 @@ fun PlaybackScreen(vm: AppViewModel) {
             .onPreviewKeyEvent { ev ->
                 if (ev.type == KeyEventType.KeyDown) lastKey = System.currentTimeMillis()
                 if (info) return@onPreviewKeyEvent false
+                // Nothing on screen: Left/Right tap to skip, hold to fast-forward / rewind.
+                if (!controls && trick.handle(ev, vm.player) { forward -> seek(if (forward) FORWARD_MS else -BACK_MS) }) {
+                    flash()
+                    return@onPreviewKeyEvent true
+                }
                 if (isHeldOk(ev)) return@onPreviewKeyEvent true
                 if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 val k = ev.nativeKeyEvent.keyCode
@@ -146,7 +154,22 @@ fun PlaybackScreen(vm: AppViewModel) {
         }
         val fraction = if (duration > 0) position.toFloat() / duration else 0f
         val remaining = if (duration > 0) "−" + clock(duration - position) else if (vm.player.tuning) "Loading…" else ""
+        val trickSpeed = vm.player.trickSpeed
         when {
+            trickSpeed != 0 -> {
+                val at = vm.player.trickPositionMs
+                val f = if (duration > 0) at.toFloat() / duration else 0f
+                TrickBadge(trickSpeed)
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+                    androidx.compose.foundation.layout.Column(
+                        Modifier.padding(start = 48.dp, end = 48.dp, bottom = 36.dp)
+                            .background(Tv.panel, RoundedCornerShape(12.dp)).padding(horizontal = 20.dp, vertical = 14.dp),
+                    ) {
+                        Text(r.title, color = Tv.text, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        ProgressLine(f, clock(at), if (duration > 0) "−" + clock((duration - at).coerceAtLeast(0)) else "")
+                    }
+                }
+            }
             controls -> PlayerControls(
                 header = { RecordingHeader(vm, paused) },
                 progress = { focused -> ProgressLine(fraction, clock(position), remaining, hint = if (focused) "◀ −10 s   ·   +30 s ▶" else null) },

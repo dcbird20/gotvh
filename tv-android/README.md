@@ -61,7 +61,8 @@ changes meaning on a timer. ⏯ ⏪ ⏩, Guide and Ch± keys work too on remotes
 | Key | Does |
 |---|---|
 | OK | The player controls |
-| Left / Right | Back 10 s / forward 30 s (live TV: into Tvheadend's pause buffer; forward stops at live) |
+| Left / Right | Tap: back 10 s / forward 30 s (live TV: into Tvheadend's pause buffer; forward stops at live) |
+| Hold Left / Right | Rewind / fast-forward at 2×. Then Right / Left: faster / slower (2× 4× 8× 16× 32×; slowing below 2× switches direction), OK plays from there, Back returns to where you started |
 | Up / Down | Next / previous channel (live TV); on a recording, the controls |
 | Back | Live TV: the menu. A recording: back to Recordings (where you stopped is saved) |
 | 0–9 (or the TV's 123 pad) | A channel number |

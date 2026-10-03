@@ -76,6 +76,7 @@ fun WatchScreen(vm: AppViewModel) {
     var bannerUntil by remember { mutableLongStateOf(System.currentTimeMillis() + BANNER_MS) }
     var controls by remember { mutableStateOf(false) }
     var listOpen by remember { mutableStateOf(false) }
+    val trick = remember { TrickKeys() }
     var listIndex by remember { mutableIntStateOf(vm.currentIndex) }
     var padOpen by remember { mutableStateOf(false) }
     var card by remember { mutableStateOf<Program?>(null) }
@@ -133,6 +134,8 @@ fun WatchScreen(vm: AppViewModel) {
             else -> vm.menuOpen = true
         }
     }
+    // Rewinding / fast-forwarding: Back returns to where it started (registered last, so it comes first).
+    BackHandler(enabled = vm.player.trickSpeed != 0) { vm.player.trickCancel(); showBanner() }
 
     Box(
         Modifier
@@ -140,6 +143,14 @@ fun WatchScreen(vm: AppViewModel) {
             .onPreviewKeyEvent { ev ->
                 if (ev.type == KeyEventType.KeyDown) lastKey = System.currentTimeMillis()
                 if (card != null || padOpen) return@onPreviewKeyEvent false
+                // Nothing on screen: Left/Right tap to skip, hold to rewind / fast-forward.
+                if (!controls && !listOpen && channels.isNotEmpty() && trick.handle(ev, player) { forward ->
+                        if (!forward) player.seekLive(-BACK_MS) else if (player.isBehindLive) player.seekLive(FORWARD_MS)
+                    }
+                ) {
+                    showBanner()
+                    return@onPreviewKeyEvent true
+                }
                 if (isHeldOk(ev)) return@onPreviewKeyEvent true
                 if (ev.type != KeyEventType.KeyDown || channels.isEmpty()) return@onPreviewKeyEvent false
                 val k = ev.nativeKeyEvent.keyCode
@@ -214,6 +225,10 @@ fun WatchScreen(vm: AppViewModel) {
 
         val shifted = player.paused || player.isBehindLive
         when {
+            player.trickSpeed != 0 -> {
+                TrickBadge(player.trickSpeed)
+                Banner { ChannelHeader(vm); TimeshiftProgress(vm, false) }
+            }
             listOpen -> ChannelList(vm, listIndex)
             controls -> {
                 val on = vm.currentChannel?.let { vm.nowAndNext(it.uuid, playingSec(vm)).first }

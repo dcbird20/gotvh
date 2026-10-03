@@ -147,6 +147,7 @@ class TvPlayer(context: Context) {
 
     /** Live TV. */
     fun play(client: TvhClient, channel: Channel, profiles: List<String>) {
+        clearTrick()
         stopSubscription()
         main.removeCallbacksAndMessages(TOKEN)
         this.client = client
@@ -291,6 +292,135 @@ class TvPlayer(context: Context) {
         if (paused) resumeLive()
     }
 
+    // ------------------------------------------------------------------ fast-forward / rewind
+
+    /**
+     * Fast-forward (2…32) or rewind (−2…−32), 0 when off. Recordings at 2× really play at double
+     * speed (sound off); everything else steps: twice a second, jump ahead (or back) by speed × ½ s
+     * to the nearest keyframe and show that picture, like a TiVo. OK ([trickPlay]) plays from there,
+     * Back ([trickCancel]) returns to where it started. Live TV can only go forward up to live.
+     */
+    var trickSpeed by mutableStateOf(0)
+        private set
+    /** Where the fast-forward has reached, ms (the picture may lag a step behind). */
+    var trickPositionMs by mutableStateOf(0L)
+        private set
+    private var trickOriginMs = 0L
+    private var trickWasPlaying = true
+
+    /** Whether there's anywhere to go: a recording, or live TV that can be paused (and, forward, is behind live). */
+    fun canTrick(forward: Boolean): Boolean = when {
+        recordingUuid != null -> exo.duration > 0 || growing
+        isLive -> canPause && (!forward || isBehindLive)
+        else -> false
+    }
+
+    /** Hold Left/Right: start rewinding / fast-forwarding at 2×. */
+    fun trickStart(forward: Boolean) {
+        if (trickSpeed != 0 || !canTrick(forward)) return
+        trickOriginMs = exo.currentPosition
+        trickPositionMs = trickOriginMs
+        trickWasPlaying = exo.playWhenReady && !paused
+        if (isLive && paused) {
+            // Tvheadend has to keep sending for the pictures to show.
+            subscription?.speed(100)
+            paused = false
+        }
+        exo.setSeekParameters(androidx.media3.exoplayer.SeekParameters.CLOSEST_SYNC)
+        setTrickSpeed(if (forward) 2 else -2)
+        trickStep()
+    }
+
+    /** Right while fast-forwarding: one step faster (rewind slows, then turns into fast-forward). */
+    fun trickFaster() = trickLadder(+1)
+    /** Left while fast-forwarding: one step slower (fast-forward slows, then turns into rewind). */
+    fun trickSlower() = trickLadder(-1)
+
+    private fun trickLadder(dir: Int) {
+        if (trickSpeed == 0) return
+        val i = TRICK_SPEEDS.indexOf(trickSpeed)
+        val next = TRICK_SPEEDS.getOrNull(i + dir) ?: return
+        if (next > 0 && isLive && !isBehindLive) return
+        setTrickSpeed(next)
+    }
+
+    private fun setTrickSpeed(speed: Int) {
+        if (trickSpeed == 2 && recordingUuid != null) trickPositionMs = exo.currentPosition // leaving real 2×
+        trickSpeed = speed
+        val smooth = speed == 2 && recordingUuid != null
+        exo.playbackParameters = androidx.media3.common.PlaybackParameters(if (smooth) 2f else 1f)
+        exo.volume = if (smooth) 0f else 1f
+        exo.playWhenReady = smooth
+    }
+
+    /** Twice a second while fast-forwarding: move on, and show the picture there. */
+    private fun trickStep() {
+        later(TRICK_STEP_MS) {
+            if (trickSpeed == 0) return@later
+            if (trickSpeed == 2 && recordingUuid != null) {
+                trickPositionMs = exo.currentPosition
+                if (exo.playbackState == Player.STATE_ENDED && !growing) return@later trickPlay()
+            } else {
+                val (lo, hi) = trickBounds()
+                val target = trickPositionMs + trickSpeed * TRICK_STEP_MS
+                when {
+                    target >= hi -> {
+                        // Reached the end: live TV goes live; a recording plays its last seconds.
+                        if (isLive) { clearTrick(); goLive(); exo.playWhenReady = true; return@later }
+                        trickPositionMs = hi
+                        return@later trickPlay()
+                    }
+                    target <= lo -> {
+                        trickPositionMs = lo
+                        return@later trickPlay()
+                    }
+                    else -> trickPositionMs = target
+                }
+                // Don't pile up seeks: wait for the last picture before asking for the next.
+                if (exo.playbackState != Player.STATE_BUFFERING) exo.seekTo(trickPositionMs)
+            }
+            trickStep()
+        }
+    }
+
+    /** The range fast-forward / rewind may move in, ms. */
+    private fun trickBounds(): Pair<Long, Long> {
+        if (isLive) {
+            val sub = subscription
+            val earliest = (sub?.bufferStartUs ?: 0) / 1000 + 2000
+            val edge = liveEdgeMs()
+            return earliest to (if (edge >= 0) edge - LIVE_SLACK_MS else Long.MAX_VALUE)
+        }
+        val d = exo.duration
+        return 0L to (if (d > 0) (d - 5000).coerceAtLeast(0) else Long.MAX_VALUE)
+    }
+
+    /** OK: play from here. */
+    fun trickPlay() {
+        if (trickSpeed == 0) return
+        val pos = if (trickSpeed == 2 && recordingUuid != null) exo.currentPosition else trickPositionMs
+        clearTrick()
+        exo.seekTo(pos)
+        exo.playWhenReady = true
+    }
+
+    /** Back: return to where fast-forwarding started, as it was (playing or paused). */
+    fun trickCancel() {
+        if (trickSpeed == 0) return
+        clearTrick()
+        exo.seekTo(trickOriginMs)
+        exo.playWhenReady = true
+        if (!trickWasPlaying && isLive) pauseLive() else if (!trickWasPlaying) exo.playWhenReady = false
+    }
+
+    private fun clearTrick() {
+        if (trickSpeed == 0) return
+        trickSpeed = 0
+        exo.playbackParameters = androidx.media3.common.PlaybackParameters(1f)
+        exo.volume = 1f
+        exo.setSeekParameters(androidx.media3.exoplayer.SeekParameters.DEFAULT)
+    }
+
     // ------------------------------------------------------------------ recordings
 
     /**
@@ -298,6 +428,7 @@ class TvPlayer(context: Context) {
      * still being made, when it's due to end (Unix seconds), else 0.
      */
     fun playRecording(client: TvhClient, uuid: String, startMs: Long, recordingUntilSec: Long = 0) {
+        clearTrick()
         main.removeCallbacksAndMessages(TOKEN)
         stopSubscription()
         playToken++
@@ -349,6 +480,7 @@ class TvPlayer(context: Context) {
     }
 
     fun stop() {
+        clearTrick()
         main.removeCallbacksAndMessages(TOKEN)
         playToken++
         stopSubscription()
@@ -463,6 +595,9 @@ class TvPlayer(context: Context) {
         private const val TIMESHIFT_SECONDS = 3600
         /** Within this much of live counts as live. */
         const val LIVE_SLACK_MS = 8000L
+        /** Fast-forward / rewind speeds, slowest rewind … fastest forward. */
+        val TRICK_SPEEDS = listOf(-32, -16, -8, -4, -2, 2, 4, 8, 16, 32)
+        private const val TRICK_STEP_MS = 500L
 
     }
 }
