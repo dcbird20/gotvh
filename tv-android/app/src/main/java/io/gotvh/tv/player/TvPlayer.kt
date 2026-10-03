@@ -71,6 +71,9 @@ class TvPlayer(context: Context) {
             .build()
     }
 
+    /** A decoder message stays readable until then, even once playing again. */
+    private var holdStatusUntil = 0L
+
     /** True from tuning until the first picture. */
     var tuning by mutableStateOf(false)
         private set
@@ -117,7 +120,7 @@ class TvPlayer(context: Context) {
                 if (state == Player.STATE_READY) {
                     tuning = false
                     retries = 0
-                    if (profileIndex == 0) status = null
+                    if (profileIndex == 0 && System.currentTimeMillis() > holdStatusUntil) status = null
                 }
                 if (state == Player.STATE_ENDED) {
                     when {
@@ -546,24 +549,48 @@ class TvPlayer(context: Context) {
             PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
         )
         val recording = recordingUuid
+        // Which decoder failed, and on what: the sound or the picture, and its format.
+        val failed = (error as? androidx.media3.exoplayer.ExoPlaybackException)?.rendererFormat
+        val part = if (failed?.sampleMimeType?.startsWith("audio") == true) "sound" else "picture"
+        val detail = failed?.let { f ->
+            listOfNotNull(
+                f.sampleMimeType,
+                f.codecs,
+                if (f.channelCount > 0) "${f.channelCount} ch" else null,
+                if (f.sampleRate > 0) "${f.sampleRate} Hz" else null,
+                if (f.width > 0) "${f.width}×${f.height}" else null,
+            ).joinToString(", ")
+        }?.let { " ($it)" } ?: ""
+        val away = client?.isAway == true
         when {
             code == 503 -> status = "No free tuner or stream right now: everything is in use (recordings, other viewers, or the IPTV stream limit)."
             code == 403 -> status = "Tvheadend won't stream this: it's switched off, or this account isn't allowed to watch it."
             code == 404 && recording != null -> status = "Tvheadend can't find this recording's file any more."
             code == 502 -> status = "Nothing is linked to this channel in Tvheadend. The admin app's channel check can relink it."
             code == 401 -> status = "Tvheadend rejected the sign-in. Check it under Settings."
+            // Away from home, the converted stream over HTSP didn't decode: the same converted stream
+            // over plain HTTP next (not the full-size original), then the other profiles.
+            recording == null && decoderProblem && !httpLive && away -> {
+                profileIndex = 0
+                status = "This device couldn't decode the $part$detail. Trying the ${profiles[0]} stream without pause."
+                pauseUnavailable = "Playing without pause: this device couldn't decode the $part over the pausable connection$detail."
+                holdStatusUntil = System.currentTimeMillis() + 20_000; later(20_000) { if (!tuning) status = null }
+                startHttpLive()
+            }
             // HTSP live TV this TV can't decode: the converting HTTP profiles (no pause there).
             recording == null && decoderProblem && !httpLive -> {
                 if (profiles.size > 1) profileIndex = 1
-                status = if (profileIndex > 0) "This TV can't decode this channel's picture, so Tvheadend is converting it (${profiles[profileIndex]})." else null
-                pauseUnavailable = "This channel needs converting for this TV, which plays without pause."
+                status = if (profileIndex > 0) "This device can't decode this channel's $part$detail, so Tvheadend is converting it (${profiles[profileIndex]})." else null
+                pauseUnavailable = "This channel needs converting for this device, which plays without pause."
+                holdStatusUntil = System.currentTimeMillis() + 20_000; later(20_000) { if (!tuning) status = null }
                 startHttpLive()
             }
             recording == null && decoderProblem && nextProfile() -> {
-                status = "This TV can't decode this channel's picture, so Tvheadend is converting it (${profiles[profileIndex]})."
+                status = "This device can't decode this channel's $part$detail, so Tvheadend is converting it (${profiles[profileIndex]})."
+                holdStatusUntil = System.currentTimeMillis() + 20_000; later(20_000) { if (!tuning) status = null }
                 startHttpLive()
             }
-            decoderProblem && recording != null -> status = "This TV can't decode this recording's video."
+            decoderProblem && recording != null -> status = "This device can't decode this recording's $part$detail."
             decoderProblem -> status = "This TV can't decode this channel, and Tvheadend has no converting stream profile. " +
                 "Add an H.264 profile in Tvheadend (Configuration → Stream → Stream profiles)."
             htspReason != null && recording == null -> retryLive(describeHtsp(htspReason))
