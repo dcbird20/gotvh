@@ -327,7 +327,7 @@ class TvPlayer(context: Context) {
             paused = false
         }
         exo.setSeekParameters(androidx.media3.exoplayer.SeekParameters.CLOSEST_SYNC)
-        setTrickSpeed(if (forward) 2 else -2)
+        changeTrickSpeed(if (forward) 2 else -2)
         trickStep()
     }
 
@@ -341,10 +341,10 @@ class TvPlayer(context: Context) {
         val i = TRICK_SPEEDS.indexOf(trickSpeed)
         val next = TRICK_SPEEDS.getOrNull(i + dir) ?: return
         if (next > 0 && isLive && !isBehindLive) return
-        setTrickSpeed(next)
+        changeTrickSpeed(next)
     }
 
-    private fun setTrickSpeed(speed: Int) {
+    private fun changeTrickSpeed(speed: Int) {
         if (trickSpeed == 2 && recordingUuid != null) trickPositionMs = exo.currentPosition // leaving real 2×
         trickSpeed = speed
         val smooth = speed == 2 && recordingUuid != null
