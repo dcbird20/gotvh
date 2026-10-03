@@ -194,7 +194,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var awayQuality by mutableStateOf(settings.awayQuality)
         private set
 
-    fun setAwayQuality(quality: String) {
+    fun chooseAwayQuality(quality: String) {
         awayQuality = quality
         settings.awayQuality = quality
         if (isAway) connect()

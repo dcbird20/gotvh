@@ -146,7 +146,7 @@ private fun AwaySection(vm: AppViewModel) {
         Text("Away quality", color = Tv.text, fontSize = 17.sp, modifier = Modifier.padding(top = 6.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             listOf("auto" to "Automatic", "original" to "Always original", "converted" to "Always converted").forEach { (key, label) ->
-                TvButton((if (vm.awayQuality == key) "✓  " else "") + label) { vm.setAwayQuality(key) }
+                TvButton((if (vm.awayQuality == key) "✓  " else "") + label) { vm.chooseAwayQuality(key) }
             }
         }
         Text(
