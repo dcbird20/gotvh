@@ -90,6 +90,10 @@ for later, Resume or Play for a recording), so OK, OK does the obvious thing.
 | ▶ | Watch that channel |
 | Back | Back to what's playing |
 
+**Genres**: Up from the top channel moves to the genre chips (All · Sports · Movies · …). Left/Right pick
+one: the guide then lists only channels with that genre in the next 12 hours and fades other
+programmes. Down, OK or Back returns to the grid; the choice is kept until you change it.
+
 **Recordings**: Up/Down move; OK on a show lists its recordings, OK on a recording opens its card
 (Resume / Play, From the start, Mark watched / unwatched, Delete or Stop recording); Back goes up a level,
 then back to what's playing. "Continue watching" at the top lists everything stopped partway; a dot means

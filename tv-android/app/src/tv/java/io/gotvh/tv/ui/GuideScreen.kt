@@ -35,6 +35,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -76,10 +77,25 @@ private fun alignDown(sec: Long) = sec - Math.floorMod(sec, STEP)
 @Composable
 fun GuideScreen(vm: AppViewModel) {
     val context = LocalContext.current
-    val channels = vm.channels
+    // Genre filter (null = all): only channels with something of that genre in the next 12 hours,
+    // and that genre's programmes stand out. Chosen in the chip row above the grid (Up from the top).
+    var genre by remember { mutableStateOf(vm.guideGenre) }
+    val filterNow = nowSec() / 600 * 600
+    val channels = remember(vm.channels, vm.programs, genre, filterNow) {
+        val g = genre
+        if (g == null) vm.channels else vm.channels.filter { ch ->
+            vm.programsFor(ch.uuid).any { !it.placeholder && it.stop > filterNow && it.start < filterNow + 12 * 3600 && Genre.of(it) == g }
+        }
+    }
+    /** The genre chips have the highlight (not the grid). */
+    var onChips by remember { mutableStateOf(false) }
     val focus = remember { FocusRequester() }
     val listState = rememberLazyListState()
-    var row by remember { mutableIntStateOf(vm.guideRow.coerceIn(0, (channels.size - 1).coerceAtLeast(0))) }
+    var row by remember {
+        val uuid = vm.channels.getOrNull(vm.guideRow)?.uuid
+        mutableIntStateOf(channels.indexOfFirst { it.uuid == uuid }.coerceAtLeast(0))
+    }
+    LaunchedEffect(channels) { row = row.coerceIn(0, (channels.size - 1).coerceAtLeast(0)) }
     var now by remember { mutableLongStateOf(nowSec()) }
     val earliest = alignDown(now) - STEP
     var windowStart by remember { mutableLongStateOf(alignDown(nowSec())) }
@@ -123,7 +139,7 @@ fun GuideScreen(vm: AppViewModel) {
     LaunchedEffect(row, rows) { keepRowVisible() }
     LaunchedEffect(top) { listState.scrollToItem(top) }
 
-    BackHandler(enabled = detail == null) { vm.backToVideo() }
+    BackHandler(enabled = detail == null) { if (onChips && channels.isNotEmpty()) onChips = false else vm.backToVideo() }
 
     /** Point the grid at [t], scrolling the window so it's comfortably on screen. */
     fun moveTo(t: Long) {
@@ -133,9 +149,17 @@ fun GuideScreen(vm: AppViewModel) {
     }
 
     fun watch(index: Int) {
+        val uuid = channels.getOrNull(index)?.uuid ?: return
         // Same channel while a recording is loaded still means "switch to live TV".
-        if (index != vm.currentIndex || vm.recordingLoaded) vm.tune(index)
+        if (uuid != vm.currentChannel?.uuid || vm.recordingLoaded) vm.tuneUuid(uuid)
         vm.screen = Screen.Watch
+    }
+    val genres: List<Genre?> = listOf<Genre?>(null) + Genre.entries
+    fun pickGenre(g: Genre?) {
+        genre = g
+        vm.guideGenre = g
+        row = 0
+        top = 0
     }
 
     Box(
@@ -145,11 +169,25 @@ fun GuideScreen(vm: AppViewModel) {
             .focusRequester(focus)
             .focusable()
             .onPreviewKeyEvent { ev ->
-                if (detail != null || channels.isEmpty()) return@onPreviewKeyEvent false
+                if (detail != null) return@onPreviewKeyEvent false
                 if (isHeldOk(ev)) return@onPreviewKeyEvent true
                 if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                if (onChips || channels.isEmpty()) {
+                    // The genre chips: Left/Right choose (the grid follows), Down / OK back to the grid.
+                    val i = genres.indexOf(genre)
+                    when (ev.nativeKeyEvent.keyCode) {
+                        KeyEvent.KEYCODE_DPAD_LEFT -> pickGenre(genres[(i - 1).coerceAtLeast(0)])
+                        KeyEvent.KEYCODE_DPAD_RIGHT -> pickGenre(genres[(i + 1).coerceAtMost(genres.size - 1)])
+                        KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER ->
+                            if (channels.isNotEmpty()) onChips = false
+                        KeyEvent.KEYCODE_DPAD_UP -> {}
+                        else -> return@onPreviewKeyEvent false
+                    }
+                    if (channels.isEmpty()) onChips = true
+                    return@onPreviewKeyEvent true
+                }
                 when (ev.nativeKeyEvent.keyCode) {
-                    KeyEvent.KEYCODE_DPAD_UP -> row = (row - 1).coerceAtLeast(0)
+                    KeyEvent.KEYCODE_DPAD_UP -> if (row == 0) onChips = true else row--
                     KeyEvent.KEYCODE_DPAD_DOWN -> row = (row + 1).coerceAtMost(channels.size - 1)
                     KeyEvent.KEYCODE_CHANNEL_UP, KeyEvent.KEYCODE_PAGE_UP -> page(-1)
                     KeyEvent.KEYCODE_CHANNEL_DOWN, KeyEvent.KEYCODE_PAGE_DOWN -> page(1)
@@ -185,9 +223,34 @@ fun GuideScreen(vm: AppViewModel) {
                 Spacer(Modifier.width(18.dp))
                 Text(dayLabel(windowStart), color = Tv.accent, fontSize = 20.sp)
                 Spacer(Modifier.weight(1f))
-                Text("OK details · ▶ watch · ⏪⏩ 2 hours · Back TV", color = Tv.muted, fontSize = 13.sp)
+                Text(if (onChips) "◀ ▶ genre · ▼ back to the guide" else "OK details · ▶ watch · ⏪⏩ 2 hours · ▲ at the top: genres · Back TV",
+                    color = Tv.muted, fontSize = 13.sp)
+            }
+            Spacer(Modifier.height(8.dp))
+            // Genre chips: the chosen one is filled; the highlight ring shows when Up has moved here.
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                genres.forEach { g ->
+                    val chosen = g == genre
+                    Row(
+                        Modifier
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(if (chosen) (g?.color ?: Tv.accent) else Color(0x1FFFFFFF))
+                            .then(if (chosen && onChips) Modifier.border(2.dp, Color.White, RoundedCornerShape(16.dp)) else Modifier)
+                            .padding(horizontal = 12.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        if (g != null && !chosen) Box(Modifier.size(8.dp).background(g.color, CircleShape))
+                        Text(g?.label ?: "All", color = if (chosen) Color.Black else Tv.text, fontSize = 14.sp,
+                            fontWeight = if (chosen) FontWeight.Bold else FontWeight.Normal)
+                    }
+                }
+                if (genre != null) Text("${channels.size} channels", color = Tv.muted, fontSize = 13.sp)
             }
             Spacer(Modifier.height(10.dp))
+            if (channels.isEmpty() && genre != null) {
+                Text("Nothing in ${genre?.label} in the next 12 hours. ◀ ▶ another genre.", color = Tv.muted, fontSize = 18.sp)
+            }
             ProgramSummary(selected, channel, isNow = anchor <= now + 60)
             Spacer(Modifier.height(12.dp))
             BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
@@ -202,8 +265,8 @@ fun GuideScreen(vm: AppViewModel) {
                     LazyColumn(state = listState, userScrollEnabled = false) {
                         itemsIndexed(channels, key = { _, c -> c.uuid }) { i, ch ->
                             GuideRow(
-                                vm = vm, channel = ch, isRow = i == row, selected = selected, gap = if (i == row) gap else null,
-                                windowStart = windowStart, dpPerSec = dpPerSec, now = now,
+                                vm = vm, channel = ch, isRow = i == row && !onChips, selected = selected, gap = if (i == row && !onChips) gap else null,
+                                windowStart = windowStart, dpPerSec = dpPerSec, now = now, genre = genre,
                             )
                         }
                     }
@@ -273,6 +336,7 @@ private fun GuideRow(
     windowStart: Long,
     dpPerSec: Float,
     now: Long,
+    genre: Genre? = null,
 ) {
     val windowEnd = windowStart + WINDOW
     Row(Modifier.fillMaxWidth().height(ROW_HEIGHT).padding(vertical = 3.dp)) {
@@ -324,6 +388,8 @@ private fun GuideRow(
                     clippedStart = p.start < windowStart,
                     width = ((e - s) * dpPerSec).dp,
                     modifier = Modifier.offset(x = ((s - windowStart) * dpPerSec).dp),
+                    // Filtering by genre: the other programmes fade back.
+                    dim = genre != null && Genre.of(p) != genre,
                 )
             }
             if (now in windowStart until windowEnd) {
@@ -334,7 +400,7 @@ private fun GuideRow(
 }
 
 @Composable
-private fun ProgramTile(p: Program, isSelected: Boolean, clippedStart: Boolean, width: Dp, modifier: Modifier) {
+private fun ProgramTile(p: Program, isSelected: Boolean, clippedStart: Boolean, width: Dp, modifier: Modifier, dim: Boolean = false) {
     val context = LocalContext.current
     val genre = if (p.placeholder) null else Genre.of(p)
     // Placeholders are fainter than real programmes, so it's clear the guide lists nothing there.
@@ -343,6 +409,7 @@ private fun ProgramTile(p: Program, isSelected: Boolean, clippedStart: Boolean, 
         modifier
             .width((width - 3.dp).coerceAtLeast(3.dp))
             .fillMaxHeight()
+            .alpha(if (dim && !isSelected) 0.35f else 1f)
             .clip(RoundedCornerShape(6.dp))
             .background(if (isSelected) Color(0xFFF5F7FA) else base)
             .then(if (isSelected) Modifier.border(2.dp, Tv.accent, RoundedCornerShape(6.dp)) else Modifier),

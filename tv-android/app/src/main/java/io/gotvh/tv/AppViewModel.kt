@@ -45,6 +45,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     /** Channel row the guide opens on (the one you were watching, or picked in the channel list). */
     var guideRow by mutableIntStateOf(0)
+    /** The guide's genre filter (null = all), kept while the app runs. */
+    var guideGenre by mutableStateOf<io.gotvh.tv.data.Genre?>(null)
     /** Channel watched before the current one (the remote's "last channel" key). */
     private var previousIndex = -1
     /** A short message for the viewer (connection problems, "Recording scheduled"). */
