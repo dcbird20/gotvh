@@ -54,7 +54,7 @@ class TvPlayer(context: Context) {
     var status by mutableStateOf<String?>(null)
         private set
 
-    /** Closed captions are switched on (see [setCaptions]). */
+    /** Closed captions are switched on (see [showCaptions]). */
     var captions by mutableStateOf(false)
         private set
 
@@ -62,7 +62,7 @@ class TvPlayer(context: Context) {
      * Closed captions on or off, for live TV and recordings alike. Captions are a text track
      * without a language (CEA-608 inside the video), so "undetermined" has to be allowed.
      */
-    fun setCaptions(on: Boolean) {
+    fun showCaptions(on: Boolean) {
         captions = on
         exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
             .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !on)
