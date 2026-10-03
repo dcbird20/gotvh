@@ -5,6 +5,12 @@ import android.content.Context
 /** Server, sign-in and viewing preferences, kept in the app's private storage. */
 class Settings(context: Context) {
     private val prefs = context.getSharedPreferences("gotvh", Context.MODE_PRIVATE)
+    private val captioning = context.getSystemService(Context.CAPTIONING_SERVICE) as? android.view.accessibility.CaptioningManager
+
+    /** Closed captions on. Until you choose, follows the TV's own Captions setting (Accessibility). */
+    var captions: Boolean
+        get() = if (prefs.contains("captions")) prefs.getBoolean("captions", false) else captioning?.isEnabled == true
+        set(value) = prefs.edit().putBoolean("captions", value).apply()
 
     var server: String
         get() = prefs.getString("server", "") ?: ""

@@ -121,6 +121,7 @@ fun PlaybackScreen(vm: AppViewModel) {
                     KeyEvent.KEYCODE_MEDIA_REWIND -> { seek(-BACK_MS); return@onPreviewKeyEvent true }
                     KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { seek(FORWARD_MS); return@onPreviewKeyEvent true }
                     KeyEvent.KEYCODE_GUIDE -> { leaveFor(Screen.Guide); return@onPreviewKeyEvent true }
+                    KeyEvent.KEYCODE_CAPTIONS -> { vm.toggleCaptions(); vm.notice = if (vm.player.captions) "Captions on" else "Captions off"; return@onPreviewKeyEvent true }
                     KeyEvent.KEYCODE_MENU -> { vm.saveRecordingPosition(force = true); vm.menuOpen = true; return@onPreviewKeyEvent true }
                 }
                 if (controls) return@onPreviewKeyEvent false // real focus inside the controls
@@ -153,6 +154,7 @@ fun PlaybackScreen(vm: AppViewModel) {
                 buttons = listOf(
                     (if (paused) "▶  Play" else "❚❚  Pause") to { togglePause() },
                     "ⓘ  Info" to { controls = false; info = true },
+                    (if (vm.player.captions) "CC  On" else "CC  Off") to { vm.toggleCaptions() },
                     "▦  Guide" to { leaveFor(Screen.Guide) },
                     "☰  Channels" to { controls = false; vm.saveRecordingPosition(force = true); vm.requestChannelList = true; vm.goLive() },
                     "Recordings" to { leaveFor(Screen.Recordings) },

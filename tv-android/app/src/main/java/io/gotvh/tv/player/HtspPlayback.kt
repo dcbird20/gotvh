@@ -10,6 +10,7 @@ import androidx.media3.datasource.BaseDataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.extractor.AacUtil
 import androidx.media3.extractor.AvcConfig
+import androidx.media3.extractor.CeaUtil
 import androidx.media3.extractor.Extractor
 import androidx.media3.extractor.ExtractorInput
 import androidx.media3.extractor.ExtractorOutput
@@ -108,7 +109,10 @@ class HtspExtractor : Extractor {
     private val header = ByteArray(4)
     private var body = ByteArray(256 * 1024)
 
-    private class Track(val output: TrackOutput, val isVideo: Boolean, val isAac: Boolean)
+    private class Track(val output: TrackOutput, val isVideo: Boolean, val isAac: Boolean, val codec: String)
+
+    /** Closed captions (CEA-608, carried inside the video frames). One track, chosen or not by the player. */
+    private var captions: Array<TrackOutput> = emptyArray()
 
     override fun sniff(input: ExtractorInput): Boolean = true
 
@@ -144,7 +148,13 @@ class HtspExtractor : Extractor {
             val isVideo = MimeTypes.isVideo(format.sampleMimeType)
             val out = output.track(index, if (isVideo) C.TRACK_TYPE_VIDEO else C.TRACK_TYPE_AUDIO)
             out.format(format)
-            tracks[index] = Track(out, isVideo, type == "AAC")
+            tracks[index] = Track(out, isVideo, type == "AAC", type)
+        }
+        if (tracks.values.any { it.isVideo }) {
+            // ATSC / cable captions ride in the video (H.264/HEVC SEI, MPEG-2 user data): offer them as a text track.
+            val cc = output.track(CAPTION_TRACK_ID, C.TRACK_TYPE_TEXT)
+            cc.format(Format.Builder().setId("cc").setSampleMimeType(MimeTypes.APPLICATION_CEA608).setAccessibilityChannel(1).build())
+            captions = arrayOf(cc)
         }
         output.endTracks()
         tracksEnded = true
@@ -162,6 +172,7 @@ class HtspExtractor : Extractor {
         // Video: only I-frames are keyframes ('I' = 73; no frame type = treat as one).
         val frameType = msg.int("frametype", -1)
         val flags = if (!track.isVideo || frameType == -1 || frameType == 73) C.BUFFER_FLAG_KEY_FRAME else 0
+        if (track.isVideo && captions.isNotEmpty()) runCatching { Captions.scan(track.codec, payload, timeUs, captions) }
         track.output.sampleData(ParsableByteArray(payload), payload.size)
         track.output.sampleMetadata(timeUs, flags, payload.size, 0, null)
     }
@@ -171,6 +182,8 @@ class HtspExtractor : Extractor {
     override fun release() {}
 
     companion object {
+        private const val CAPTION_TRACK_ID = 9999
+
         // Tvheadend's sample-rate index ("rate") → Hz.
         private val RATES = intArrayOf(96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350, 0, 0, 0)
 
@@ -223,5 +236,64 @@ class HtspExtractor : Extractor {
             }
             return b.build()
         }
+    }
+}
+
+/**
+ * Finds closed-caption data in one video frame (Annex B) and hands it to Media3's CEA-608 output,
+ * the same way its TS extractor does: H.264 SEI (NAL 6), HEVC prefix SEI (NAL 39), MPEG-2 user
+ * data (start code 0xB2, "GA94").
+ */
+@UnstableApi
+internal object Captions {
+    fun scan(codec: String, data: ByteArray, timeUs: Long, outputs: Array<TrackOutput>) {
+        var i = nextStart(data, 0)
+        while (i >= 0) {
+            val payload = i + 3 // first byte after 00 00 01
+            val next = nextStart(data, payload)
+            val end = if (next < 0) data.size else next
+            if (payload < end) {
+                val b = data[payload].toInt() and 0xFF
+                when (codec) {
+                    "H264" -> if (b and 0x1F == 6) sei(data, payload, end, 1, timeUs, outputs)
+                    "HEVC" -> if ((b shr 1) and 0x3F == 39) sei(data, payload, end, 2, timeUs, outputs)
+                    "MPEG2VIDEO" -> if (b == 0xB2) {
+                        // From the start code, as UserDataReader expects: 00 00 01 B2 'GA94' 03 cc_data…
+                        val buf = ParsableByteArray(data.copyOfRange(i, end))
+                        if (buf.bytesLeft() >= 9 && buf.readInt() == 0x1B2 &&
+                            buf.readInt() == CeaUtil.USER_DATA_IDENTIFIER_GA94 &&
+                            buf.readUnsignedByte() == CeaUtil.USER_DATA_TYPE_CODE_MPEG_CC
+                        ) CeaUtil.consumeCcData(timeUs, buf, outputs)
+                    }
+                }
+            }
+            i = next
+        }
+    }
+
+    private fun sei(data: ByteArray, start: Int, end: Int, headerBytes: Int, timeUs: Long, outputs: Array<TrackOutput>) {
+        // Drop emulation-prevention bytes (00 00 03 → 00 00).
+        val nal = ByteArray(end - start)
+        var n = 0
+        var zeros = 0
+        for (k in start until end) {
+            val v = data[k].toInt() and 0xFF
+            if (zeros >= 2 && v == 3) { zeros = 0; continue }
+            zeros = if (v == 0) zeros + 1 else 0
+            nal[n++] = data[k]
+        }
+        val buf = ParsableByteArray(nal, n)
+        buf.setPosition(headerBytes)
+        CeaUtil.consume(timeUs, buf, outputs)
+    }
+
+    /** Index of the next 00 00 01 at or after [from], or -1. */
+    private fun nextStart(d: ByteArray, from: Int): Int {
+        var i = from
+        while (i + 2 < d.size) {
+            if (d[i].toInt() == 0 && d[i + 1].toInt() == 0 && d[i + 2].toInt() == 1) return i
+            i++
+        }
+        return -1
     }
 }

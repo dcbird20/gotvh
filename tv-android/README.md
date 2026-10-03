@@ -67,12 +67,17 @@ changes meaning on a timer. ⏯ ⏪ ⏩, Guide and Ch± keys work too on remotes
 | 0–9 (or the TV's 123 pad) | A channel number |
 
 **The player controls** (the same for live TV and recordings): what's playing, a progress row, and a
-row of buttons — ⏯ · Info · Guide · Channels · 123 · Recordings · Search · Record (live TV; · Live when
+row of buttons — ⏯ · Info · CC · Guide · Channels · 123 · Recordings · Search · Record (live TV; · Live when
 behind) or Restart (a recording). The highlight starts on ⏯, so OK, OK pauses. Up moves to the progress
 row, where Left/Right go back / forward. On live TV, Down reaches the mini guide (OK on a programme: its
 card). 123 opens an on-screen number pad. The controls close after 8 seconds without a key press, and
 Back closes them. Whatever is playing keeps playing behind the guide, recordings and search; Back there
 comes back to it.
+
+**Closed captions**: CC in the controls (or a remote's Captions key) turns them on or off for live TV
+and recordings; the choice is remembered. Until you choose, the app follows the TV's own Captions
+setting (Accessibility), which also sets their size and style. These are the US broadcast captions
+(CEA-608) carried inside the video. DVB subtitles and teletext (European broadcasts) aren't shown yet.
 
 **One details card** for every programme and recording — from the guide, search, the mini guide, Info
 or Recordings: the description, and the most likely action first (Watch for something on now, Record

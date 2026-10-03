@@ -27,7 +27,14 @@ fun nowSec(): Long = System.currentTimeMillis() / 1000
 class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     val settings = Settings(app)
-    val player = TvPlayer(app)
+    val player = TvPlayer(app).also { it.setCaptions(settings.captions) }
+
+    /** Closed captions on/off (remembered). */
+    fun toggleCaptions() {
+        val on = !player.captions
+        player.setCaptions(on)
+        settings.captions = on
+    }
 
     var client by mutableStateOf<TvhClient?>(null)
         private set

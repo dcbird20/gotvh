@@ -156,6 +156,7 @@ fun WatchScreen(vm: AppViewModel) {
                     KeyEvent.KEYCODE_GUIDE -> { openGuide(vm.currentIndex); return@onPreviewKeyEvent true }
                     KeyEvent.KEYCODE_MENU -> { vm.menuOpen = true; return@onPreviewKeyEvent true }
                     KeyEvent.KEYCODE_LAST_CHANNEL -> { vm.tunePrevious(); return@onPreviewKeyEvent true }
+                    KeyEvent.KEYCODE_CAPTIONS -> { vm.toggleCaptions(); vm.notice = if (player.captions) "Captions on" else "Captions off"; return@onPreviewKeyEvent true }
                     in KeyEvent.KEYCODE_0..KeyEvent.KEYCODE_9 -> {
                         digits += (k - KeyEvent.KEYCODE_0).toString()
                         showBanner()
@@ -219,6 +220,7 @@ fun WatchScreen(vm: AppViewModel) {
                 val buttons = buildList<Pair<String, () -> Unit>> {
                     if (player.canPause) add((if (player.paused) "▶  Play" else "❚❚  Pause") to { player.togglePause() })
                     add("ⓘ  Info" to { on?.let { controls = false; card = it } ?: run { vm.notice = "Nothing in the guide for this channel now." } })
+                    add((if (player.captions) "CC  On" else "CC  Off") to { vm.toggleCaptions() })
                     add("▦  Guide" to { openGuide(vm.currentIndex) })
                     add("☰  Channels" to { openList() })
                     add("123" to { controls = false; padOpen = true })

@@ -145,6 +145,9 @@ private fun LiveControls(vm: AppViewModel, fullScreen: Boolean, onAction: () -> 
                     }
                 }
                 Spacer(Modifier.weight(1f))
+                TextButton(onClick = { vm.toggleCaptions(); onAction() }) {
+                    Text(if (player.captions) "CC on" else "CC off", color = if (player.captions) Tv.accent else Tv.text)
+                }
                 TextButton(onClick = {
                     activity?.requestedOrientation = if (fullScreen) ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
                     else ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE

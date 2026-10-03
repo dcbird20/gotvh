@@ -105,6 +105,9 @@ fun RecordingPlayer(vm: AppViewModel) {
                     if (r.subtitle.isNotBlank()) Text(r.subtitle, color = Tv.muted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 if (vm.player.growing) Text("● Still recording", color = Tv.rec, fontSize = 13.sp, modifier = Modifier.padding(end = 12.dp))
+                androidx.compose.material3.TextButton(onClick = { vm.toggleCaptions() }) {
+                    Text(if (vm.player.captions) "CC on" else "CC off", color = if (vm.player.captions) Tv.accent else Color.White)
+                }
             }
             Row(Modifier.align(Alignment.Center), horizontalArrangement = Arrangement.spacedBy(32.dp), verticalAlignment = Alignment.CenterVertically) {
                 Round("−10", 52) { seek(-10_000) }

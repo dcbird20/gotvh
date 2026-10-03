@@ -54,6 +54,23 @@ class TvPlayer(context: Context) {
     var status by mutableStateOf<String?>(null)
         private set
 
+    /** Closed captions are switched on (see [setCaptions]). */
+    var captions by mutableStateOf(false)
+        private set
+
+    /**
+     * Closed captions on or off, for live TV and recordings alike. Captions are a text track
+     * without a language (CEA-608 inside the video), so "undetermined" has to be allowed.
+     */
+    fun setCaptions(on: Boolean) {
+        captions = on
+        exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !on)
+            .setSelectUndeterminedTextLanguage(true)
+            .setPreferredTextLanguage(java.util.Locale.getDefault().language)
+            .build()
+    }
+
     /** True from tuning until the first picture. */
     var tuning by mutableStateOf(false)
         private set
