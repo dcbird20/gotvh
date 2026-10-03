@@ -1,0 +1,107 @@
+# GoTVH front door — the only thing reachable from the internet.
+#
+# One port (443 outside, 8443 in the container). The first few bytes of each connection name
+# the host it wants (TLS SNI) and decide where it goes:
+#   __TV_HOST__    HTTPS: the admin app and Tvheadend's API / streams (via raven1's nginx on 8090)
+#   __HTSP_HOST__  TLS: Tvheadend's HTSP port (live TV with pause), for the TV and phone apps
+#   anything else  closed at once, before any handshake (scanners find nothing)
+# Both need a device certificate from the pairing service; a removed device is refused.
+
+worker_processes 1;
+pid /tmp/nginx.pid;
+error_log /dev/stderr warn;
+
+events { worker_connections 1024; }
+
+stream {
+    log_format route '$proxy_protocol_addr $ssl_preread_server_name $status $bytes_sent $session_time';
+
+    map $ssl_preread_server_name $gotvh_route {
+        __TV_HOST__    127.0.0.1:8444;
+        __HTSP_HOST__  127.0.0.1:8445;
+        default        127.0.0.1:1;
+    }
+
+    server {
+        listen 8443;
+        ssl_preread on;
+        proxy_pass $gotvh_route;
+        proxy_protocol on;          # pass the visitor's address on, for the logs
+        proxy_connect_timeout 2s;
+    }
+
+    # HTSP inside TLS, paired devices only.
+    server {
+        listen 127.0.0.1:8445 ssl proxy_protocol;
+        access_log /dev/stdout route;
+
+        ssl_certificate     /certs/fullchain.pem;
+        ssl_certificate_key /certs/key.pem;
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_session_cache shared:htsp_tls:1m;
+        ssl_client_certificate /pki/ca.pem;
+        ssl_verify_client on;
+        ssl_crl /pki/crl.pem;
+
+        proxy_pass __TVH_HTSP__;
+        proxy_timeout 12h;          # live TV and long pauses
+    }
+}
+
+http {
+    server_tokens off;
+    access_log /dev/stdout;
+    client_body_temp_path /tmp/client_temp;
+    proxy_temp_path       /tmp/proxy_temp;
+    fastcgi_temp_path     /tmp/fastcgi_temp;
+    uwsgi_temp_path       /tmp/uwsgi_temp;
+    scgi_temp_path        /tmp/scgi_temp;
+    include /etc/nginx/mime.types;
+
+    log_format device '$proxy_protocol_addr "$ssl_client_s_dn" $request_method $uri $status $body_bytes_sent';
+
+    map $http_upgrade $gotvh_upgrade {
+        default upgrade;
+        ''      close;
+    }
+
+    server {
+        listen 127.0.0.1:8444 ssl proxy_protocol;
+        http2 on;
+        server_name __TV_HOST__;
+        access_log /dev/stdout device;
+
+        ssl_certificate     /certs/fullchain.pem;
+        ssl_certificate_key /certs/key.pem;
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_session_cache shared:web_tls:1m;
+        ssl_client_certificate /pki/ca.pem;
+        ssl_verify_client on;
+        ssl_crl /pki/crl.pem;
+
+        add_header Strict-Transport-Security "max-age=31536000" always;
+
+        # No (or a removed) device certificate: hang up without a word.
+        error_page 495 496 = @refuse;
+        location @refuse { return 444; }
+
+        # Pairing happens at home only.
+        location /pair/ { return 404; }
+
+        location / {
+            proxy_pass __HOME_WEB__;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Forwarded-For $proxy_protocol_addr;
+            proxy_set_header X-Forwarded-Proto https;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection $gotvh_upgrade;
+            # Live streams and long polls: no buffering, no early cut-off.
+            proxy_buffering off;
+            proxy_request_buffering off;
+            proxy_read_timeout 3600s;
+            proxy_send_timeout 3600s;
+            client_max_body_size 50m;
+        }
+    }
+}

@@ -1,0 +1,81 @@
+# GoTVH away-from-home access — see docs/remote-access.md before using this.
+#
+#   cd ~/gotvh/remote && cp .env.example .env   (fill it in)
+#   docker compose up -d --build                 (shows up in Portainer as stack "gotvh-remote")
+#   docker compose down                          (closes it again; the router forward then leads nowhere)
+#
+# Only the front door is meant to be reachable from the internet (router: TCP 443 → raven1:443).
+# The pairing service listens on the home network only — never forward its port.
+
+name: gotvh-remote
+
+services:
+  frontdoor:
+    image: nginxinc/nginx-unprivileged:1.27-alpine
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/etc/gotvh/start.sh"]
+    environment:
+      TV_HOST: ${TV_HOST}
+      HTSP_HOST: ${HTSP_HOST}
+      HOME_WEB: http://host.docker.internal:8090     # raven1's nginx: admin app + Tvheadend API/streams
+      TVH_HTSP: host.docker.internal:9982            # Tvheadend's HTSP port (published by its container)
+    ports:
+      - "443:8443"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./frontdoor/nginx.conf.in:/etc/gotvh/nginx.conf.in:ro
+      - ./frontdoor/start.sh:/etc/gotvh/start.sh:ro
+      - certs:/certs:ro
+      - pki:/pki:ro
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+  acme:
+    image: neilpang/acme.sh:3.1.0
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/start.sh"]
+    environment:
+      DUCKDNS_SUBDOMAIN: ${DUCKDNS_SUBDOMAIN}
+      DuckDNS_Token: ${DUCKDNS_TOKEN}
+    volumes:
+      - ./acme/start.sh:/start.sh:ro
+      - acme:/acme.sh
+      - certs:/certs
+
+  duckdns:
+    image: lscr.io/linuxserver/duckdns:latest
+    restart: unless-stopped
+    environment:
+      SUBDOMAINS: ${DUCKDNS_SUBDOMAIN}
+      TOKEN: ${DUCKDNS_TOKEN}
+      UPDATE_IP: ipv4
+      TZ: America/New_York
+
+  pair:
+    build: ./pair
+    image: gotvh-pair:local
+    restart: unless-stopped
+    environment:
+      TV_HOST: ${TV_HOST}
+      HTSP_HOST: ${HTSP_HOST}
+      TVH_URL: http://host.docker.internal:9981     # to check administrator sign-ins
+    ports:
+      - "${PAIR_LAN_IP}:8095:8095"                   # home network only
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - pair:/data
+      - pki:/pki
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+volumes:
+  certs:
+  acme:
+  pair:
+  pki:

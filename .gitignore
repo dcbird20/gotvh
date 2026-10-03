@@ -41,3 +41,4 @@ coverage/
 # Angular cache
 .angular/cache/
 *.apk
+remote/.env
