@@ -92,10 +92,12 @@ Test on the phone **with Wi-Fi off**: Settings should say "Connected away from h
 plays and pauses.
 Undo: delete the 8443 forward (web side: `./install-swag-site.sh --remove`).
 
-### 7. Away quality (Tvheadend change — only after a yes)
-Tvheadend → Configuration → Stream → Stream profiles: check that a converting profile exists
-(`webtv-h264-aac-mpegts` comes with Tvheadend builds that include transcoding). The apps use it away
-from home (Settings → Away from home → Away quality). If it's missing, we look at the container image.
+### 7. Away quality (done 2026-10-03)
+Tvheadend's built-in `webtv-*` converters encode sound as AAC **Main**, which Android decodes as
+garbage or refuses; on raven1 its MPEG-TS converter also sends nothing over HTTP. So there's a
+GoTVH profile, **gotvh-away** (Stream profiles): video `webtv-h264`, sound `aac-browser` (AAC-LC),
+container Matroska. The apps use it by default (Settings → Away from home → Away quality:
+Automatic / Always original / Always converted). Undo: delete the profile; the apps fall back.
 
 ## Keeping it safe
 
