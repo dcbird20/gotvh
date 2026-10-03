@@ -168,7 +168,9 @@ internal fun ProgramSheet(vm: AppViewModel, ch: Channel, p: Program, onPick: (Pr
                     OutlinedButton(onClick = { vm.cancelRecording(p); onDone() }) { Text(if (p.isRecordingNow) "Stop recording" else "Don’t record") }
                 } else if (p.stop > now) {
                     OutlinedButton(onClick = { vm.record(p); onDone() }) { Text("Record") }
-                    if (p.seriesLink.isNotBlank()) OutlinedButton(onClick = { vm.record(p, series = true); onDone() }) { Text("Record series") }
+                    OutlinedButton(onClick = { vm.record(p, series = true); onDone() }) {
+                        Text(if (p.seriesLink.isNotBlank()) "Record series" else "Record all episodes")
+                    }
                 }
             }
         }

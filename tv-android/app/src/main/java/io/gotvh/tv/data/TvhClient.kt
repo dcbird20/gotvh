@@ -215,10 +215,29 @@ class TvhClient(server: String, val username: String, val password: String, val 
     }
 
     /** Every episode, via the event's series link (becomes an auto-record rule). */
+    /**
+     * Every episode: Tvheadend's series rule when the guide links the episodes, else a rule for
+     * this exact title on this channel (guide data without series links, e.g. many XMLTV feeds).
+     */
     suspend fun recordSeries(p: Program) {
-        val reply = post("dvr/autorec/create_by_series", mapOf("event_id" to p.eventId.toString(), "config_uuid" to defaultDvrConfig()))
-        if (!createdSomething(reply)) throw TvhException("Tvheadend couldn't make a series rule for “${p.title}” (the guide may not link its episodes).")
+        if (p.seriesLink.isNotBlank()) {
+            val reply = post("dvr/autorec/create_by_series", mapOf("event_id" to p.eventId.toString(), "config_uuid" to defaultDvrConfig()))
+            if (createdSomething(reply)) return
+        }
+        val conf = JSONObject()
+            .put("enabled", 1)
+            .put("name", p.title)
+            .put("title", "^" + escapeRegex(p.title) + "$")
+            .put("fulltext", 0)
+            .put("channel", p.channelUuid)
+            .put("config_name", defaultDvrConfig())
+            .put("comment", "Made by GoTVH: every “${p.title}” on this channel")
+        val reply = post("dvr/autorec/create", mapOf("conf" to conf.toString()))
+        if (!createdSomething(reply)) throw TvhException("Tvheadend couldn't make a rule for “${p.title}”.")
     }
+
+    /** A title as a regular expression that matches exactly it (Tvheadend rule titles are regexes). */
+    private fun escapeRegex(text: String): String = text.replace(Regex("[.*+?^\${}()|\\[\\]\\\\]")) { "\\" + it.value }
 
     /** Tvheadend's create calls return {"uuid": …} (a string or a list) when they made something. */
     private fun createdSomething(reply: JSONObject): Boolean = when (val u = reply.opt("uuid")) {

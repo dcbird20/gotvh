@@ -91,7 +91,8 @@ fun ProgramCard(vm: AppViewModel, p: Program, onClose: () -> Unit, onWatch: (() 
                 add((if (p.isRecordingNow) "Stop recording" else "Don’t record") to { vm.cancelRecording(p); onClose() })
             } else if (p.stop > now) {
                 add("Record" to { vm.record(p); onClose() })
-                if (p.seriesLink.isNotBlank()) add("Record series" to { vm.record(p, series = true); onClose() })
+                // Series rule when the guide links episodes, else every showing of this title on this channel.
+                add((if (p.seriesLink.isNotBlank()) "Record series" else "Record all episodes") to { vm.record(p, series = true); onClose() })
             }
         }
         if (onWatch != null && !p.isAiring(now) && !p.placeholder) add("Watch channel" to { onClose(); onWatch() })
