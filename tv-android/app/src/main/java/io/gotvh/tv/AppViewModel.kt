@@ -31,6 +31,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val settings = Settings(app)
     val player = TvPlayer(app).also { it.showCaptions(settings.captions) }
 
+    /** This device's away-from-home pairing (null: home network only). Declared before init: connect() reads it. */
+    var away by mutableStateOf(io.gotvh.tv.data.AwayAccess.fromJson(settings.away))
+        private set
+
     /** Closed captions on/off (remembered). */
     fun toggleCaptions() {
         val on = !player.captions
@@ -133,9 +137,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     // ------------------------------------------------------------------ away from home
 
-    /** This device's away-from-home pairing (null: home network only). */
-    var away by mutableStateOf(io.gotvh.tv.data.AwayAccess.fromJson(settings.away))
-        private set
 
     /** Connected through the front door, i.e. not on the home network. */
     val isAway: Boolean get() = client?.isAway == true
