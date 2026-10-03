@@ -163,7 +163,7 @@ class HtspExtractor : Extractor {
             // ATSC / cable captions ride in the video (H.264/HEVC SEI, MPEG-2 user data): offer them as a text track.
             val cc = output.track(CAPTION_TRACK_ID, C.TRACK_TYPE_TEXT)
             cc.format(Format.Builder().setId("cc").setSampleMimeType(MimeTypes.APPLICATION_CEA608).setAccessibilityChannel(1).build())
-            captions = arrayOf(cc)
+            captions = arrayOf(CaptionReorder(cc))
         }
         output.endTracks()
         tracksEnded = true
@@ -190,7 +190,10 @@ class HtspExtractor : Extractor {
         track.output.sampleMetadata(timeUs, flags, payload.size, 0, null)
     }
 
-    override fun seek(position: Long, timeUs: Long) {}
+    override fun seek(position: Long, timeUs: Long) {
+        // Pieces of captions held for reordering belong to the old position.
+        captions.forEach { (it as? CaptionReorder)?.clear() }
+    }
 
     override fun release() {}
 
@@ -328,5 +331,51 @@ internal object Captions {
             i++
         }
         return -1
+    }
+}
+
+/**
+ * Caption data travels with video frames in decode order, which with B-frames isn't display
+ * order; the caption decoder needs them in display order or the text comes out garbled and
+ * stuttering. This holds the last few pieces and passes them on sorted by time (as Media3's own
+ * TS extractor does). [depth] covers the deepest reordering H.264/MPEG-2 broadcasts use.
+ */
+@UnstableApi
+internal class CaptionReorder(private val out: TrackOutput, private val depth: Int = 16) : TrackOutput {
+    private class Piece(val timeUs: Long, val data: ByteArray, val flags: Int)
+
+    private val queue = java.util.PriorityQueue<Piece>(compareBy { it.timeUs })
+    private var pending = java.io.ByteArrayOutputStream()
+
+    override fun format(format: Format) = out.format(format)
+
+    override fun sampleData(input: androidx.media3.common.DataReader, length: Int, allowEndOfInput: Boolean, sampleDataPart: Int): Int {
+        val buf = ByteArray(length)
+        val n = input.read(buf, 0, length)
+        if (n > 0) pending.write(buf, 0, n)
+        return n
+    }
+
+    override fun sampleData(data: ParsableByteArray, length: Int, sampleDataPart: Int) {
+        val buf = ByteArray(length)
+        data.readBytes(buf, 0, length)
+        pending.write(buf, 0, length)
+    }
+
+    override fun sampleMetadata(timeUs: Long, flags: Int, size: Int, offset: Int, cryptoData: TrackOutput.CryptoData?) {
+        val bytes = pending.toByteArray()
+        pending = java.io.ByteArrayOutputStream()
+        queue.add(Piece(timeUs, bytes.copyOfRange(maxOf(0, bytes.size - size - offset), bytes.size - offset), flags))
+        while (queue.size > depth) emit(queue.poll()!!)
+    }
+
+    private fun emit(p: Piece) {
+        out.sampleData(ParsableByteArray(p.data), p.data.size)
+        out.sampleMetadata(p.timeUs, p.flags, p.data.size, 0, null)
+    }
+
+    fun clear() {
+        queue.clear()
+        pending = java.io.ByteArrayOutputStream()
     }
 }

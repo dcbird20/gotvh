@@ -58,4 +58,18 @@ class CaptionsTest {
         Captions.scan("H264", bytes(0, 0, 1, 0x65, 1, 2, 3), 0, arrayOf(sink))
         assertEquals(0, sink.samples.size)
     }
+
+    @Test fun reorderedIntoDisplayOrder() {
+        val sink = Sink()
+        val reorder = CaptionReorder(sink, depth = 3)
+        // Decode order of an I-P-B-B group: times 0, 3, 1, 2, then 6, 4, 5 ...
+        for (t in longArrayOf(0, 3, 1, 2, 6, 4, 5, 9, 7, 8)) {
+            val d = bytes(0xFC, t.toInt(), 0)
+            reorder.sampleData(androidx.media3.common.util.ParsableByteArray(d), d.size, 0)
+            reorder.sampleMetadata(t, 1, d.size, 0, null)
+        }
+        val times = sink.samples.map { it.first }
+        assertEquals(listOf(0L, 1, 2, 3, 4, 5, 6), times)          // all but the last `depth` held back
+        assertEquals(listOf(0, 1, 2, 3, 4, 5, 6), sink.samples.map { it.second[1].toInt() }) // data travels with its time
+    }
 }
