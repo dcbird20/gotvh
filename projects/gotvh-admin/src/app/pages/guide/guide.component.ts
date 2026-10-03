@@ -157,9 +157,11 @@ import { GENRES, GenreKey, genreInfo, genreOf } from './guide-genre';
         <span class="spacer"></span>
         <mat-form-field appearance="outline" class="f-search">
           <mat-icon matPrefix>search</mat-icon>
-          <mat-label>Find a programme</mat-label>
+          <mat-label>Find a program</mat-label>
           <input matInput [ngModel]="query()" (ngModelChange)="onQuery($event)" (keydown.escape)="onQuery('')">
         </mat-form-field>
+        <mat-slide-toggle [checked]="searchDescriptions()" (change)="setSearchDescriptions($event.checked)"
+                          matTooltip="Also look in episode titles and descriptions (e.g. a team that's only named in the description)">Include descriptions</mat-slide-toggle>
       </div>
 
       <div class="legend" role="group" aria-label="Genres">
@@ -191,6 +193,7 @@ import { GENRES, GenreKey, genreInfo, genreOf } from './guide-genre';
                   <span class="r-ch">{{ e.channelNumber }} {{ e.channelName }}</span>
                   <span class="r-title"><strong>{{ e.title }}</strong>@if (e.subtitle) { · {{ e.subtitle }} }</span>
                   @if (rec(e); as r) { <span class="pill" [class]="r">{{ r }}</span> }
+                  @if (snippet(e); as sn) { <span class="r-snip">{{ sn }}</span> }
                 </button>
               } @empty { @if (!searching()) { <p class="muted">Nothing found in the guide.</p> } }
             </section>
@@ -486,6 +489,8 @@ import { GENRES, GenreKey, genreInfo, genreOf } from './guide-genre';
     .r-when, .r-ch { font: var(--mat-sys-body-small); color: var(--mat-sys-on-surface-variant); }
     .pill { font: var(--mat-sys-label-small); padding: 2px 8px; border-radius: 10px; background: var(--mat-sys-error-container); color: var(--mat-sys-on-error-container); }
     .pill.recorded { background: #d7f2df; color: #145c2e; }
+    .r-snip { grid-column: 3 / -1; font: var(--mat-sys-body-small); color: var(--mat-sys-on-surface-variant);
+              overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
     /* ---- details */
     .card { border: 1px solid var(--mat-sys-outline-variant); border-radius: 12px; padding: 14px 18px; background: var(--mat-sys-surface-container-lowest); }
@@ -705,6 +710,28 @@ export class GuideComponent implements OnInit {
 
   // ---------------------------------------------------------------- search
 
+  /** Search descriptions too (Tvheadend's fulltext): on by default, remembered. */
+  readonly searchDescriptions = signal((() => { try { return localStorage.getItem('gotvh_admin_guide_search_desc') !== '0'; } catch { return true; } })());
+  setSearchDescriptions(on: boolean): void {
+    this.searchDescriptions.set(on);
+    try { localStorage.setItem('gotvh_admin_guide_search_desc', on ? '1' : '0'); } catch { /* ignore */ }
+    this.onQuery(this.query());
+  }
+
+  /** When the match isn't in the title: the bit of the subtitle/description that matched. */
+  snippet(e: GuideEvent): string | null {
+    const q = this.query().trim().toLowerCase();
+    if (!q || !this.searchDescriptions() || e.title.toLowerCase().includes(q)) return null;
+    for (const text of [e.subtitle, e.description, e.summary]) {
+      const t = String(text || '');
+      const i = t.toLowerCase().indexOf(q);
+      if (i < 0) continue;
+      const from = Math.max(0, i - 50), to = Math.min(t.length, i + q.length + 70);
+      return (from > 0 ? '…' : '') + t.slice(from, to).replace(/\s+/g, ' ') + (to < t.length ? '…' : '');
+    }
+    return null;
+  }
+
   onQuery(q: string): void {
     this.query.set(q);
     if (this.searchTimer) clearTimeout(this.searchTimer);
@@ -713,9 +740,13 @@ export class GuideComponent implements OnInit {
     this.searching.set(true);
     this.searchTimer = setTimeout(() => {
       // Tvheadend matches titles as a regular expression; search for the text as typed.
-      this.tvh.searchAutorecPreview(text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), undefined, false, 200).subscribe(rows => {
-        const n = now();
-        this.results.set(rows.map(toEvent).filter(e => e.stop > n).sort((a, b) => a.start - b.start));
+      // With descriptions on, Tvheadend's fulltext also searches subtitles and descriptions;
+      // title matches still come first.
+      const full = this.searchDescriptions();
+      this.tvh.searchAutorecPreview(text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), undefined, full, full ? 400 : 200).subscribe(rows => {
+        const n = now(), lower = text.toLowerCase();
+        const inTitle = (e: GuideEvent) => e.title.toLowerCase().includes(lower) ? 0 : 1;
+        this.results.set(rows.map(toEvent).filter(e => e.stop > n).sort((a, b) => inTitle(a) - inTitle(b) || a.start - b.start));
         this.searching.set(false);
       });
     }, 300);
