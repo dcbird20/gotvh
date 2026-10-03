@@ -178,6 +178,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /**
+     * Phones: opens the camera to read a pairing QR code and hands back its text (set by the phone
+     * activity; null on TVs, which type the code instead).
+     */
+    var qrScanner: ((onText: (String) -> Unit) -> Unit)? = null
+
+    /** The 8-digit code in a pairing QR code ("GOTVH-PAIR:12345678"), or null if it isn't one. */
+    fun pairingCodeFromQr(text: String): String? =
+        Regex("^GOTVH-PAIR:(\\d{8})$").find(text.trim())?.groupValues?.get(1)
+
     /** Forget the pairing (the device stays listed in the admin app until removed there). */
     fun unpair() {
         settings.away = ""

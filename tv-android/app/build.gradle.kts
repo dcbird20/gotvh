@@ -83,12 +83,17 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:$media3")
     implementation("androidx.media3:media3-ui:$media3")
     implementation("androidx.media3:media3-datasource-okhttp:$media3")
+    // Recordings converted away from home come as HLS (GoTVH's converter on the server).
+    implementation("androidx.media3:media3-exoplayer-hls:$media3")
     // Software decoders (Dolby AC-3/E-AC-3, MP2…) for TVs without them; built by Jellyfin.
     implementation("org.jellyfin.media3:media3-ffmpeg-decoder:$media3+1")
 
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+
+    // Phone only: scan the pairing QR code (Google's scanner; no camera permission needed).
+    "mobileImplementation"("com.google.android.gms:play-services-code-scanner:16.1.0")
 
     testImplementation("junit:junit:4.13.2")
 }

@@ -99,6 +99,18 @@ GoTVH profile, **gotvh-away** (Stream profiles): video `webtv-h264`, sound `aac-
 container Matroska. The apps use it by default (Settings → Away from home → Away quality:
 Automatic / Always original / Always converted). Undo: delete the profile; the apps fall back.
 
+### 8. Recordings converted away from home (added 2026-10-03)
+Tvheadend serves recordings only as the original file, so the stack has a `convert` container
+(ffmpeg): it hands the app a recording as 6-second pieces, each converted to 720p H.264 + AAC-LC
+when asked for (nothing stored; seeking and resume work). Only used while watching a recording
+away from home with converting on. To add it to a running setup:
+```
+cd ~/Code/gotvh && git pull && cd remote
+docker compose up -d --build        # adds the convert container (raven1's home address, port 8097)
+./install-swag-site.sh              # adds /convert/ to the GoTVH site in SWAG
+```
+Undo: `docker compose rm -sf convert`; the apps then play recordings at full quality.
+
 ## Keeping it safe
 
 - Updates: `docker compose pull && docker compose up -d --build` monthly; SWAG as you do now.
@@ -108,5 +120,4 @@ Automatic / Always original / Always converted). Undo: delete the profile; the a
 
 ## Known limits (first version)
 
-- Recordings play at full quality away from home (~10–19 Mbps for antenna recordings).
 - A laptop browser needs its own certificate (admin app → Devices → *Certificate for a computer*).

@@ -276,6 +276,9 @@ class TvhClient(server: String, val username: String, val password: String, val 
     /** The recorded file, streamed with seeking. */
     fun recordingUrl(uuid: String): String = "$base/dvrfile/$uuid"
 
+    /** Away and converting: the recording as converted pieces (HLS) from GoTVH's converter. */
+    fun convertedRecordingUrl(uuid: String): String = "$base/convert/$uuid/index.m3u8"
+
     // ------------------------------------------------------------------ auto-record rules
 
     suspend fun autorecRules(): List<AutorecRule> {

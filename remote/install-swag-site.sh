@@ -17,6 +17,7 @@ fi
 sed -e "s#__TV_HOST__#${TV_HOST:?}#g" \
     -e "s#__BASE_DOMAIN__#${BASE_DOMAIN:?}#g" \
     -e "s#__PAIR__#${PAIR_LAN_IP:?}:8095#g" \
+    -e "s#__CONVERT__#${PAIR_LAN_IP:?}:8097#g" \
     -e "s#__HOME_WEB__#${HOME_WEB:-$PAIR_LAN_IP:8090}#g" \
     swag/gotvh.subdomain.conf.in > "$SITE.new"
 mv "$SITE.new" "$SITE"

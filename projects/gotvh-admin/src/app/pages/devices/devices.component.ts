@@ -10,6 +10,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { TvheadendService } from '@gotvh/tvh-api';
 import { ConfirmDialogComponent, ConfirmDialogData } from '../../shared/confirm-dialog.component';
+import { toDataURL } from 'qrcode';
 
 interface Device { serial: string; name: string; kind: 'app' | 'computer'; paired: string; expires: string; }
 interface Info { ready: boolean; tvHost: string; htspHost: string; port: number; }
@@ -63,8 +64,18 @@ interface Info { ready: boolean; tvHost: string; htspHost: string; port: number;
         <div class="card">
           <h2><mat-icon>add_link</mat-icon> Pair a device</h2>
           @if (code(); as c) {
-            <p>On the TV or phone: <strong>Settings → Away from home</strong>, then enter</p>
-            <p class="code">{{ c.slice(0, 4) }} {{ c.slice(4) }}</p>
+            <div class="pairing">
+              @if (qr(); as q) {
+                <div class="qr-side">
+                  <img [src]="q" alt="Pairing QR code" width="184" height="184">
+                  <span class="muted small">Phone: Scan QR code</span>
+                </div>
+              }
+              <div>
+                <p>On the TV or phone: <strong>Settings → Away from home</strong>, then enter</p>
+                <p class="code">{{ c.slice(0, 4) }} {{ c.slice(4) }}</p>
+              </div>
+            </div>
             <p class="muted">Works once, for {{ minutesLeft() }} more {{ minutesLeft() === 1 ? 'minute' : 'minutes' }}. The device must be on your home Wi-Fi.</p>
             <button mat-button (click)="code.set(null)">Done</button>
           } @else {
@@ -113,6 +124,9 @@ interface Info { ready: boolean; tvHost: string; htspHost: string; port: number;
             background: var(--mat-sys-surface-container-lowest); }
     .card.warn { border-color: var(--mat-sys-error); }
     .row { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+    .pairing { display: flex; gap: 24px; align-items: center; flex-wrap: wrap; }
+    .qr-side { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+    .qr-side img { background: #fff; padding: 8px; border-radius: 8px; image-rendering: pixelated; }
     .code { font-size: 44px; font-weight: 700; letter-spacing: 6px; margin: 6px 0; font-variant-numeric: tabular-nums; }
     .mono { font-family: monospace; font-size: 16px; }
     .device { display: flex; align-items: center; gap: 12px; padding: 10px 4px; border-bottom: 1px solid var(--mat-sys-outline-variant); }
@@ -132,6 +146,8 @@ export class DevicesComponent implements OnInit, OnDestroy {
   readonly info = signal<Info | null>(null);
   readonly devices = signal<Device[]>([]);
   readonly code = signal<string | null>(null);
+  /** The code as a QR image (the phone app's Scan QR code reads "GOTVH-PAIR:<code>"). */
+  readonly qr = signal<string | null>(null);
   readonly minutesLeft = signal(10);
   readonly p12Password = signal<string | null>(null);
 
@@ -190,6 +206,10 @@ export class DevicesComponent implements OnInit, OnDestroy {
         this.codeExpires = Date.now() + r.expiresIn * 1000;
         this.minutesLeft.set(Math.ceil(r.expiresIn / 60));
         this.code.set(r.code);
+        this.qr.set(null);
+        toDataURL('GOTVH-PAIR:' + r.code, { margin: 0, width: 168, errorCorrectionLevel: 'M' })
+          .then(url => { if (this.code() === r.code) this.qr.set(url); })
+          .catch(() => this.qr.set(null));
         // Show the new device once it has paired.
         setTimeout(() => this.refreshWhilePairing(), 5000);
       },

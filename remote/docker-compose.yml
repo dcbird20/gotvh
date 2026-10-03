@@ -66,6 +66,25 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
 
+  # Recordings converted on the fly for watching away from home (Tvheadend serves recordings
+  # only as the original file). Used only while someone watches a recording converted.
+  convert:
+    build: ./convert
+    image: gotvh-convert:local
+    restart: unless-stopped
+    environment:
+      TVH_URL: http://host.docker.internal:9981
+      MAX_HEIGHT: "720"
+      VIDEO_KBPS: "2500"
+    ports:
+      - "${PAIR_LAN_IP}:8097:8097"                   # home network only (SWAG reaches it here)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
 volumes:
   acme:
   pair:

@@ -128,14 +128,28 @@ private fun AwaySection(vm: AppViewModel) {
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
             modifier = Modifier.fillMaxWidth(),
         )
-        TvButton(if (busy) "Pairing…" else "Pair") {
-            if (busy || code.length < 8) { error = "The code has 8 digits."; return@TvButton }
+        fun pairWith(c: String) {
+            if (busy) return
             busy = true
             error = null
             scope.launch {
-                error = vm.pair(code)
+                error = vm.pair(c)
                 busy = false
                 if (error == null) code = ""
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            TvButton(if (busy) "Pairing…" else "Pair") {
+                if (code.length < 8) error = "The code has 8 digits." else pairWith(code)
+            }
+            vm.qrScanner?.let { scan ->
+                TvButton("Scan QR code") {
+                    scan { text ->
+                        val c = vm.pairingCodeFromQr(text)
+                        if (c == null) error = "That isn't a GoTVH pairing code (admin app → Devices → Make a pairing code)."
+                        else { code = c; pairWith(c) }
+                    }
+                }
             }
         }
     } else {

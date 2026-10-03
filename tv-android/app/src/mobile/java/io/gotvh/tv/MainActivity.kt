@@ -15,7 +15,21 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // Pairing for away from home: read the QR code from the admin app (Devices).
+        vm.qrScanner = { onText ->
+            val options = com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions.Builder()
+                .setBarcodeFormats(com.google.mlkit.vision.barcode.common.Barcode.FORMAT_QR_CODE)
+                .build()
+            com.google.mlkit.vision.codescanner.GmsBarcodeScanning.getClient(this, options).startScan()
+                .addOnSuccessListener { onText(it.rawValue.orEmpty()) }
+                .addOnFailureListener { vm.notice = "Couldn't open the QR scanner (${it.message}). Type the code instead." }
+        }
         setContent { MobileApp(vm) }
+    }
+
+    override fun onDestroy() {
+        vm.qrScanner = null  // it refers to this activity
+        super.onDestroy()
     }
 
     // Stop the stream in the background (frees the tuner); pick it up again on return.

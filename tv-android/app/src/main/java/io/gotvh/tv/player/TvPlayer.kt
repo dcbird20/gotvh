@@ -462,7 +462,7 @@ class TvPlayer(context: Context) {
 
     private fun startRecording(client: TvhClient, uuid: String, startMs: Long) {
         tuning = true
-        exo.setMediaSource(httpSource(client, client.recordingUrl(uuid)), startMs.coerceAtLeast(0))
+        exo.setMediaSource(recordingSource(client, uuid), startMs.coerceAtLeast(0))
         exo.prepare()
         exo.play()
     }
@@ -488,7 +488,7 @@ class TvPlayer(context: Context) {
         }
         lastGrowDurationMs = dur
         val wasPlaying = exo.playWhenReady
-        exo.setMediaSource(httpSource(c, c.recordingUrl(uuid)), pos)
+        exo.setMediaSource(recordingSource(c, uuid), pos)
         exo.prepare()
         exo.playWhenReady = wasPlaying
     }
@@ -510,6 +510,16 @@ class TvPlayer(context: Context) {
         io.execute { htsp.close() }
         io.shutdown()
     }
+
+    /**
+     * A recording: the file as recorded, or — away from home while converting — GoTVH's converted
+     * version, made piece by piece on the server as it plays (seeking and resume work as usual).
+     */
+    private fun recordingSource(client: TvhClient, uuid: String) =
+        if (client.convertProfile != null)
+            androidx.media3.exoplayer.hls.HlsMediaSource.Factory(OkHttpDataSource.Factory(client.http))
+                .createMediaSource(MediaItem.fromUri(client.convertedRecordingUrl(uuid)))
+        else httpSource(client, client.recordingUrl(uuid))
 
     /** Streams and files go through the app's HTTP client, so they carry the same sign-in (Basic or Digest). */
     private fun httpSource(client: TvhClient, url: String) =

@@ -28,8 +28,10 @@
     "@capacitor/android": "8.2.0",
     "@capacitor/cli": "8.2.0",
     "@capacitor/core": "8.2.0",
+    "@types/qrcode": "^1.5.5",
     "mpegts.js": "1.8.0",
     "ora": "6.1.2",
+    "qrcode": "^1.5.4",
     "rxjs": "6.6.0",
     "tslib": "2.3.0",
     "zone.js": "0.15.1"

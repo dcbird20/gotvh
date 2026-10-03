@@ -32,6 +32,16 @@ server {
         proxy_set_header Content-Length "";
     }
 
+    # Recordings converted to a smaller size (GoTVH's converter on raven1).
+    location /convert/ {
+        auth_request /gotvh-device-check;
+        error_page 401 403 = @gotvh_refuse;
+        proxy_pass http://__CONVERT__;
+        proxy_set_header Authorization $http_authorization;
+        proxy_buffering off;
+        proxy_read_timeout 300s;
+    }
+
     location / {
         auth_request /gotvh-device-check;
         error_page 401 403 = @gotvh_refuse;
