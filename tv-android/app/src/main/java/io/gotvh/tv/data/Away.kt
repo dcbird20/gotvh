@@ -23,6 +23,8 @@ class AwayAccess(
     val tvHost: String,
     val htspHost: String,
     val port: Int,
+    /** Live TV (HTSP) has its own port at the front door. */
+    val htspPort: Int,
     val keyPem: String,
     val certPem: String,
     val caPem: String,
@@ -63,7 +65,7 @@ class AwayAccess(
     }
 
     fun toJson(): String = JSONObject()
-        .put("tvHost", tvHost).put("htspHost", htspHost).put("port", port)
+        .put("tvHost", tvHost).put("htspHost", htspHost).put("port", port).put("htspPort", htspPort)
         .put("key", keyPem).put("cert", certPem).put("ca", caPem).put("serial", serial)
         .toString()
 
@@ -75,7 +77,7 @@ class AwayAccess(
             if (text.isNullOrBlank()) return null
             val o = JSONObject(text)
             AwayAccess(
-                o.getString("tvHost"), o.getString("htspHost"), o.optInt("port", 443),
+                o.getString("tvHost"), o.getString("htspHost"), o.optInt("port", 443), o.optInt("htspPort", o.optInt("port", 443)),
                 o.getString("key"), o.getString("cert"), o.getString("ca"), o.optString("serial"),
             ).takeIf { it.tvHost.isNotBlank() && it.htspHost.isNotBlank() }
         }.getOrNull()

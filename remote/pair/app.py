@@ -10,6 +10,7 @@ connection in only if it shows a certificate signed by this service's own CA and
   GET    /pair/api/devices          admin: paired devices
   DELETE /pair/api/devices/<serial> admin: remove a device (it's refused from then on)
   GET    /pair/api/info             whether away access is set up, and its addresses
+  GET    /pair/api/check?serial=X   200 if that device certificate is still allowed (SWAG asks on every request)
 
 "admin" = HTTP Basic sign-in that Tvheadend accepts as an administrator (checked against
 Tvheadend itself, so there's no second password to keep).
@@ -38,7 +39,8 @@ PKI = os.environ.get("PKI_DIR", "/pki")
 TVH = os.environ.get("TVH_URL", "http://host.docker.internal:9981").rstrip("/")
 TV_HOST = os.environ.get("TV_HOST", "")
 HTSP_HOST = os.environ.get("HTSP_HOST", "")
-PUBLIC_PORT = int(os.environ.get("PUBLIC_PORT", "443"))
+PUBLIC_PORT = int(os.environ.get("PUBLIC_PORT", "443"))       # web (SWAG)
+HTSP_PORT = int(os.environ.get("HTSP_PORT", "8443"))          # live TV (the GoTVH front door)
 PORT = int(os.environ.get("PORT", "8095"))
 CODE_TTL = 600
 DEVICE_DAYS = 1825
@@ -250,7 +252,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/pair/api/info":
-            return self.send(200, {"ready": bool(TV_HOST and HTSP_HOST), "tvHost": TV_HOST, "htspHost": HTSP_HOST, "port": PUBLIC_PORT})
+            return self.send(200, {"ready": bool(TV_HOST and HTSP_HOST), "tvHost": TV_HOST, "htspHost": HTSP_HOST,
+                                   "port": PUBLIC_PORT, "htspPort": HTSP_PORT})
+        m = re.fullmatch(r"/pair/api/check\?serial=([0-9A-Fa-f]{1,64})", self.path)
+        if m:
+            # The web front (SWAG) has already checked the certificate is ours; this says whether
+            # it has been removed since. Answering from the list means no nginx reload is needed.
+            serial = m.group(1).upper().lstrip("0")
+            ok = any(d["serial"].upper().lstrip("0") == serial for d in devices())
+            return self.send(200 if ok else 403)
         if self.path == "/pair/api/devices":
             if self.admin():
                 self.send(200, devices())
@@ -269,7 +279,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             fmt = "p12" if b.get("format") == "p12" else "pem"
             serial, key_pem, cert_pem, p12, password = issue(str(b.get("name", "")), fmt)
             ca = open(path("ca.pem")).read()
-            out = {"serial": serial, "tvHost": TV_HOST, "htspHost": HTSP_HOST, "port": PUBLIC_PORT}
+            out = {"serial": serial, "tvHost": TV_HOST, "htspHost": HTSP_HOST, "port": PUBLIC_PORT, "htspPort": HTSP_PORT}
             out.update({"p12": p12, "password": password} if fmt == "p12" else {"key": key_pem, "cert": cert_pem, "ca": ca})
             return self.send(200, out)
         self.send(404)

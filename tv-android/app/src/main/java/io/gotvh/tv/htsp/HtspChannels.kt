@@ -37,7 +37,7 @@ class HtspChannels {
 
     private fun ensureConnected(client: TvhClient) {
         val away = client.away
-        val (host, port) = if (away != null) away.htspHost to away.port else htspAddress(client.base)
+        val (host, port) = if (away != null) away.htspHost to away.htspPort else htspAddress(client.base)
         val k = "$host:$port:${client.username}"
         val current = connection
         if (current != null && !current.closed && key == k) return

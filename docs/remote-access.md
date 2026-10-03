@@ -1,115 +1,110 @@
-# Watching away from home — server plan
+# Watching away from home — server plan (raven1 with SWAG)
 
 Status: **plan, nothing installed yet.** Each step says what it changes and how to undo it.
-Nothing here touches Tvheadend's own settings except step 6, and nothing is forwarded until step 5.
+SWAG keeps serving Jellyfin exactly as now; its certificate and settings are not changed.
 
 ## What it looks like
 
 ```
- phone / TV / laptop (anywhere)
-        │  HTTPS or TLS on port 443, with a device certificate
-        ▼
- Xfinity router ── forwards TCP 443 only ──▶ raven1
-                                              │
-                                   ┌──────────▼───────────┐
-                                   │ frontdoor (container) │  read-only, no root, no capabilities
-                                   │  tv-…   → nginx :8090 │  (admin app + Tvheadend API/streams)
-                                   │  htsp-… → Tvheadend :9982 (live TV with pause)
-                                   │  anything else → hung up before a handshake
-                                   └──────────────────────┘
-   at home only:  pair (container, :8095 on the LAN address) — makes and removes device certificates
-                  acme (container) — the web certificate, renewed via your DNS provider's API
-                  ddns (container, optional) — moves the DNS record if your Xfinity address changes
+ phone / TV / laptop (anywhere), with a device certificate
+        │
+ Xfinity router ── TCP 443  → raven1 SWAG (as today)
+                │             ├─ magnumpi.duckdns.org/jellyfin … unchanged
+                │             └─ tv-<random>.magnumpi.duckdns.org → GoTVH site (new file in proxy-confs)
+                │                   device certificate + live check with the pairing service
+                │                   → raven1 nginx :8090 (admin app, Tvheadend API and streams)
+                └─ TCP 8443 → raven1 GoTVH frontdoor (new container)
+                              htsp-<random>.magnumpi.duckdns.org → Tvheadend :9982 (live TV with pause)
+                              any other name → hung up before a handshake
+
+ at home only: pair (container, 192.168.1.72:8095) — makes and removes device certificates
+               acme (container) — GoTVH's own certificate *.magnumpi.duckdns.org (DuckDNS check)
 ```
 
-Not reachable from outside, ever: Tvheadend's ports (9981/9982), raven1's nginx (8080/8090/8091),
-Portainer (9000/9443), SSH, the pairing service, omv-dell.
+Why its own certificate: SWAG's certificate covers `magnumpi.duckdns.org` (Jellyfin). Because of a
+DuckDNS limitation, a wildcard certificate can't also cover the base name, so switching SWAG to a
+wildcard would break Jellyfin's address. GoTVH gets `*.magnumpi.duckdns.org` separately, through the
+same DuckDNS check, and SWAG uses it only for the GoTVH name.
+
+Not reachable from outside: Tvheadend's ports (9981/9982), raven1's nginx (8080/8090/8091), Portainer,
+SSH, the pairing service, omv-dell.
 
 ## Who gets in
 
-- A device needs a **certificate made by the pairing service**. Without one, nginx refuses the
-  connection before any login page or Tvheadend code is reached. The Tvheadend username and password
-  are still required on top.
+- A device needs a **certificate made by the pairing service**. Without one, the connection is
+  closed before any login page or Tvheadend code is reached. The Tvheadend sign-in is still needed on top.
 - Certificates are only handed out **at home**: the pairing service listens on raven1's home address
-  only, and the front door refuses `/pair/` from outside.
-- Pairing needs a **one-time code** that an administrator makes in the admin app (Devices). Codes last
-  10 minutes and work once; after 10 wrong guesses all open codes stop working.
-- **Removing a device** in the admin app locks it out within 30 seconds (revocation list; the front
-  door reloads by itself).
+  only, and the GoTVH site refuses `/pair/` from outside.
+- Pairing needs a **one-time code** from the admin app (Devices). Codes last 10 minutes and work once;
+  after 10 wrong guesses all open codes stop working.
+- **Removing a device** in the admin app locks it out of the web side at once (SWAG asks the pairing
+  service on every request) and out of live TV within 30 seconds (revocation list).
 
-What's visible on the internet: port 443 on your address. The certificate log (public for every
-Let's Encrypt certificate) shows `*.<BASE_DOMAIN>` (e.g. `*.tv.example.com`), so that name and your
-address can be found. The two names the apps use (`tv-<random>…`, `htsp-<random>…`) appear nowhere; a connection
-for any other name, or for the bare IP, is closed before any handshake.
-
-## Before you start
-
-- Your domain, and an API key from its DNS provider that can edit DNS records (the provider's
-  acme.sh name is in the list linked from `remote/.env.example`).
-- A name used only for this, e.g. `tv.example.com`, so it stays apart from the rest of your domain.
-- Tvheadend container: its ports 9981 and 9982 published on raven1 (they are today: the TV uses them).
+Visible on the internet: ports 443 (as today) and 8443. The public certificate log shows
+`*.magnumpi.duckdns.org`; the two GoTVH names appear nowhere.
 
 ## Steps
 
-### 1. Fill in the settings (no change to anything)
-```
-cd ~/gotvh && git pull
-cd remote && cp .env.example .env && nano .env
-echo tv-$(openssl rand -hex 4); echo htsp-$(openssl rand -hex 4)   # for TV_HOST / HTSP_HOST
-```
-Undo: delete `remote/.env`.
+### 0. New DuckDNS token (do this first)
+duckdns.org → regenerate the token, put it in SWAG's stack (`DUCKDNSTOKEN`) and redeploy SWAG.
+The old one was shared in a chat.
 
-### 1b. DNS record (at your DNS provider)
-`*.<BASE_DOMAIN>  A  <your Xfinity address>` (whatismyip.com shows the address). Optional: the
-`ddns` updater keeps it current; Xfinity addresses rarely change.
-Undo: delete the record.
+### 1. Settings (no change to anything)
+```
+cd ~/gotvh && git pull && cd remote
+cp .env.example .env && nano .env        # DuckDNS_Token = the new token; TV_HOST / HTSP_HOST:
+echo tv-$(openssl rand -hex 4); echo htsp-$(openssl rand -hex 4)
+mkdir -p /opt/swag/gotvh/certs /opt/swag/gotvh/pki   # SWAG's folder; owned by you (PUID 1000)
+```
+Undo: delete `remote/.env` and `/opt/swag/gotvh`.
 
 ### 2. Start the stack (still unreachable from outside)
 ```
 docker compose up -d --build
-docker compose logs -f acme        # wait for "certificate in place" (2–3 minutes)
-docker compose logs frontdoor      # "front door: open for tv-… and htsp-…"
+docker compose logs -f acme        # wait for "certificate in place" (a few minutes; DuckDNS is slow)
+docker compose logs frontdoor      # "front door: live TV open for htsp-…"
 ```
-Shows up in Portainer as **gotvh-remote** (logs, restart, stop from there).
-Changes: three containers (four with the optional address updater), four Docker volumes, port 443 on raven1 (LAN), port 8095 on raven1's LAN address.
-Undo: `docker compose down` (keeps the volumes; `down -v` also deletes certificates and paired devices).
+Shows up in Portainer as **gotvh-remote**. Changes: three containers, two Docker volumes, port 8443
+on raven1, port 8095 on raven1's home address, files in `/opt/swag/gotvh/`.
+Undo: `docker compose down` (`down -v` also forgets paired devices).
 
-### 3. Update raven1's nginx (adds `/pair/` for the admin app's Devices page)
+### 3. Add the GoTVH site to SWAG
 ```
-scripts/deploy-admin.sh --install
+./install-swag-site.sh             # writes proxy-confs/gotvh.subdomain.conf, checks, reloads SWAG
 ```
-Undo: `git checkout HEAD~1 -- nginx/gotvh-admin.conf && scripts/deploy-admin.sh --install`.
+If SWAG doesn't accept it, the script takes it out again and SWAG carries on unchanged.
+Also, so SWAG picks up GoTVH's renewed certificate: `crontab -e` and add
+`17 4 * * 1 docker exec swag nginx -s reload` (weekly; renewal happens a month before expiry).
+Undo: `./install-swag-site.sh --remove`.
 
-### 4. Pair a device and test at home
-Admin app → Devices → *Pair a device* → enter the code in the app (Settings → Away from home).
-Test from raven1 itself (nothing forwarded yet), pretending to be outside:
+### 4. raven1's nginx: `/pair/` for the admin app's Devices page
 ```
-curl -sk --resolve <TV_HOST>:443:127.0.0.1 https://<TV_HOST>/ -o /dev/null -w "%{http_code}\n"   # 000: refused, good
+cd ~/gotvh && scripts/deploy-admin.sh --install
 ```
+Undo: revert `nginx/gotvh-admin.conf` and run it again.
 
-### 5. Open the door: Xfinity app → WiFi → Advanced settings → Port forwarding
-Add: device raven1, TCP, port 443 → 443. Then, on the phone **with Wi-Fi off**, the app should
-say "Away" and play.
-Undo: delete the forward. Everything else can stay; nothing is reachable without it.
+### 5. Pair a device at home
+Admin app → **Devices** → *Pair a device* → in the TV/phone app: Settings → Away from home → code.
 
-### 6. Away quality (Tvheadend change — only after a yes)
+### 6. Router: Xfinity app → WiFi → Advanced settings → Port forwarding
+Add **TCP 8443 → raven1 (192.168.1.72) 8443**. 443 already goes to raven1 for SWAG.
+Test on the phone **with Wi-Fi off**: Settings should say "Connected away from home", and live TV
+plays and pauses.
+Undo: delete the 8443 forward (web side: `./install-swag-site.sh --remove`).
+
+### 7. Away quality (Tvheadend change — only after a yes)
 Tvheadend → Configuration → Stream → Stream profiles: check that a converting profile exists
-(`webtv-h264-aac-mpegts` ships with Tvheadend builds that include transcoding). The apps use it
-away from home (Settings → Away from home → Away quality). If it's missing, the container image
-may not include transcoding; we'd look at that separately.
-Undo: nothing to undo; the apps go back to the original stream if the profile is removed.
+(`webtv-h264-aac-mpegts` comes with Tvheadend builds that include transcoding). The apps use it away
+from home (Settings → Away from home → Away quality). If it's missing, we look at the container image.
 
 ## Keeping it safe
 
-- Updates: `docker compose pull && docker compose up -d` monthly (nginx, acme.sh), or let
-  Watchtower do it. raven1 itself: `unattended-upgrades` for security fixes.
-- Watch: `docker compose logs frontdoor` shows every connection with the device name.
+- Updates: `docker compose pull && docker compose up -d --build` monthly; SWAG as you do now.
+- Watch: `docker compose logs frontdoor` (live TV, with device names); SWAG's access log for the web.
 - Lost a phone: admin app → Devices → Remove.
-- Close everything: remove the router forward, or `docker compose stop frontdoor`.
+- Close everything: remove the 8443 forward and `./install-swag-site.sh --remove`, or `docker compose stop`.
 
 ## Known limits (first version)
 
-- Recordings play at full quality away from home (Tvheadend serves the recording file as-is), which
-  needs ~10–19 Mbps for antenna recordings.
-- Browsers: a laptop needs its own certificate (admin app → Devices → *Certificate for a computer*,
-  then open the downloaded file and enter the password shown).
+- Recordings play at full quality away from home (~10–19 Mbps for antenna recordings).
+- A laptop browser needs its own certificate (admin app → Devices → *Certificate for a computer*).

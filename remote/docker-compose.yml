@@ -1,10 +1,13 @@
-# GoTVH away-from-home access — see docs/remote-access.md before using this.
+# GoTVH away-from-home access, alongside SWAG on raven1 — see docs/remote-access.md first.
 #
-#   cd ~/gotvh/remote && cp .env.example .env   (fill it in)
-#   docker compose up -d --build                 (shows up in Portainer as stack "gotvh-remote")
-#   docker compose down                          (closes it again; the router forward then leads nowhere)
+#   cd ~/gotvh/remote && cp .env.example .env    (fill it in)
+#   docker compose up -d --build                  (shows up in Portainer as stack "gotvh-remote")
+#   ./install-swag-site.sh                        (adds the web side to SWAG)
+#   docker compose down; ./install-swag-site.sh --remove    (switches it all off)
 #
-# Only the front door is meant to be reachable from the internet (router: TCP 443 → raven1:443).
+# Web (admin app, guide, streams): through SWAG on 443, like Jellyfin.
+# Live TV with pause (HTSP): the frontdoor container on its own port (router: TCP 8443 → raven1:8443).
+# Certificates and the device list live in $SWAG_DIR/gotvh/, where SWAG can read them.
 # The pairing service listens on the home network only — never forward its port.
 
 name: gotvh-remote
@@ -15,44 +18,32 @@ services:
     restart: unless-stopped
     entrypoint: ["/bin/sh", "/etc/gotvh/start.sh"]
     environment:
-      TV_HOST: ${TV_HOST}
       HTSP_HOST: ${HTSP_HOST}
-      HOME_WEB: http://host.docker.internal:8090     # raven1's nginx: admin app + Tvheadend API/streams
-      TVH_HTSP: host.docker.internal:9982            # Tvheadend's HTSP port (published by its container)
+      TVH_HTSP: host.docker.internal:9982      # Tvheadend's HTSP port (published by its container)
     ports:
-      - "443:8443"
+      - "8443:8443"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./frontdoor/nginx.conf.in:/etc/gotvh/nginx.conf.in:ro
       - ./frontdoor/start.sh:/etc/gotvh/start.sh:ro
-      - certs:/certs:ro
-      - pki:/pki:ro
+      - ${SWAG_DIR}/gotvh/certs:/certs:ro
+      - ${SWAG_DIR}/gotvh/pki:/pki:ro
     read_only: true
     tmpfs: [/tmp]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
 
+  # GoTVH's own certificate, *.$BASE_DOMAIN (SWAG's certificate for the base name is untouched).
   acme:
     image: neilpang/acme.sh:3.1.0
     restart: unless-stopped
     entrypoint: ["/bin/sh", "/start.sh"]
-    env_file: .env        # BASE_DOMAIN, ACME_DNS and your DNS provider's API credentials
+    env_file: .env        # BASE_DOMAIN, ACME_DNS and the DNS credentials (DuckDNS token)
     volumes:
       - ./acme/start.sh:/start.sh:ro
       - acme:/acme.sh
-      - certs:/certs
-
-  # Optional: keeps the DNS record on your Xfinity address if it ever changes.
-  # Start with:  docker compose --profile ddns up -d   (needs ddclient/ddclient.conf, see .env.example)
-  ddns:
-    image: lscr.io/linuxserver/ddclient:latest
-    restart: unless-stopped
-    profiles: [ddns]
-    environment:
-      TZ: America/New_York
-    volumes:
-      - ./ddclient:/config
+      - ${SWAG_DIR}/gotvh/certs:/certs
 
   pair:
     build: ./pair
@@ -61,21 +52,20 @@ services:
     environment:
       TV_HOST: ${TV_HOST}
       HTSP_HOST: ${HTSP_HOST}
+      HTSP_PORT: "8443"
       TVH_URL: http://host.docker.internal:9981     # to check administrator sign-ins
     ports:
-      - "${PAIR_LAN_IP}:8095:8095"                   # home network only
+      - "${PAIR_LAN_IP}:8095:8095"                   # home network only (SWAG and the admin app reach it here)
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - pair:/data
-      - pki:/pki
+      - ${SWAG_DIR}/gotvh/pki:/pki
     read_only: true
     tmpfs: [/tmp]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
 
 volumes:
-  certs:
   acme:
   pair:
-  pki:
