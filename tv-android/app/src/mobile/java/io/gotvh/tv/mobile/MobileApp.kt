@@ -89,6 +89,7 @@ fun MobileApp(vm: AppViewModel) {
                 Tab.Guide -> {
                     vm.player.stop() // no video on screen: free the tuner
                     vm.screen = Screen.Guide
+                    vm.freshenGuide()
                 }
                 Tab.Recordings -> {
                     vm.player.stop()

@@ -82,6 +82,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private var profiles: List<String> = listOf("pass")
     private var loadedFrom = 0L
     private var loadedTo = 0L
+    /** When the channel list was last fetched (ms). */
+    private var channelsCheckedAt = 0L
 
     val currentChannel: Channel? get() = channels.getOrNull(currentIndex)
 
@@ -91,7 +93,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             while (true) {
                 delay(5 * 60_000L)
-                if (client != null) refreshGuide()
+                if (client != null) {
+                    refreshChannels()
+                    refreshGuide()
+                }
             }
         }
     }
@@ -118,6 +123,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 filled.clear()
                 channels = c.channels()
+                channelsCheckedAt = System.currentTimeMillis()
                 profiles = playbackProfiles(c)
                 val last = channels.indexOfFirst { it.uuid == settings.lastChannel }
                 currentIndex = if (last >= 0) last else 0
@@ -144,6 +150,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** Back in the app (or the network changed): switch between home and away if needed. */
     fun checkRoute() {
         val c = client ?: return
+        freshenGuide() // back in the app after a while: pick up server changes
         if (away == null || !settings.isConfigured) return
         viewModelScope.launch {
             val homeOk = TvhClient(settings.server, settings.username, settings.password).reachable()
@@ -345,6 +352,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             Screen.Guide -> {
                 guideRow = currentIndex
                 screen = Screen.Guide
+                freshenGuide()
             }
             Screen.Recordings -> {
                 screen = Screen.Recordings
@@ -642,6 +650,34 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         } catch (e: IOException) {
             // Keep what we have; the next refresh tries again.
         }
+    }
+
+    /** Opening the guide (or back in the app): fresh channels and listings if the last check is over a minute old. */
+    fun freshenGuide() {
+        if (client == null || System.currentTimeMillis() - channelsCheckedAt < 60_000L) return
+        channelsCheckedAt = System.currentTimeMillis()
+        viewModelScope.launch {
+            refreshChannels()
+            refreshGuide()
+        }
+    }
+
+    /**
+     * Pick up channel changes made on the server (names, numbers, icons, channels added or
+     * removed) without restarting, keeping the channel being watched. Doesn't retune.
+     */
+    private suspend fun refreshChannels() {
+        val c = client ?: return
+        val fresh = try { c.channels() } catch (e: TvhException) { return } catch (e: IOException) { return }
+        channelsCheckedAt = System.currentTimeMillis()
+        if (fresh.isEmpty() || fresh == channels) return
+        val currentUuid = currentChannel?.uuid
+        val previousUuid = channels.getOrNull(previousIndex)?.uuid
+        filled.clear()
+        channels = fresh
+        currentIndex = fresh.indexOfFirst { it.uuid == currentUuid }.takeIf { it >= 0 } ?: currentIndex.coerceIn(0, fresh.size - 1)
+        previousIndex = fresh.indexOfFirst { it.uuid == previousUuid }
+        guideRow = guideRow.coerceIn(0, fresh.size - 1)
     }
 
     private suspend fun refreshGuide() {
