@@ -172,6 +172,7 @@ class TvhClient(server: String, val username: String, val password: String, val 
                 dvrState = o.optString("dvrState"),
                 dvrUuid = o.optString("dvrUuid"),
                 seriesLink = o.optString("serieslinkUri"),
+                episode = o.optString("episodeOnscreen").ifBlank { o.optString("episodeUri") },
             )
     }
 
@@ -232,6 +233,9 @@ class TvhClient(server: String, val username: String, val password: String, val 
             .put("channel", p.channelUuid)
             .put("config_name", defaultDvrConfig())
             .put("comment", "Made by GoTVH: every “${p.title}” on this channel")
+            // With episode numbers in the guide, skip episodes already recorded (reruns); without,
+            // the server's usual setting.
+            .put("record", if (p.episode.isNotBlank()) 1 else 15)
         val reply = post("dvr/autorec/create", mapOf("conf" to conf.toString()))
         if (!createdSomething(reply)) throw TvhException("Tvheadend couldn't make a rule for “${p.title}”.")
     }

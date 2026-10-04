@@ -24,6 +24,8 @@ data class Program(
     val dvrState: String,
     val dvrUuid: String,
     val seriesLink: String,
+    /** The guide's episode marking ("S02E05", "Ep 12"…) or episode ID; empty when it has none. */
+    val episode: String = "",
     /** Made up by the app for time with no guide information: one-hour blocks named after the channel. */
     val placeholder: Boolean = false,
 ) {
