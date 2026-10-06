@@ -18,7 +18,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -100,6 +103,7 @@ fun LiveTab(vm: AppViewModel, fullScreen: Boolean) {
     Column(Modifier.fillMaxSize()) {
         video(Modifier.fillMaxWidth().aspectRatio(16f / 9f))
         NowPlaying(vm)
+        RecentChannels(vm)
         ChannelList(vm)
     }
 }
@@ -185,6 +189,39 @@ private fun NowPlaying(vm: AppViewModel) {
                 color = Tv.muted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         } else {
             Text("No guide information", color = Tv.muted, fontSize = 14.sp)
+        }
+    }
+}
+
+/** Channels watched lately, newest first, as a row to swipe through; tap to switch. */
+@Composable
+private fun RecentChannels(vm: AppViewModel) {
+    val recent = vm.recentChannels
+    if (recent.isEmpty()) return
+    val nowS = nowSec()
+    Column(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
+        Text("Recent", color = Tv.muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(start = 16.dp, bottom = 4.dp))
+        LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(recent, key = { it.uuid }) { ch ->
+                val on = vm.nowAndNext(ch.uuid, nowS).first
+                Row(
+                    Modifier
+                        .width(190.dp)
+                        .background(Color(0x1FFFFFFF), RoundedCornerShape(10.dp))
+                        .clickable { vm.tuneUuid(ch.uuid) }
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    ChannelLogo(ch, vm.imageLoader, 30.dp)
+                    Column(Modifier.weight(1f)) {
+                        Text(listOf(ch.number, ch.name).filter { it.isNotBlank() }.joinToString(" "),
+                            color = Tv.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(on?.title ?: "No guide information", color = Tv.muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
         }
     }
 }

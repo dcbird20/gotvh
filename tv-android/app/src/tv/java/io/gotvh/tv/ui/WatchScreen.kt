@@ -62,7 +62,7 @@ private const val FORWARD_MS = 30_000L
  *  OK the controls · Left / Right back 10 s / forward 30 s (into Tvheadend's pause buffer; forward
  *  stops at live) · Up / Down next / previous channel · digits a channel number · Back the menu.
  * The controls (all real focus: arrows move the highlight, OK presses, Back closes):
- *  progress row (Left/Right move) · ⏯ · Info · Guide · Channels · 123 · Recordings · Search ·
+ *  progress row (Left/Right move) · ⏯ · Info · Guide · Channels · Recent · 123 · Recordings · Search ·
  *  Record (· Live when behind) · the mini guide below (OK on a programme: its card).
  * ⏯ ⏪ ⏩ Guide Ch± keys work any time, on remotes that have them.
  */
@@ -78,6 +78,8 @@ fun WatchScreen(vm: AppViewModel) {
     var listOpen by remember { mutableStateOf(false) }
     val trick = remember { TrickKeys() }
     var listIndex by remember { mutableIntStateOf(vm.currentIndex) }
+    var listRecent by remember { mutableStateOf(false) }
+    val listed = if (listRecent) vm.recentChannels else channels
     var padOpen by remember { mutableStateOf(false) }
     var card by remember { mutableStateOf<Program?>(null) }
     var digits by remember { mutableStateOf("") }
@@ -87,10 +89,12 @@ fun WatchScreen(vm: AppViewModel) {
         now = System.currentTimeMillis()
         bannerUntil = now + BANNER_MS
     }
-    fun openList() {
+    fun openList(recent: Boolean = false) {
         controls = false
-        listIndex = vm.currentIndex
+        listRecent = recent && vm.recentChannels.isNotEmpty()
+        listIndex = if (listRecent) 0 else vm.currentIndex
         listOpen = true
+        if (recent && !listRecent) vm.notice = "No other channels watched yet."
     }
     fun openGuide(row: Int) {
         controls = false
@@ -175,16 +179,22 @@ fun WatchScreen(vm: AppViewModel) {
                     }
                 }
                 if (listOpen) {
+                    val n = listed.size.coerceAtLeast(1)
                     when (k) {
-                        KeyEvent.KEYCODE_DPAD_UP -> listIndex = Math.floorMod(listIndex - 1, channels.size)
-                        KeyEvent.KEYCODE_DPAD_DOWN -> listIndex = Math.floorMod(listIndex + 1, channels.size)
+                        KeyEvent.KEYCODE_DPAD_UP -> listIndex = Math.floorMod(listIndex - 1, n)
+                        KeyEvent.KEYCODE_DPAD_DOWN -> listIndex = Math.floorMod(listIndex + 1, n)
                         KeyEvent.KEYCODE_CHANNEL_UP, KeyEvent.KEYCODE_PAGE_UP -> listIndex = (listIndex - LIST_PAGE).coerceAtLeast(0)
-                        KeyEvent.KEYCODE_CHANNEL_DOWN, KeyEvent.KEYCODE_PAGE_DOWN -> listIndex = (listIndex + LIST_PAGE).coerceAtMost(channels.size - 1)
+                        KeyEvent.KEYCODE_CHANNEL_DOWN, KeyEvent.KEYCODE_PAGE_DOWN -> listIndex = (listIndex + LIST_PAGE).coerceAtMost(n - 1)
                         KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> {
-                            vm.tune(listIndex)
+                            listed.getOrNull(listIndex)?.let { vm.tuneUuid(it.uuid) }
                             listOpen = false
                         }
-                        KeyEvent.KEYCODE_DPAD_LEFT -> listOpen = false
+                        // Right: the Recent tab; Left: back to all channels, then closed.
+                        KeyEvent.KEYCODE_DPAD_RIGHT -> if (!listRecent) {
+                            if (vm.recentChannels.isEmpty()) vm.notice = "No other channels watched yet."
+                            else { listRecent = true; listIndex = 0 }
+                        }
+                        KeyEvent.KEYCODE_DPAD_LEFT -> if (listRecent) { listRecent = false; listIndex = vm.currentIndex } else listOpen = false
                         else -> return@onPreviewKeyEvent true // nothing else moves while the list is open
                     }
                     return@onPreviewKeyEvent true
@@ -229,7 +239,7 @@ fun WatchScreen(vm: AppViewModel) {
                 TrickBadge(player.trickSpeed)
                 Banner { ChannelHeader(vm); TimeshiftProgress(vm, false) }
             }
-            listOpen -> ChannelList(vm, listIndex)
+            listOpen -> ChannelList(vm, listed, listIndex, listRecent)
             controls -> {
                 val on = vm.currentChannel?.let { vm.nowAndNext(it.uuid, playingSec(vm)).first }
                 val buttons = buildList<Pair<String, () -> Unit>> {
@@ -238,6 +248,7 @@ fun WatchScreen(vm: AppViewModel) {
                     add((if (player.captions) "CC  On" else "CC  Off") to { vm.toggleCaptions() })
                     add("▦  Guide" to { openGuide(vm.currentIndex) })
                     add("☰  Channels" to { openList() })
+                    add("⟲  Recent" to { openList(recent = true) })
                     add("123" to { controls = false; padOpen = true })
                     add("Recordings" to { controls = false; vm.open(Screen.Recordings) })
                     add("⌕  Search" to { controls = false; vm.open(Screen.Search) })
@@ -411,16 +422,27 @@ private fun MiniGuide(vm: AppViewModel, interactive: Boolean, onPick: (Program) 
     }
 }
 
-/** Left panel with every channel and what's on it now. Up/Down move, OK tunes, Back / Left close. */
+/**
+ * Left panel: every channel (or the Recent tab: channels watched lately, newest first) and what's
+ * on now. Up/Down move, OK tunes, Right the Recent tab, Left back / close, Back closes.
+ */
 @Composable
-private fun ChannelList(vm: AppViewModel, selected: Int) {
+private fun ChannelList(vm: AppViewModel, items: List<io.gotvh.tv.data.Channel>, selected: Int, recent: Boolean) {
     val context = LocalContext.current
     val state = rememberLazyListState()
     LaunchedEffect(selected) { state.scrollToItem((selected - 4).coerceAtLeast(0)) }
     val nowS = nowSec()
-    Box(Modifier.fillMaxHeight().width(520.dp).background(Tv.panel).padding(vertical = 24.dp)) {
+    LaunchedEffect(recent) { state.scrollToItem((selected - 4).coerceAtLeast(0)) }
+    Column(Modifier.fillMaxHeight().width(520.dp).background(Tv.panel).padding(vertical = 24.dp)) {
+        Row(Modifier.padding(horizontal = 26.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(22.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("All channels", color = if (recent) Tv.muted else Tv.accent, fontSize = 17.sp, fontWeight = if (recent) FontWeight.Normal else FontWeight.Bold)
+            Text("Recent", color = if (recent) Tv.accent else Tv.muted, fontSize = 17.sp, fontWeight = if (recent) FontWeight.Bold else FontWeight.Normal)
+            Spacer(Modifier.weight(1f))
+            Text(if (recent) "◀ All" else "Recent ▶", color = Tv.muted, fontSize = 13.sp)
+        }
+        Spacer(Modifier.height(8.dp))
         LazyColumn(state = state) {
-            itemsIndexed(vm.channels, key = { _, c -> c.uuid }) { i, ch ->
+            itemsIndexed(items, key = { _, c -> c.uuid }) { i, ch ->
                 val isSel = i == selected
                 val (current, next) = vm.nowAndNext(ch.uuid, nowS)
                 Row(
@@ -448,7 +470,7 @@ private fun ChannelList(vm: AppViewModel, selected: Int) {
                             Text("Next ${timeOf(context, next.start)} ${next.title}", color = if (isSel) Color(0x99000000) else Tv.muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
-                    if (i == vm.currentIndex) Spacer(Modifier.size(8.dp).background(if (isSel) Color.Black else Tv.accent, CircleShape))
+                    if (ch.uuid == vm.currentChannel?.uuid) Spacer(Modifier.size(8.dp).background(if (isSel) Color.Black else Tv.accent, CircleShape))
                 }
             }
         }

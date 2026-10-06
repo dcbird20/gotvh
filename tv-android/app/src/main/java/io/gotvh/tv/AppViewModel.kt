@@ -26,6 +26,9 @@ enum class Screen { Setup, Watch, Guide, Recordings, Rules, Playback, Search }
 
 fun nowSec(): Long = System.currentTimeMillis() / 1000
 
+/** How many recently watched channels are kept. */
+private const val RECENT_MAX = 10
+
 class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     val settings = Settings(app)
@@ -87,6 +90,23 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     val currentChannel: Channel? get() = channels.getOrNull(currentIndex)
 
+    /** Channels watched lately, newest first (ids; kept between runs). */
+    private var recentUuids by mutableStateOf(settings.recentChannels)
+
+    /** Recently watched channels, newest first, not counting the one on now. */
+    val recentChannels: List<Channel>
+        get() {
+            val byUuid = channels.associateBy { it.uuid }
+            val current = currentChannel?.uuid
+            return recentUuids.filter { it != current }.mapNotNull { byUuid[it] }
+        }
+
+    private fun rememberWatched(uuid: String) {
+        if (recentUuids.firstOrNull() == uuid) return
+        recentUuids = (listOf(uuid) + recentUuids.filter { it != uuid }).take(RECENT_MAX)
+        settings.recentChannels = recentUuids
+    }
+
     init {
         if (settings.isConfigured) connect()
         // Keep the guide's recording marks and "now" data fresh.
@@ -127,6 +147,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 profiles = playbackProfiles(c)
                 val last = channels.indexOfFirst { it.uuid == settings.lastChannel }
                 currentIndex = if (last >= 0) last else 0
+                currentChannel?.let { rememberWatched(it.uuid) }
                 if (screen == Screen.Watch) currentChannel?.let { player.play(c, it, profiles) }
                 val now = nowSec()
                 loadGuide(now - 3600, now + 12 * 3600)
@@ -280,6 +301,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         currentIndex = i
         val ch = channels[i]
         settings.lastChannel = ch.uuid
+        rememberWatched(ch.uuid)
         endRecordingPlayback()
         player.play(c, ch, profiles)
     }

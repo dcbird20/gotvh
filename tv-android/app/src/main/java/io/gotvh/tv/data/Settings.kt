@@ -29,7 +29,11 @@ class Settings(context: Context) {
         get() = prefs.getString("lastChannel", "") ?: ""
         set(value) = prefs.edit().putString("lastChannel", value).apply()
 
-    /** Tvheadend stream profile tried first ("pass" = the broadcast as-is). */
+    /** Channels watched lately, newest first (channel ids). */
+    var recentChannels: List<String>
+        get() = (prefs.getString("recentChannels", "") ?: "").split(',').filter { it.isNotBlank() }
+        set(value) = prefs.edit().putString("recentChannels", value.joinToString(",")).apply()
+
     /** Search also looks in programme descriptions (on by default: teams, actors are often only there). */
     var searchDescriptions: Boolean
         get() = prefs.getBoolean("searchDescriptions", true)
