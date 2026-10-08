@@ -229,6 +229,8 @@ export class IdnodeFormComponent implements OnChanges {
   readonly channelTagNames = signal<string[]>([]);
   /** Text typed in a tag-name picker, for filtering suggestions. */
   readonly nameQuery = signal('');
+  /** Search text typed into each long dropdown, by field id. */
+  readonly selectQuery = signal<Record<string, string>>({});
   readonly nameSeparators = [ENTER, COMMA];
   readonly FIELD_HINT_IDS = new Set(Object.keys(FIELD_HINTS));
 
@@ -691,6 +693,33 @@ export class IdnodeFormComponent implements OnChanges {
     if (this.creating()) return false;
     if (this.bulkMode()) return this.applied().has(field.prop.id);
     return JSON.stringify(this.form.controls[field.prop.id]?.getRawValue()) !== JSON.stringify(this.initial[field.prop.id]);
+  }
+
+  /** Long dropdowns (EPG sources, stream profiles…) get a search box. */
+  searchable(field: Field): boolean {
+    return (field.options?.length ?? 0) > 8;
+  }
+
+  /** Options matching the search text; whatever is already chosen always stays listed. */
+  shownOptions(field: Field): IdnodeOption[] {
+    const all = field.options || [];
+    const q = (this.selectQuery()[field.prop.id] || '').trim().toLowerCase();
+    if (!q) return all;
+    const cur = this.form.controls[field.prop.id]?.getRawValue();
+    const chosen = new Set<unknown>(Array.isArray(cur) ? cur : [cur]);
+    return all.filter(o => chosen.has(o.value) || String(o.label).toLowerCase().includes(q));
+  }
+
+  setSelectQuery(field: Field, text: string): void {
+    this.selectQuery.update(m => ({ ...m, [field.prop.id]: text }));
+  }
+
+  /** Clear the search when the panel opens or closes, and focus the box so typing just works. */
+  onSelectOpened(open: boolean, field: Field): void {
+    this.setSelectQuery(field, '');
+    if (open && this.searchable(field)) {
+      setTimeout(() => document.querySelector<HTMLInputElement>('.cdk-overlay-container .select-search input')?.focus());
+    }
   }
 
   /** Current value in a select that isn't among the options (e.g. deleted stream profile). */
