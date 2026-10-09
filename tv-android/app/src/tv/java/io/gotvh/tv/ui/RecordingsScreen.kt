@@ -238,7 +238,7 @@ fun RecordingsScreen(vm: AppViewModel) {
                         level == Level.Episodes -> "OK details · ← shows"
                         else -> "OK open · ◀ filter · Back TV"
                     },
-                    color = Tv.muted, fontSize = 13.sp,
+                    color = Tv.muted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
             }
             Spacer(Modifier.height(14.dp))
@@ -320,15 +320,15 @@ private fun FilterPill(
                 )
             } else {
                 Text(
-                    query.ifBlank { "title, channel, new…" },
-                    color = if (boxFocused) Color.Black else if (query.isBlank()) Tv.muted else Tv.text,
-                    fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 260.dp),
+                    query,
+                    color = if (boxFocused) Color.Black else Tv.text,
+                    fontSize = 18.sp, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 200.dp),
                 )
             }
         }
         if (query.isNotBlank() && !editing) {
             Text(
-                "✕ Clear", fontSize = 16.sp,
+                "✕ Clear", fontSize = 16.sp, maxLines = 1, softWrap = false,
                 color = if (clearFocused) Color.Black else Tv.muted,
                 modifier = Modifier.background(if (clearFocused) Tv.accent else Color.Transparent, RoundedCornerShape(16.dp))
                     .padding(horizontal = 12.dp, vertical = 6.dp),

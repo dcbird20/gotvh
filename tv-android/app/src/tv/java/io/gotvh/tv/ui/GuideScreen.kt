@@ -285,16 +285,20 @@ fun GuideScreen(vm: AppViewModel) {
                 Text("Guide", color = Tv.text, fontSize = 26.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.width(18.dp))
                 Text(dayLabel(windowStart), color = Tv.accent, fontSize = 20.sp)
+                if (genre != null || findText.isNotBlank()) {
+                    Spacer(Modifier.width(14.dp))
+                    Text("${channels.size} channels", color = Tv.muted, fontSize = 14.sp, maxLines = 1, softWrap = false)
+                }
                 Spacer(Modifier.weight(1f))
                 Text(if (editing) "Done on the keyboard applies · Back keeps the text"
                     else if (onChips && findStop != 0) "OK type · ◀ ▶ more · ▼ back to the guide"
                     else if (onChips) "◀ ▶ genre or Find · ▼ back to the guide" else "OK details · ▶ watch · ⏪⏩ 2 hours · ◀ at the start or ▲ at the top: genres · Back TV",
-                    color = Tv.muted, fontSize = 13.sp)
+                    color = Tv.muted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 16.dp))
             }
             Spacer(Modifier.height(8.dp))
             // Genre chips: the chosen one is filled; the highlight ring shows when Up has moved here.
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                genres.forEach { g ->
+                if (!editing) genres.forEach { g ->
                     val chosen = g == genre
                     Row(
                         Modifier
@@ -338,24 +342,22 @@ fun GuideScreen(vm: AppViewModel) {
                                 editing = false
                                 if (channels.isNotEmpty()) { onChips = false; findStop = 0 }
                             }),
-                            modifier = Modifier.width(220.dp).focusRequester(findFocus),
+                            modifier = Modifier.width(420.dp).focusRequester(findFocus),
                         )
-                    } else {
+                    } else if (findText.isNotBlank()) {
                         Text(
-                            findText.ifBlank { "title or description…" },
-                            color = if (findHot) Color.Black else if (findText.isBlank()) Tv.muted else Tv.text,
-                            fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 220.dp),
+                            findText, color = if (findHot) Color.Black else Tv.text,
+                            fontSize = 14.sp, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 150.dp),
                         )
                     }
                 }
                 if (findText.isNotBlank() && !editing) {
                     val clearHot = onChips && findStop == 2
                     Text(
-                        "✕", color = if (clearHot) Color.Black else Tv.muted, fontSize = 14.sp,
+                        "✕", color = if (clearHot) Color.Black else Tv.muted, fontSize = 14.sp, maxLines = 1, softWrap = false,
                         modifier = Modifier.background(if (clearHot) Tv.accent else Color.Transparent, RoundedCornerShape(16.dp)).padding(horizontal = 10.dp, vertical = 5.dp),
                     )
                 }
-                if (genre != null || findText.isNotBlank()) Text("${channels.size} channels", color = Tv.muted, fontSize = 13.sp)
             }
             Spacer(Modifier.height(10.dp))
             if (channels.isEmpty() && (genre != null || findText.isNotBlank())) {
