@@ -96,9 +96,11 @@ for later, Resume or Play for a recording), so OK, OK does the obvious thing.
 | ▶ | Watch that channel |
 | Back | Back to what's playing |
 
-**Genres**: Up from the top channel moves to the genre chips (All · Sports · Movies · …). Left/Right pick
-one: the guide then lists only channels with that genre in the next 12 hours and fades other
-programmes. Down, OK or Back returns to the grid; the choice is kept until you change it.
+**Genres**: Left at the start of the guide (or Up from the top channel) moves to the genre chips
+(All · Sports · Movies · …). Left/Right pick one and wrap around, skipping genres with nothing in the
+next 12 hours: the guide then lists only channels with that genre and fades other programmes. Down, OK or
+Back returns to the grid; the choice is kept until you change it. From any programme's card, "Show only
+<genre>" applies that filter without leaving the grid.
 
 **Recordings**: Up/Down move; OK on a show lists its recordings, OK on a recording opens its card
 (Resume / Play, From the start, Mark watched / unwatched, Delete or Stop recording); Back goes up a level,

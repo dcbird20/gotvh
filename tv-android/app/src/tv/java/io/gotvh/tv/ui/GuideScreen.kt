@@ -95,6 +95,8 @@ fun GuideScreen(vm: AppViewModel) {
         val uuid = vm.channels.getOrNull(vm.guideRow)?.uuid
         mutableIntStateOf(channels.indexOfFirst { it.uuid == uuid }.coerceAtLeast(0))
     }
+    /** Set when a genre is chosen from a programme's card: keep that programme's channel on screen. */
+    var keepChannel by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(channels) { row = row.coerceIn(0, (channels.size - 1).coerceAtLeast(0)) }
     var now by remember { mutableLongStateOf(nowSec()) }
     val earliest = alignDown(now) - STEP
@@ -128,6 +130,13 @@ fun GuideScreen(vm: AppViewModel) {
         top = (top + dir * rows).coerceIn(0, maxTop)
         row = (top + offset).coerceIn(0, (channels.size - 1).coerceAtLeast(0))
     }
+    // After choosing a genre from a programme's card, put that programme's channel back on screen.
+    LaunchedEffect(channels, genre) {
+        val uuid = keepChannel ?: return@LaunchedEffect
+        keepChannel = null
+        val i = channels.indexOfFirst { it.uuid == uuid }
+        if (i >= 0) { row = i; top = (i - 2).coerceAtLeast(0) }
+    }
     LaunchedEffect(Unit) {
         while (true) {
             delay(30_000)
@@ -154,7 +163,18 @@ fun GuideScreen(vm: AppViewModel) {
         if (uuid != vm.currentChannel?.uuid || vm.recordingLoaded) vm.tuneUuid(uuid)
         vm.screen = Screen.Watch
     }
-    val genres: List<Genre?> = listOf<Genre?>(null) + Genre.entries
+    // Only genres that have something in the next 12 hours (and the chosen one), so Left/Right never lands on an empty list.
+    val available = remember(vm.channels, vm.programs, filterNow) {
+        val seen = HashSet<Genre>()
+        for (ch in vm.channels) {
+            for (p in vm.programsFor(ch.uuid)) {
+                if (!p.placeholder && p.stop > filterNow && p.start < filterNow + 12 * 3600) Genre.of(p)?.let { seen.add(it) }
+            }
+            if (seen.size == Genre.entries.size) break
+        }
+        seen
+    }
+    val genres: List<Genre?> = listOf<Genre?>(null) + Genre.entries.filter { it in available || it == genre }
     fun pickGenre(g: Genre?) {
         genre = g
         vm.guideGenre = g
@@ -176,8 +196,9 @@ fun GuideScreen(vm: AppViewModel) {
                     // The genre chips: Left/Right choose (the grid follows), Down / OK back to the grid.
                     val i = genres.indexOf(genre)
                     when (ev.nativeKeyEvent.keyCode) {
-                        KeyEvent.KEYCODE_DPAD_LEFT -> pickGenre(genres[(i - 1).coerceAtLeast(0)])
-                        KeyEvent.KEYCODE_DPAD_RIGHT -> pickGenre(genres[(i + 1).coerceAtMost(genres.size - 1)])
+                        // Wraps around: Left from All goes to the last genre, Right from the last goes to All.
+                        KeyEvent.KEYCODE_DPAD_LEFT -> pickGenre(genres[Math.floorMod(i - 1, genres.size)])
+                        KeyEvent.KEYCODE_DPAD_RIGHT -> pickGenre(genres[Math.floorMod(i + 1, genres.size)])
                         KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER ->
                             if (channels.isNotEmpty()) onChips = false
                         KeyEvent.KEYCODE_DPAD_UP -> {}
@@ -202,6 +223,8 @@ fun GuideScreen(vm: AppViewModel) {
                         when {
                             prev != null && prev.stop > earliest -> moveTo(maxOf(prev.start, earliest))
                             anchor - STEP >= earliest -> moveTo(anchor - STEP)
+                            // Nothing further left: the genre chips, however far down the list you are.
+                            else -> onChips = true
                         }
                     }
                     KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> moveTo(anchor + WINDOW)
@@ -223,7 +246,7 @@ fun GuideScreen(vm: AppViewModel) {
                 Spacer(Modifier.width(18.dp))
                 Text(dayLabel(windowStart), color = Tv.accent, fontSize = 20.sp)
                 Spacer(Modifier.weight(1f))
-                Text(if (onChips) "◀ ▶ genre · ▼ back to the guide" else "OK details · ▶ watch · ⏪⏩ 2 hours · ▲ at the top: genres · Back TV",
+                Text(if (onChips) "◀ ▶ genre · ▼ back to the guide" else "OK details · ▶ watch · ⏪⏩ 2 hours · ◀ at the start or ▲ at the top: genres · Back TV",
                     color = Tv.muted, fontSize = 13.sp)
             }
             Spacer(Modifier.height(8.dp))
@@ -278,6 +301,11 @@ fun GuideScreen(vm: AppViewModel) {
                 val i = channels.indexOfFirst { it.uuid == p.channelUuid }
                 detail = null
                 if (i >= 0) watch(i)
+            }, onGenre = { g ->
+                detail = null
+                keepChannel = p.channelUuid
+                genre = g
+                vm.guideGenre = g
             })
         }
     }
@@ -428,5 +456,5 @@ private fun ProgramTile(p: Program, isSelected: Boolean, clippedStart: Boolean, 
 
 /** A programme's card (kept under this name for the screens that use it). */
 @Composable
-internal fun ProgramDetails(vm: AppViewModel, p: Program, onClose: () -> Unit, onWatch: () -> Unit) =
-    ProgramCard(vm, p, onClose, onWatch)
+internal fun ProgramDetails(vm: AppViewModel, p: Program, onClose: () -> Unit, onWatch: () -> Unit, onGenre: ((Genre) -> Unit)? = null) =
+    ProgramCard(vm, p, onClose, onWatch, onGenre)
