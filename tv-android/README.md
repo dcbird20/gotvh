@@ -47,6 +47,12 @@ apply (Configuration → Recording → Timeshift: how long and how much disk) an
 while you're paused. The account needs the HTSP streaming right. If HTSP can't be reached, or a
 channel needs converting for the TV, it plays over HTTP as before, without pause; the banner says so.
 
+**Filtering recordings** (TV): Left from the list (or Right of the tabs) moves to the Filter box in the
+header; OK types, using the on-screen keyboard or its microphone. Like the admin's filter it matches title,
+episode, channel and status words (new, watched, in progress, recording, scheduled), and every word must
+match: "buzzr new". It applies to Recorded and Upcoming and is kept while you move around the app. ▶ then OK
+clears it.
+
 Recordings still being made appear under Recorded (● recording) and play from the start, following
 the file as it grows.
 

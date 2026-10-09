@@ -3,6 +3,7 @@ package io.gotvh.tv.ui
 import android.view.KeyEvent
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,11 +17,15 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -34,18 +39,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.gotvh.tv.AppViewModel
 import io.gotvh.tv.data.Recording
 
-private enum class Level { Tabs, Shows, Episodes }
+private enum class Level { Tabs, Filter, Shows, Episodes }
 
 /** A row on the first level: one show, or "Continue watching" (everything stopped partway). */
 private data class Group(val key: String, val title: String, val items: List<Recording>, val isContinue: Boolean = false)
@@ -57,6 +65,8 @@ private const val CONTINUE = "\u0000continue"
  * new or unfinished); OK on a show lists its recordings. Each recording is New (dot), In progress
  * (bar, time left) or Watched (✓, dimmed): kept in Tvheadend, so every TV and Kodi agree.
  *  Up/Down move · OK: a show's recordings, or a recording's card (Resume / Play first) · Left/Back up a level.
+ *  Filter (Left from the list, or Right of the tabs): OK types, like the admin's filter box — title, channel
+ *  or a status word (new, watched, in progress); every word must match. Applies to Recorded and Upcoming.
  */
 @Composable
 fun RecordingsScreen(vm: AppViewModel) {
@@ -70,10 +80,20 @@ fun RecordingsScreen(vm: AppViewModel) {
     var upIndex by remember { mutableIntStateOf(0) }
     var action by remember { mutableStateOf<Recording?>(null) }
     var confirmDelete by remember { mutableStateOf<Recording?>(null) }
+    val fieldFocus = remember { FocusRequester() }
+    /** The filter box has real focus (and the on-screen keyboard) instead of the list's virtual focus. */
+    var editing by remember { mutableStateOf(false) }
+    /** In the Filter row: 0 = the box, 1 = Clear. */
+    var filterSlot by remember { mutableIntStateOf(0) }
+    val query = vm.recordingsFilter
+    val terms = remember(query) { query.trim().lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() } }
+    val recorded = remember(vm.recorded, terms) { vm.recorded.filter { recordingMatches(it, terms) } }
+    val upcoming = remember(vm.upcoming, terms) { vm.upcoming.filter { recordingMatches(it, terms) } }
+    fun setQuery(text: String) { vm.recordingsFilter = text; showIndex = 0; upIndex = 0 }
 
-    val groups: List<Group> = remember(vm.recorded) {
-        val unfinished = vm.recorded.filter { it.inProgress }.sortedByDescending { it.start }
-        val shows = vm.recorded.groupBy { it.title }
+    val groups: List<Group> = remember(recorded) {
+        val unfinished = recorded.filter { it.inProgress }.sortedByDescending { it.start }
+        val shows = recorded.groupBy { it.title }
             .map { (title, list) -> Group(title, title, list.sortedByDescending { it.start }) }
             .sortedWith(compareByDescending<Group> { g -> g.items.any { !it.isWatched } }.thenByDescending { it.items.first().start })
         (if (unfinished.isEmpty()) emptyList() else listOf(Group(CONTINUE, "Continue watching", unfinished, isContinue = true))) + shows
@@ -90,14 +110,17 @@ fun RecordingsScreen(vm: AppViewModel) {
             vm.loadRecordings()
         }
     }
-    LaunchedEffect(dialogOpen, vm.menuOpen) { if (!dialogOpen && !vm.menuOpen) focus.requestFocus() }
+    LaunchedEffect(dialogOpen, vm.menuOpen, editing) {
+        if (editing) runCatching { fieldFocus.requestFocus() }
+        else if (!dialogOpen && !vm.menuOpen) focus.requestFocus()
+    }
     // The list changed (deleted, finished): keep the selection in range; an emptied show closes.
     LaunchedEffect(groups) {
         showIndex = showIndex.coerceIn(0, (groups.size - 1).coerceAtLeast(0))
         if (level == Level.Episodes && open == null) level = Level.Shows
         epIndex = epIndex.coerceIn(0, (episodes.size - 1).coerceAtLeast(0))
     }
-    LaunchedEffect(vm.upcoming.size) { upIndex = upIndex.coerceIn(0, (vm.upcoming.size - 1).coerceAtLeast(0)) }
+    LaunchedEffect(upcoming.size) { upIndex = upIndex.coerceIn(0, (upcoming.size - 1).coerceAtLeast(0)) }
 
     fun play(r: Recording) = vm.playRecording(r, fromStart = !r.inProgress)
     fun openGroup(g: Group) { openKey = g.key; epIndex = 0; level = Level.Episodes }
@@ -107,6 +130,8 @@ fun RecordingsScreen(vm: AppViewModel) {
     }
 
     BackHandler(enabled = !dialogOpen) { if (level == Level.Episodes) closeGroup() else vm.backToVideo() }
+    // Typing: Back closes the keyboard and keeps the text (declared last, so it wins).
+    BackHandler(enabled = editing && !dialogOpen) { editing = false }
 
     Box(
         Modifier
@@ -117,27 +142,38 @@ fun RecordingsScreen(vm: AppViewModel) {
             .focusable()
             .onPreviewKeyEvent { ev ->
                 if (isHeldOk(ev)) return@onPreviewKeyEvent true
-                if (dialogOpen || ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                if (dialogOpen || editing || ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 val k = ev.nativeKeyEvent.keyCode
                 val ok = k in setOf(KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER,
                     KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
                 if (k == KeyEvent.KEYCODE_MENU) { vm.menuOpen = true; return@onPreviewKeyEvent true }
                 when (level) {
                     Level.Tabs -> when {
-                        k == KeyEvent.KEYCODE_DPAD_LEFT || k == KeyEvent.KEYCODE_DPAD_RIGHT -> tab = 1 - tab
+                        k == KeyEvent.KEYCODE_DPAD_LEFT -> tab = 0
+                        k == KeyEvent.KEYCODE_DPAD_RIGHT -> if (tab == 0) tab = 1 else { level = Level.Filter; filterSlot = 0 }
                         k == KeyEvent.KEYCODE_DPAD_DOWN -> level = Level.Shows
                         ok -> level = Level.Shows
                         else -> return@onPreviewKeyEvent false
                     }
+                    Level.Filter -> when {
+                        k == KeyEvent.KEYCODE_DPAD_LEFT -> if (filterSlot == 1) filterSlot = 0 else level = Level.Tabs
+                        k == KeyEvent.KEYCODE_DPAD_RIGHT -> if (filterSlot == 0 && query.isNotBlank()) filterSlot = 1
+                        k == KeyEvent.KEYCODE_DPAD_DOWN -> level = Level.Shows
+                        k == KeyEvent.KEYCODE_DPAD_UP -> {}
+                        ok -> if (filterSlot == 1) { setQuery(""); filterSlot = 0 } else editing = true
+                        else -> return@onPreviewKeyEvent false
+                    }
                     Level.Shows -> if (tab == 1) when {
+                        k == KeyEvent.KEYCODE_DPAD_LEFT -> { level = Level.Filter; filterSlot = 0 }
                         k == KeyEvent.KEYCODE_DPAD_UP -> if (upIndex == 0) level = Level.Tabs else upIndex--
-                        k == KeyEvent.KEYCODE_DPAD_DOWN -> upIndex = (upIndex + 1).coerceAtMost((vm.upcoming.size - 1).coerceAtLeast(0))
-                        ok || k == KeyEvent.KEYCODE_DPAD_RIGHT -> action = vm.upcoming.getOrNull(upIndex)
+                        k == KeyEvent.KEYCODE_DPAD_DOWN -> upIndex = (upIndex + 1).coerceAtMost((upcoming.size - 1).coerceAtLeast(0))
+                        ok || k == KeyEvent.KEYCODE_DPAD_RIGHT -> action = upcoming.getOrNull(upIndex)
                         else -> return@onPreviewKeyEvent false
                     } else {
                         val g = groups.getOrNull(showIndex)
                         val single = g != null && !g.isContinue && g.items.size == 1
                         when {
+                            k == KeyEvent.KEYCODE_DPAD_LEFT -> { level = Level.Filter; filterSlot = 0 }
                             k == KeyEvent.KEYCODE_DPAD_UP -> if (showIndex == 0) level = Level.Tabs else showIndex--
                             k == KeyEvent.KEYCODE_DPAD_DOWN -> showIndex = (showIndex + 1).coerceAtMost((groups.size - 1).coerceAtLeast(0))
                             g == null -> return@onPreviewKeyEvent false
@@ -166,8 +202,9 @@ fun RecordingsScreen(vm: AppViewModel) {
                 if (level == Level.Episodes && open != null) {
                     Text("›  ${open.title}", color = Tv.accent, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 } else {
-                    val newCount = vm.recorded.count { it.isNew }
-                    listOf("Recorded (${vm.recorded.size}${if (newCount > 0) " · $newCount new" else ""})", "Upcoming (${vm.upcoming.size})")
+                    val newCount = recorded.count { it.isNew }
+                    listOf("Recorded (${countOf(recorded.size, vm.recorded.size)}${if (newCount > 0) " · $newCount new" else ""})",
+                        "Upcoming (${countOf(upcoming.size, vm.upcoming.size)})")
                         .forEachIndexed { i, label ->
                             val active = i == tab
                             val focused = active && level == Level.Tabs
@@ -180,12 +217,23 @@ fun RecordingsScreen(vm: AppViewModel) {
                             )
                         }
                 }
+                if (!(level == Level.Episodes && open != null)) {
+                    FilterPill(
+                        query = query, editing = editing,
+                        boxFocused = level == Level.Filter && filterSlot == 0 && !editing,
+                        clearFocused = level == Level.Filter && filterSlot == 1,
+                        fieldFocus = fieldFocus, onQuery = { setQuery(it) },
+                        onDone = { editing = false; level = Level.Shows },
+                    )
+                }
                 Spacer(Modifier.weight(1f))
                 Text(
                     when {
-                        tab == 1 && level != Level.Episodes -> "OK options · Back TV"
+                        editing -> "Done on the keyboard applies · Back keeps the text"
+                        level == Level.Filter -> if (query.isNotBlank()) "OK type · ▶ clear · ▼ the list" else "OK type · ▼ the list"
+                        tab == 1 && level != Level.Episodes -> "OK options · ◀ filter · Back TV"
                         level == Level.Episodes -> "OK details · ← shows"
-                        else -> "OK open · Back TV"
+                        else -> "OK open · ◀ filter · Back TV"
                     },
                     color = Tv.muted, fontSize = 13.sp,
                 )
@@ -193,16 +241,18 @@ fun RecordingsScreen(vm: AppViewModel) {
             Spacer(Modifier.height(14.dp))
 
             val selected: Recording? = when {
-                tab == 1 && level != Level.Episodes -> vm.upcoming.getOrNull(upIndex)
+                tab == 1 && level != Level.Episodes -> upcoming.getOrNull(upIndex)
                 level == Level.Episodes -> episodes.getOrNull(epIndex)
                 else -> groups.getOrNull(showIndex)?.takeIf { !it.isContinue && it.items.size == 1 }?.items?.first()
             }
             val selectedGroup = if (tab == 0 && level != Level.Episodes) groups.getOrNull(showIndex) else null
 
             if (tab == 0 && groups.isEmpty()) {
-                Text("No recordings yet. Record from the guide (OK on a programme).", color = Tv.muted, fontSize = 18.sp)
-            } else if (tab == 1 && vm.upcoming.isEmpty() && level != Level.Episodes) {
-                Text("Nothing scheduled.", color = Tv.muted, fontSize = 18.sp)
+                Text(if (terms.isNotEmpty()) "No recordings match “${query.trim()}”. ◀ to change the filter." else "No recordings yet. Record from the guide (OK on a programme).",
+                    color = Tv.muted, fontSize = 18.sp)
+            } else if (tab == 1 && upcoming.isEmpty() && level != Level.Episodes) {
+                Text(if (terms.isNotEmpty()) "Nothing scheduled matches “${query.trim()}”. ◀ to change the filter." else "Nothing scheduled.",
+                    color = Tv.muted, fontSize = 18.sp)
             } else {
                 Summary(selected, selectedGroup)
                 Spacer(Modifier.height(12.dp))
@@ -213,8 +263,8 @@ fun RecordingsScreen(vm: AppViewModel) {
                     tab == 0 -> SelectList(Modifier.fillMaxSize(), groups.size, showIndex, level == Level.Shows) { i, sel ->
                         GroupRow(groups[i], sel)
                     }
-                    else -> SelectList(Modifier.fillMaxSize(), vm.upcoming.size, upIndex, level == Level.Shows) { i, sel ->
-                        val r = vm.upcoming[i]
+                    else -> SelectList(Modifier.fillMaxSize(), upcoming.size, upIndex, level == Level.Shows) { i, sel ->
+                        val r = upcoming[i]
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             Box(Modifier.width(18.dp), contentAlignment = Alignment.Center) {
                                 if (r.isRecordingNow) Box(Modifier.size(10.dp).background(Tv.rec, CircleShape))
@@ -230,6 +280,74 @@ fun RecordingsScreen(vm: AppViewModel) {
         }
 
         action?.let { r -> RecordingCard(vm, r, onClose = { action = null }) }
+    }
+}
+
+/** "3" or, when filtering, "3 of 40". */
+private fun countOf(shown: Int, total: Int) = if (shown == total) "$shown" else "$shown of $total"
+
+/** What the admin's filter box matches (title, episode, channel, status), but every typed word must be found. */
+private fun recordingMatches(r: Recording, terms: List<String>): Boolean {
+    if (terms.isEmpty()) return true
+    val status = when {
+        r.isRecordingNow -> "recording"
+        r.inProgress -> "in progress"
+        r.isWatched -> "watched"
+        r.stop < io.gotvh.tv.nowSec() -> "new"
+        else -> "scheduled"
+    }
+    val text = "${r.title} ${r.subtitle} ${r.channelName} $status".lowercase()
+    return terms.all { text.contains(it) }
+}
+
+/** The filter in the header: a pill that turns into a text box (with the on-screen keyboard) on OK, plus Clear. */
+@Composable
+private fun FilterPill(
+    query: String,
+    editing: Boolean,
+    boxFocused: Boolean,
+    clearFocused: Boolean,
+    fieldFocus: FocusRequester,
+    onQuery: (String) -> Unit,
+    onDone: () -> Unit,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            Modifier
+                .background(if (boxFocused) Tv.accent else Color(0x1FFFFFFF), RoundedCornerShape(16.dp))
+                .then(if (editing) Modifier.border(2.dp, Tv.accent, RoundedCornerShape(16.dp)) else Modifier)
+                .padding(horizontal = 14.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("Filter", color = if (boxFocused) Color.Black else Tv.muted, fontSize = 18.sp)
+            if (editing) {
+                BasicTextField(
+                    value = query,
+                    onValueChange = onQuery,
+                    singleLine = true,
+                    textStyle = TextStyle(color = Tv.text, fontSize = 18.sp),
+                    cursorBrush = SolidColor(Tv.accent),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { onDone() }),
+                    modifier = Modifier.width(240.dp).focusRequester(fieldFocus),
+                )
+            } else {
+                Text(
+                    query.ifBlank { "title, channel, new…" },
+                    color = if (boxFocused) Color.Black else if (query.isBlank()) Tv.muted else Tv.text,
+                    fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 260.dp),
+                )
+            }
+        }
+        if (query.isNotBlank() && !editing) {
+            Text(
+                "✕ Clear", fontSize = 16.sp,
+                color = if (clearFocused) Color.Black else Tv.muted,
+                modifier = Modifier.background(if (clearFocused) Tv.accent else Color.Transparent, RoundedCornerShape(16.dp))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+            )
+        }
     }
 }
 
