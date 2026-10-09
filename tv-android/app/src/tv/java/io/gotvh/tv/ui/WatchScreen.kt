@@ -264,7 +264,8 @@ fun WatchScreen(vm: AppViewModel) {
                 )
             }
             now < bannerUntil -> Banner { ChannelHeader(vm); TimeshiftProgress(vm, false); MiniGuide(vm, interactive = false, onPick = {}) }
-            shifted -> Badge(if (player.paused) "❚❚  Paused" else "▶  −" + clock(player.behindLiveMs))
+            // Only "Paused" stays on screen; the behind-live time shows with the banner for a few seconds, then clears.
+            player.paused -> Badge("❚❚  Paused")
         }
 
         if (padOpen) {
