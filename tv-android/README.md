@@ -51,7 +51,7 @@ channel needs converting for the TV, it plays over HTTP as before, without pause
 header; OK types, using the on-screen keyboard or its microphone. Like the admin's filter it matches title,
 episode, channel and status words (new, watched, in progress, recording, scheduled), and every word must
 match: "buzzr new". It applies to Recorded and Upcoming and is kept while you move around the app. ▶ then OK
-clears it.
+clears it. The phone app has the same filter as a box under the Recorded / Upcoming tabs.
 
 Recordings still being made appear under Recorded (● recording) and play from the start, following
 the file as it grows.

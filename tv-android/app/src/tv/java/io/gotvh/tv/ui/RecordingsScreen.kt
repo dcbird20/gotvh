@@ -52,6 +52,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.gotvh.tv.AppViewModel
 import io.gotvh.tv.data.Recording
+import io.gotvh.tv.data.filterCount
+import io.gotvh.tv.data.recordingFilterTerms
+import io.gotvh.tv.data.recordingMatches
 
 private enum class Level { Tabs, Filter, Shows, Episodes }
 
@@ -86,7 +89,7 @@ fun RecordingsScreen(vm: AppViewModel) {
     /** In the Filter row: 0 = the box, 1 = Clear. */
     var filterSlot by remember { mutableIntStateOf(0) }
     val query = vm.recordingsFilter
-    val terms = remember(query) { query.trim().lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() } }
+    val terms = remember(query) { recordingFilterTerms(query) }
     val recorded = remember(vm.recorded, terms) { vm.recorded.filter { recordingMatches(it, terms) } }
     val upcoming = remember(vm.upcoming, terms) { vm.upcoming.filter { recordingMatches(it, terms) } }
     fun setQuery(text: String) { vm.recordingsFilter = text; showIndex = 0; upIndex = 0 }
@@ -203,8 +206,8 @@ fun RecordingsScreen(vm: AppViewModel) {
                     Text("›  ${open.title}", color = Tv.accent, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 } else {
                     val newCount = recorded.count { it.isNew }
-                    listOf("Recorded (${countOf(recorded.size, vm.recorded.size)}${if (newCount > 0) " · $newCount new" else ""})",
-                        "Upcoming (${countOf(upcoming.size, vm.upcoming.size)})")
+                    listOf("Recorded (${filterCount(recorded.size, vm.recorded.size)}${if (newCount > 0) " · $newCount new" else ""})",
+                        "Upcoming (${filterCount(upcoming.size, vm.upcoming.size)})")
                         .forEachIndexed { i, label ->
                             val active = i == tab
                             val focused = active && level == Level.Tabs
@@ -281,23 +284,6 @@ fun RecordingsScreen(vm: AppViewModel) {
 
         action?.let { r -> RecordingCard(vm, r, onClose = { action = null }) }
     }
-}
-
-/** "3" or, when filtering, "3 of 40". */
-private fun countOf(shown: Int, total: Int) = if (shown == total) "$shown" else "$shown of $total"
-
-/** What the admin's filter box matches (title, episode, channel, status), but every typed word must be found. */
-private fun recordingMatches(r: Recording, terms: List<String>): Boolean {
-    if (terms.isEmpty()) return true
-    val status = when {
-        r.isRecordingNow -> "recording"
-        r.inProgress -> "in progress"
-        r.isWatched -> "watched"
-        r.stop < io.gotvh.tv.nowSec() -> "new"
-        else -> "scheduled"
-    }
-    val text = "${r.title} ${r.subtitle} ${r.channelName} $status".lowercase()
-    return terms.all { text.contains(it) }
 }
 
 /** The filter in the header: a pill that turns into a text box (with the on-screen keyboard) on OK, plus Clear. */

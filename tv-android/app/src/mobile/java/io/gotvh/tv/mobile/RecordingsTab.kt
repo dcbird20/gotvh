@@ -14,12 +14,15 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
@@ -27,6 +30,8 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -43,12 +48,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.gotvh.tv.AppViewModel
 import io.gotvh.tv.data.Recording
+import io.gotvh.tv.data.filterCount
+import io.gotvh.tv.data.recordingFilterTerms
+import io.gotvh.tv.data.recordingMatches
 import io.gotvh.tv.ui.Tv
 import io.gotvh.tv.ui.clock
 import io.gotvh.tv.ui.dayLabel
@@ -61,6 +71,8 @@ private data class Group(val key: String, val title: String, val items: List<Rec
  * Recordings: "Continue watching" first, then shows (newest first, unfinished ones on top); tap a
  * show for its recordings, tap a recording to play it (resuming where you stopped, on any device).
  * ⋮ on a recording: play from the start, mark watched / unwatched, delete or stop recording.
+ * The filter box under the tabs matches title, channel and status words (new, watched…), like the admin's;
+ * it applies to Recorded and Upcoming and is shared with the TV app's filter.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -69,9 +81,15 @@ fun RecordingsTab(vm: AppViewModel) {
     var openKey by rememberSaveable { mutableStateOf<String?>(null) }
     var confirmDelete by remember { mutableStateOf<Recording?>(null) }
 
-    val groups = remember(vm.recorded) {
-        val unfinished = vm.recorded.filter { it.inProgress }.sortedByDescending { it.start }
-        val shows = vm.recorded.groupBy { it.title }
+    val focusManager = LocalFocusManager.current
+    val query = vm.recordingsFilter
+    val terms = remember(query) { recordingFilterTerms(query) }
+    val recorded = remember(vm.recorded, terms) { vm.recorded.filter { recordingMatches(it, terms) } }
+    val upcoming = remember(vm.upcoming, terms) { vm.upcoming.filter { recordingMatches(it, terms) } }
+
+    val groups = remember(recorded) {
+        val unfinished = recorded.filter { it.inProgress }.sortedByDescending { it.start }
+        val shows = recorded.groupBy { it.title }
             .map { (title, list) -> Group(title, title, list.sortedByDescending { it.start }) }
             .sortedWith(compareByDescending<Group> { g -> g.items.any { !it.isWatched } }.thenByDescending { it.items.first().start })
         (if (unfinished.isEmpty()) emptyList() else listOf(Group("\u0000continue", "Continue watching", unfinished, isContinue = true))) + shows
@@ -82,10 +100,23 @@ fun RecordingsTab(vm: AppViewModel) {
     Column(Modifier.fillMaxSize()) {
         if (open == null) {
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
-                listOf("Recorded (${vm.recorded.size})", "Upcoming (${vm.upcoming.size})").forEachIndexed { i, label ->
+                listOf("Recorded (${filterCount(recorded.size, vm.recorded.size)})", "Upcoming (${filterCount(upcoming.size, vm.upcoming.size)})").forEachIndexed { i, label ->
                     SegmentedButton(selected = tab == i, onClick = { tab = i }, shape = SegmentedButtonDefaults.itemShape(i, 2)) { Text(label) }
                 }
             }
+            OutlinedTextField(
+                value = query,
+                onValueChange = { vm.recordingsFilter = it },
+                singleLine = true,
+                placeholder = { Text("Filter: title, channel, new…") },
+                trailingIcon = {
+                    if (query.isNotEmpty()) IconButton(onClick = { vm.recordingsFilter = "" }) { Icon(Icons.Filled.Close, contentDescription = "Clear filter") }
+                },
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
+                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Tv.accent, cursorColor = Tv.accent, focusedTextColor = Tv.text, unfocusedTextColor = Tv.text),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
+            )
         } else {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = { openKey = null }) { Icon(Icons.Filled.ArrowBack, contentDescription = "Back to shows") }
@@ -98,16 +129,16 @@ fun RecordingsTab(vm: AppViewModel) {
                     RecordingRow(vm, r, withShow = open.isContinue, onDelete = { confirmDelete = r })
                 }
             }
-            tab == 0 && groups.isEmpty() -> Empty("No recordings yet. Record from the Guide.")
+            tab == 0 && groups.isEmpty() -> Empty(if (terms.isNotEmpty()) "No recordings match “${query.trim()}”." else "No recordings yet. Record from the Guide.")
             tab == 0 -> LazyColumn(Modifier.fillMaxSize()) {
                 items(groups, key = { it.key }) { g ->
                     if (!g.isContinue && g.items.size == 1) RecordingRow(vm, g.items[0], withShow = true, onDelete = { confirmDelete = g.items[0] })
                     else GroupRow(g) { openKey = g.key }
                 }
             }
-            vm.upcoming.isEmpty() -> Empty("Nothing scheduled.")
+            upcoming.isEmpty() -> Empty(if (terms.isNotEmpty()) "Nothing scheduled matches “${query.trim()}”." else "Nothing scheduled.")
             else -> LazyColumn(Modifier.fillMaxSize()) {
-                items(vm.upcoming, key = { it.uuid }) { r -> UpcomingRow(vm, r) }
+                items(upcoming, key = { it.uuid }) { r -> UpcomingRow(vm, r) }
             }
         }
     }
