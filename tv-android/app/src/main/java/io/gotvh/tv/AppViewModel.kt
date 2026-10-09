@@ -65,6 +65,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var guideGenre by mutableStateOf<io.gotvh.tv.data.Genre?>(null)
     /** Text typed into the Recordings filter (title, channel, status words); kept while you move around the app. */
     var recordingsFilter by mutableStateOf("")
+    /** Text typed into the guide's Find (programme title or description); kept while the app runs. */
+    var guideFind by mutableStateOf("")
     /** Channel watched before the current one (the remote's "last channel" key). */
     private var previousIndex = -1
     /** A short message for the viewer (connection problems, "Recording scheduled"). */

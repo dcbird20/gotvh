@@ -1,5 +1,14 @@
 package io.gotvh.tv.ui
 
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.ImeAction
+import io.gotvh.tv.data.programMatches
+import io.gotvh.tv.data.recordingFilterTerms
 import android.view.KeyEvent
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -81,14 +90,25 @@ fun GuideScreen(vm: AppViewModel) {
     // and that genre's programmes stand out. Chosen in the chip row above the grid (Up from the top).
     var genre by remember { mutableStateOf(vm.guideGenre) }
     val filterNow = nowSec() / 600 * 600
-    val channels = remember(vm.channels, vm.programs, genre, filterNow) {
+    // Find (typed text): programmes whose title or description match; combines with the genre.
+    val findText = vm.guideFind
+    val findTerms = remember(findText) { recordingFilterTerms(findText) }
+    val channels = remember(vm.channels, vm.programs, genre, findTerms, filterNow) {
         val g = genre
-        if (g == null) vm.channels else vm.channels.filter { ch ->
-            vm.programsFor(ch.uuid).any { !it.placeholder && it.stop > filterNow && it.start < filterNow + 12 * 3600 && Genre.of(it) == g }
+        if (g == null && findTerms.isEmpty()) vm.channels else vm.channels.filter { ch ->
+            vm.programsFor(ch.uuid).any {
+                !it.placeholder && it.stop > filterNow && it.start < filterNow + 12 * 3600 &&
+                    (g == null || Genre.of(it) == g) && programMatches(it, findTerms)
+            }
         }
     }
     /** The genre chips have the highlight (not the grid). */
     var onChips by remember { mutableStateOf(false) }
+    /** The Find box has real focus (and the on-screen keyboard). */
+    var editing by remember { mutableStateOf(false) }
+    val findFocus = remember { FocusRequester() }
+    /** Which chip-row stop has the highlight: 0 = the genre chips, 1 = Find, 2 = Find's Clear. */
+    var findStop by remember { mutableIntStateOf(0) }
     val focus = remember { FocusRequester() }
     val listState = rememberLazyListState()
     var row by remember {
@@ -144,11 +164,19 @@ fun GuideScreen(vm: AppViewModel) {
         }
     }
     LaunchedEffect(windowStart) { vm.ensureGuide(windowStart - 3600, windowStart + 6 * 3600) }
-    LaunchedEffect(detail, vm.menuOpen) { if (detail == null && !vm.menuOpen) focus.requestFocus() }
+    LaunchedEffect(detail, vm.menuOpen, editing) {
+        if (editing) runCatching { findFocus.requestFocus() }
+        else if (detail == null && !vm.menuOpen) focus.requestFocus()
+    }
+    LaunchedEffect(onChips) { if (!onChips) findStop = 0 }
+    // Descriptions are only searched where the guide is loaded: cover the next 12 hours.
+    LaunchedEffect(findTerms) { if (findTerms.isNotEmpty()) vm.ensureGuide(filterNow, filterNow + 12 * 3600) }
     LaunchedEffect(row, rows) { keepRowVisible() }
     LaunchedEffect(top) { listState.scrollToItem(top) }
 
     BackHandler(enabled = detail == null) { if (onChips && channels.isNotEmpty()) onChips = false else vm.backToVideo() }
+    // Typing: Back closes the keyboard and keeps the text (declared last, so it wins).
+    BackHandler(enabled = editing && detail == null) { editing = false }
 
     /** Point the grid at [t], scrolling the window so it's comfortably on screen. */
     fun moveTo(t: Long) {
@@ -189,20 +217,32 @@ fun GuideScreen(vm: AppViewModel) {
             .focusRequester(focus)
             .focusable()
             .onPreviewKeyEvent { ev ->
-                if (detail != null) return@onPreviewKeyEvent false
+                if (detail != null || editing) return@onPreviewKeyEvent false
                 if (isHeldOk(ev)) return@onPreviewKeyEvent true
                 if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 if (onChips || channels.isEmpty()) {
-                    // The genre chips: Left/Right choose (the grid follows), Down / OK back to the grid.
-                    val i = genres.indexOf(genre)
-                    when (ev.nativeKeyEvent.keyCode) {
-                        // Wraps around: Left from All goes to the last genre, Right from the last goes to All.
-                        KeyEvent.KEYCODE_DPAD_LEFT -> pickGenre(genres[Math.floorMod(i - 1, genres.size)])
-                        KeyEvent.KEYCODE_DPAD_RIGHT -> pickGenre(genres[Math.floorMod(i + 1, genres.size)])
-                        KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER ->
-                            if (channels.isNotEmpty()) onChips = false
-                        KeyEvent.KEYCODE_DPAD_UP -> {}
-                        else -> return@onPreviewKeyEvent false
+                    // The chips: Left/Right choose (the grid follows), Down / OK back to the grid. After the
+                    // last genre comes Find (OK types; ▶ then OK clears), then round to All.
+                    val k = ev.nativeKeyEvent.keyCode
+                    val okKey = k == KeyEvent.KEYCODE_DPAD_CENTER || k == KeyEvent.KEYCODE_ENTER || k == KeyEvent.KEYCODE_NUMPAD_ENTER
+                    if (findStop != 0) {
+                        when {
+                            k == KeyEvent.KEYCODE_DPAD_LEFT -> if (findStop == 2) findStop = 1 else { findStop = 0; pickGenre(genres.last()) }
+                            k == KeyEvent.KEYCODE_DPAD_RIGHT -> if (findStop == 1 && findText.isNotBlank()) findStop = 2 else { findStop = 0; pickGenre(null) }
+                            k == KeyEvent.KEYCODE_DPAD_DOWN -> if (channels.isNotEmpty()) { onChips = false; findStop = 0 }
+                            okKey -> if (findStop == 2) { vm.guideFind = ""; row = 0; top = 0; findStop = 1 } else editing = true
+                            k == KeyEvent.KEYCODE_DPAD_UP -> {}
+                            else -> return@onPreviewKeyEvent false
+                        }
+                    } else {
+                        val i = genres.indexOf(genre)
+                        when {
+                            k == KeyEvent.KEYCODE_DPAD_LEFT -> if (i <= 0) findStop = 1 else pickGenre(genres[i - 1])
+                            k == KeyEvent.KEYCODE_DPAD_RIGHT -> if (i >= genres.size - 1) findStop = 1 else pickGenre(genres[i + 1])
+                            k == KeyEvent.KEYCODE_DPAD_DOWN || okKey -> if (channels.isNotEmpty()) onChips = false
+                            k == KeyEvent.KEYCODE_DPAD_UP -> {}
+                            else -> return@onPreviewKeyEvent false
+                        }
                     }
                     if (channels.isEmpty()) onChips = true
                     return@onPreviewKeyEvent true
@@ -246,7 +286,9 @@ fun GuideScreen(vm: AppViewModel) {
                 Spacer(Modifier.width(18.dp))
                 Text(dayLabel(windowStart), color = Tv.accent, fontSize = 20.sp)
                 Spacer(Modifier.weight(1f))
-                Text(if (onChips) "◀ ▶ genre · ▼ back to the guide" else "OK details · ▶ watch · ⏪⏩ 2 hours · ◀ at the start or ▲ at the top: genres · Back TV",
+                Text(if (editing) "Done on the keyboard applies · Back keeps the text"
+                    else if (onChips && findStop != 0) "OK type · ◀ ▶ more · ▼ back to the guide"
+                    else if (onChips) "◀ ▶ genre or Find · ▼ back to the guide" else "OK details · ▶ watch · ⏪⏩ 2 hours · ◀ at the start or ▲ at the top: genres · Back TV",
                     color = Tv.muted, fontSize = 13.sp)
             }
             Spacer(Modifier.height(8.dp))
@@ -268,11 +310,60 @@ fun GuideScreen(vm: AppViewModel) {
                             fontWeight = if (chosen) FontWeight.Bold else FontWeight.Normal)
                     }
                 }
-                if (genre != null) Text("${channels.size} channels", color = Tv.muted, fontSize = 13.sp)
+                // Find: title or description. OK (when highlighted) types; the keyboard's Done applies.
+                val findHot = onChips && findStop == 1 && !editing
+                Row(
+                    Modifier
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(if (findHot) Tv.accent else Color(0x1FFFFFFF))
+                        .then(
+                            if (editing) Modifier.border(2.dp, Tv.accent, RoundedCornerShape(16.dp))
+                            else if (findText.isNotBlank() && !findHot) Modifier.border(1.dp, Tv.accent, RoundedCornerShape(16.dp))
+                            else Modifier
+                        )
+                        .padding(horizontal = 12.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text("Find", color = if (findHot) Color.Black else Tv.muted, fontSize = 14.sp)
+                    if (editing) {
+                        BasicTextField(
+                            value = findText,
+                            onValueChange = { vm.guideFind = it; row = 0; top = 0 },
+                            singleLine = true,
+                            textStyle = TextStyle(color = Tv.text, fontSize = 14.sp),
+                            cursorBrush = SolidColor(Tv.accent),
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                            keyboardActions = KeyboardActions(onDone = {
+                                editing = false
+                                if (channels.isNotEmpty()) { onChips = false; findStop = 0 }
+                            }),
+                            modifier = Modifier.width(220.dp).focusRequester(findFocus),
+                        )
+                    } else {
+                        Text(
+                            findText.ifBlank { "title or description…" },
+                            color = if (findHot) Color.Black else if (findText.isBlank()) Tv.muted else Tv.text,
+                            fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 220.dp),
+                        )
+                    }
+                }
+                if (findText.isNotBlank() && !editing) {
+                    val clearHot = onChips && findStop == 2
+                    Text(
+                        "✕", color = if (clearHot) Color.Black else Tv.muted, fontSize = 14.sp,
+                        modifier = Modifier.background(if (clearHot) Tv.accent else Color.Transparent, RoundedCornerShape(16.dp)).padding(horizontal = 10.dp, vertical = 5.dp),
+                    )
+                }
+                if (genre != null || findText.isNotBlank()) Text("${channels.size} channels", color = Tv.muted, fontSize = 13.sp)
             }
             Spacer(Modifier.height(10.dp))
-            if (channels.isEmpty() && genre != null) {
-                Text("Nothing in ${genre?.label} in the next 12 hours. ◀ ▶ another genre.", color = Tv.muted, fontSize = 18.sp)
+            if (channels.isEmpty() && (genre != null || findText.isNotBlank())) {
+                Text(
+                    if (findText.isNotBlank()) "Nothing matches “${findText.trim()}”${genre?.let { " in ${it.label}" } ?: ""} in the next 12 hours. ◀ ▶ another genre or change Find."
+                    else "Nothing in ${genre?.label} in the next 12 hours. ◀ ▶ another genre.",
+                    color = Tv.muted, fontSize = 18.sp,
+                )
             }
             ProgramSummary(selected, channel, isNow = anchor <= now + 60)
             Spacer(Modifier.height(12.dp))
@@ -289,7 +380,7 @@ fun GuideScreen(vm: AppViewModel) {
                         itemsIndexed(channels, key = { _, c -> c.uuid }) { i, ch ->
                             GuideRow(
                                 vm = vm, channel = ch, isRow = i == row && !onChips, selected = selected, gap = if (i == row && !onChips) gap else null,
-                                windowStart = windowStart, dpPerSec = dpPerSec, now = now, genre = genre,
+                                windowStart = windowStart, dpPerSec = dpPerSec, now = now, genre = genre, terms = findTerms,
                             )
                         }
                     }
@@ -365,6 +456,7 @@ private fun GuideRow(
     dpPerSec: Float,
     now: Long,
     genre: Genre? = null,
+    terms: List<String> = emptyList(),
 ) {
     val windowEnd = windowStart + WINDOW
     Row(Modifier.fillMaxWidth().height(ROW_HEIGHT).padding(vertical = 3.dp)) {
@@ -416,8 +508,8 @@ private fun GuideRow(
                     clippedStart = p.start < windowStart,
                     width = ((e - s) * dpPerSec).dp,
                     modifier = Modifier.offset(x = ((s - windowStart) * dpPerSec).dp),
-                    // Filtering by genre: the other programmes fade back.
-                    dim = genre != null && Genre.of(p) != genre,
+                    // Filtering by genre or Find: the other programmes fade back.
+                    dim = (genre != null && Genre.of(p) != genre) || (terms.isNotEmpty() && !programMatches(p, terms)),
                 )
             }
             if (now in windowStart until windowEnd) {

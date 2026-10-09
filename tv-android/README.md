@@ -108,6 +108,11 @@ next 12 hours: the guide then lists only channels with that genre and fades othe
 Back returns to the grid; the choice is kept until you change it. From any programme's card, "Show only
 <genre>" applies that filter without leaving the grid.
 
+**Find in the guide**: after the last genre chip comes *Find* (title or description). OK types; the keyboard's
+Done applies. The guide then lists only channels with a matching programme in the next 12 hours and fades the
+others; it combines with the genre. ▶ then OK clears it. The phone's guide has a Find box on top: each
+channel row shows its first matching programme from the chosen time.
+
 **Recordings**: Up/Down move; OK on a show lists its recordings, OK on a recording opens its card
 (Resume / Play, From the start, Mark watched / unwatched, Delete or Stop recording); Back goes up a level,
 then back to what's playing. "Continue watching" at the top lists everything stopped partway; a dot means

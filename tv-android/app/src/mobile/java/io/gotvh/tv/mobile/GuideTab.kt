@@ -1,5 +1,17 @@
 package io.gotvh.tv.mobile
 
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
+import io.gotvh.tv.data.programMatches
+import io.gotvh.tv.data.recordingFilterTerms
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -61,6 +73,8 @@ private const val SLOT = 1800L
 /**
  * The guide for a phone: pick a time (Now, then every half hour for two days) and see what's on
  * every channel then. Tap a programme for its details: Watch (if it's on now), Record, Record series.
+ * Find (the box on top): channels with a programme whose title or description matches, from the chosen
+ * time over the next 12 hours; each row shows that programme. Shared with the TV guide's Find.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -73,9 +87,34 @@ fun GuideTab(vm: AppViewModel, onWatch: () -> Unit) {
     val at = if (slot == 0L) now else slot
     var picked by remember { mutableStateOf<Pair<Channel, Program>?>(null) }
 
+    val focusManager = LocalFocusManager.current
+    val find = vm.guideFind
+    val terms = remember(find) { recordingFilterTerms(find) }
     LaunchedEffect(at / SLOT) { vm.ensureGuide(at - 3600, at + 4 * 3600) }
+    LaunchedEffect(at / SLOT, terms) { if (terms.isNotEmpty()) vm.ensureGuide(at - 3600, at + 12 * 3600) }
+    // With Find: the first matching programme per channel (still on or later), and only channels that have one.
+    val found: List<Pair<Channel, Program?>> = remember(vm.channels, vm.programs, terms, at / SLOT) {
+        if (terms.isEmpty()) vm.channels.map { it to null }
+        else vm.channels.mapNotNull { ch ->
+            vm.programsFor(ch.uuid).firstOrNull { !it.placeholder && it.stop > at && it.start < at + 12 * 3600 && programMatches(it, terms) }
+                ?.let { ch to it }
+        }
+    }
 
     Column(Modifier.fillMaxSize()) {
+        OutlinedTextField(
+            value = find,
+            onValueChange = { vm.guideFind = it },
+            singleLine = true,
+            placeholder = { Text("Find a programme (title or description)") },
+            trailingIcon = {
+                if (find.isNotEmpty()) IconButton(onClick = { vm.guideFind = "" }) { Icon(Icons.Filled.Close, contentDescription = "Clear") }
+            },
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
+            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Tv.accent, cursorColor = Tv.accent, focusedTextColor = Tv.text, unfocusedTextColor = Tv.text),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
+        )
         LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(slots) { s ->
                 val label = when {
@@ -88,10 +127,16 @@ fun GuideTab(vm: AppViewModel, onWatch: () -> Unit) {
         }
         if (slot != 0L) Text(dayLabel(slot), color = Tv.muted, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
         LazyColumn(Modifier.fillMaxSize()) {
-            itemsIndexed(vm.channels, key = { _, c -> c.uuid }) { _, ch ->
+            if (terms.isNotEmpty()) item(key = "found") {
+                Text(
+                    if (found.isEmpty()) "Nothing matches “${find.trim()}” in the next 12 hours." else "${found.size} channel${if (found.size == 1) "" else "s"} with “${find.trim()}”",
+                    color = Tv.muted, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                )
+            }
+            itemsIndexed(found, key = { _, f -> f.first.uuid }) { _, (ch, match) ->
                 val list = vm.programsFor(ch.uuid)
-                val on = list.firstOrNull { it.start <= at && it.stop > at }
-                val next = list.firstOrNull { it.start > at && !it.placeholder }
+                val on = match ?: list.firstOrNull { it.start <= at && it.stop > at }
+                val next = if (match != null) null else list.firstOrNull { it.start > at && !it.placeholder }
                 Row(
                     Modifier
                         .fillMaxWidth()
@@ -116,7 +161,7 @@ fun GuideTab(vm: AppViewModel, onWatch: () -> Unit) {
                             )
                         }
                         if (on != null && !on.placeholder) {
-                            Text(timeRange(context, on.start, on.stop), color = Tv.muted, fontSize = 12.sp)
+                            Text((if (match != null) "${dayLabel(on.start)} " else "") + timeRange(context, on.start, on.stop), color = Tv.muted, fontSize = 12.sp)
                             if (on.isAiring(now)) {
                                 val f = ((now - on.start).toFloat() / (on.stop - on.start).coerceAtLeast(1)).coerceIn(0f, 1f)
                                 Box(Modifier.padding(top = 3.dp).fillMaxWidth(0.6f).height(3.dp).background(Color(0x33FFFFFF))) {

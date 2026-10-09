@@ -24,5 +24,13 @@ fun recordingMatches(r: Recording, terms: List<String>): Boolean {
     return terms.all { text.contains(it) }
 }
 
+/** The guide's Find: title, episode name and description; every typed word has to be found. */
+fun programMatches(p: Program, terms: List<String>): Boolean {
+    if (terms.isEmpty()) return true
+    if (p.placeholder) return false
+    val text = "${p.title} ${p.subtitle} ${p.description}".lowercase()
+    return terms.all { text.contains(it) }
+}
+
 /** "3" or, while filtering, "3 of 40". */
 fun filterCount(shown: Int, total: Int): String = if (shown == total) "$shown" else "$shown of $total"
