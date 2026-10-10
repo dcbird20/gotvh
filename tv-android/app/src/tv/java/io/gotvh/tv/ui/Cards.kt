@@ -101,7 +101,7 @@ fun ProgramCard(vm: AppViewModel, p: Program, onClose: () -> Unit, onWatch: (() 
     DetailsCard(
         title = if (p.placeholder) (channel?.name ?: p.title) else p.title,
         subtitle = p.subtitle,
-        meta = listOfNotNull("${dayLabel(p.start)} ${timeRange(context, p.start, p.stop)}", channel?.label, Genre.of(p)?.label).joinToString("  ·  "),
+        meta = listOfNotNull("${dayLabel(p.start)} ${timeRange(context, p.start, p.stop)}", channel?.label, Genre.of(p)?.label, p.released).joinToString("  ·  "),
         status = when {
             p.isRecordingNow -> "● Recording now"
             p.isScheduled -> "● Will be recorded"

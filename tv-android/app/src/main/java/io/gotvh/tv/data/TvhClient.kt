@@ -173,6 +173,7 @@ class TvhClient(server: String, val username: String, val password: String, val 
                 dvrUuid = o.optString("dvrUuid"),
                 seriesLink = o.optString("serieslinkUri"),
                 episode = o.optString("episodeOnscreen").ifBlank { o.optString("episodeUri") },
+                year = o.optInt("copyright_year"),
             )
     }
 

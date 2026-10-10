@@ -26,12 +26,16 @@ data class Program(
     val seriesLink: String,
     /** The guide's episode marking ("S02E05", "Ep 12"…) or episode ID; empty when it has none. */
     val episode: String = "",
+    /** Release year from the guide (Tvheadend's copyright_year); 0 when the guide doesn't say. */
+    val year: Int = 0,
     /** Made up by the app for time with no guide information: one-hour blocks named after the channel. */
     val placeholder: Boolean = false,
 ) {
     fun isAiring(nowSec: Long) = start <= nowSec && stop > nowSec
     val isScheduled: Boolean get() = dvrUuid.isNotEmpty() && (dvrState.startsWith("scheduled") || dvrState.startsWith("recording"))
     val isRecordingNow: Boolean get() = dvrState.startsWith("recording")
+    /** "Released 2017", or null when the guide has no release year. */
+    val released: String? get() = if (year in 1880..2100) "Released $year" else null
 }
 
 /** A DVR entry: finished or upcoming. Times are Unix seconds. */

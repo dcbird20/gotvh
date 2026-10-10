@@ -32,6 +32,8 @@ interface GuideEvent {
   summary: string;
   description: string;
   episode: string;
+  /** Release year from the guide (copyright_year); 0 when not given. */
+  year: number;
   genre: number[];
   dvrUuid: string;
   dvrState: string;
@@ -91,6 +93,7 @@ function toEvent(e: any): GuideEvent {
     summary: String(e?.summary || '').trim(),
     description: String(e?.description || '').trim(),
     episode: String(e?.episodeOnscreen || '').trim(),
+    year: Number(e?.copyright_year) || 0,
     genre: Array.isArray(e?.genre) ? e.genre.map(Number) : [],
     dvrUuid: String(e?.dvrUuid || ''),
     dvrState: String(e?.dvrState || ''),
@@ -309,6 +312,7 @@ import { GENRES, GenreKey, genreInfo, genreOf } from './guide-genre';
               <p class="muted small">
                 {{ e.channelNumber }} {{ e.channelName }}
                 @if (e.episode) { · {{ e.episode }} }
+                @if (e.year) { · Released {{ e.year }} }
                 @if (e.isNew) { · New } @if (e.isRepeat) { · Repeat } @if (e.hd) { · HD }
               </p>
               @if (genre(e); as g) {

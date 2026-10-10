@@ -154,7 +154,7 @@ internal fun ProgramSheet(vm: AppViewModel, ch: Channel, p: Program, onPick: (Pr
     Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(if (p.placeholder) ch.name else p.title, color = Tv.text, fontSize = 22.sp, fontWeight = FontWeight.Bold)
         if (p.subtitle.isNotBlank()) Text(p.subtitle, color = Tv.muted, fontSize = 15.sp)
-        Text(listOfNotNull("${dayLabel(p.start)} ${timeRange(context, p.start, p.stop)}", ch.label, Genre.of(p)?.label).joinToString("  ·  "),
+        Text(listOfNotNull("${dayLabel(p.start)} ${timeRange(context, p.start, p.stop)}", ch.label, Genre.of(p)?.label, p.released).joinToString("  ·  "),
             color = Tv.muted, fontSize = 13.sp)
         when {
             p.isRecordingNow -> Text("● Recording now", color = Tv.rec, fontSize = 14.sp)

@@ -300,7 +300,7 @@ private fun ProgramSummary(p: Program?, channel: Channel?, isNow: Boolean) {
             fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         val genre = Genre.of(p)
         Text(
-            listOfNotNull(dayLabel(p.start) + " " + timeRange(context, p.start, p.stop), channel?.label, genre?.label,
+            listOfNotNull(dayLabel(p.start) + " " + timeRange(context, p.start, p.stop), channel?.label, genre?.label, p.released,
                 if (p.isRecordingNow) "● Recording" else if (p.isScheduled) "● Will record" else null).joinToString("  ·  "),
             color = Tv.muted, fontSize = 15.sp, maxLines = 1,
         )
