@@ -17,7 +17,8 @@ import { MatSort, MatSortModule } from '@angular/material/sort';
 import { MatTableDataSource, MatTableModule } from '@angular/material/table';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatTabsModule } from '@angular/material/tabs';
-import { TvheadendService } from '@gotvh/tvh-api';
+import { TvheadendService, isDeferredEnum, normalizeEnum } from '@gotvh/tvh-api';
+import { MatMenuModule } from '@angular/material/menu';
 import { BulkBarComponent } from '../../shared/bulk-bar.component';
 import { describeBulk, runBulk } from '../../shared/bulk';
 import { ConfirmDialogComponent, ConfirmDialogData } from '../../shared/confirm-dialog.component';
@@ -41,7 +42,7 @@ type RecordingView = 'upcoming' | 'finished' | 'failed';
   imports: [SplitHandleDirective, ConnectionsComponent, 
     MatTableModule, MatSortModule, MatPaginatorModule, MatFormFieldModule, MatInputModule,
     MatButtonModule, MatButtonToggleModule, MatIconModule, MatProgressBarModule, MatCheckboxModule,
-    MatDialogModule, MatSnackBarModule, MatTooltipModule, MatTabsModule, RouterLink, BulkBarComponent, IdnodeFormComponent,
+    MatDialogModule, MatSnackBarModule, MatTooltipModule, MatTabsModule, MatMenuModule, RouterLink, BulkBarComponent, IdnodeFormComponent,
   ],
   template: `
     <div class="admin-page wide">
@@ -72,6 +73,14 @@ type RecordingView = 'upcoming' | 'finished' | 'failed';
         <admin-bulk-bar [count]="selection.count()" [busy]="busy()" [hint]="hiddenHint()" (clear)="selection.clear()"
                         [matchingTotal]="offerAllMatching() ? data.filteredData.length : null" [filtered]="!!data.filter"
                         (selectAll)="selection.addAll(data.filteredData)">
+          @if (view() !== 'failed' && keepOptions().length) {
+            <button mat-button [matMenuTriggerFor]="keepMenu" [disabled]="busy()"
+                    matTooltip="How long the recording file is kept before Tvheadend deletes it"><mat-icon>auto_delete</mat-icon> Keep for…</button>
+            <mat-menu #keepMenu="matMenu">
+              @for (o of keepOptions(); track o.value) { <button mat-menu-item (click)="bulkKeep(o)">{{ o.label }}</button> }
+              <button mat-menu-item (click)="bulkKeepCustom()"><em>Custom number of days…</em></button>
+            </mat-menu>
+          }
           @if (view() === 'upcoming') {
             <button mat-button class="danger-text" (click)="bulkCancel()"><mat-icon>event_busy</mat-icon> Cancel recordings</button>
           } @else {
@@ -129,6 +138,10 @@ type RecordingView = 'upcoming' | 'finished' | 'failed';
         <ng-container matColumnDef="size">
           <th mat-header-cell *matHeaderCellDef mat-sort-header class="num">Size</th>
           <td mat-cell *matCellDef="let r" class="num">{{ formatBytes(r.filesize) }}</td>
+        </ng-container>
+        <ng-container matColumnDef="keep">
+          <th mat-header-cell *matHeaderCellDef mat-sort-header>Keep</th>
+          <td mat-cell *matCellDef="let r">{{ keepLabel(r) }}</td>
         </ng-container>
         <ng-container matColumnDef="status">
           <th mat-header-cell *matHeaderCellDef mat-sort-header>Status</th>
@@ -285,10 +298,15 @@ export class RecordingsComponent implements OnInit, AfterViewInit {
   readonly view = signal<RecordingView>('upcoming');
   readonly loading = signal(false);
   readonly data = new MatTableDataSource<any>([]);
-  private readonly allColumns = ['select', 'title', 'channel', 'start', 'duration', 'size', 'status', 'errors'];
+  private readonly allColumns = ['select', 'title', 'channel', 'start', 'duration', 'size', 'keep', 'status', 'errors'];
   get columns(): string[] {
-    return this.openUuid() ? ['select', 'title', 'channel', 'start', 'status'] : this.allColumns;
+    if (this.openUuid()) return ['select', 'title', 'channel', 'start', 'status'];
+    return this.view() === 'failed' ? this.allColumns.filter(c => c !== 'keep') : this.allColumns;
   }
+  /** File-retention choices from Tvheadend (“1 week”, “Forever”…), for the Keep column and bulk menu. */
+  readonly keepOptions = signal<Array<{ value: string; label: string }>>([]);
+  /** What “Profile default” (0) currently means, e.g. “3 months”. */
+  private readonly profileKeep = signal('');
   @ViewChild('recForm') recForm?: IdnodeFormComponent;
   /** Recording shown in the side panel. */
   readonly openUuid = signal<string | null>(null);
@@ -312,6 +330,7 @@ export class RecordingsComponent implements OnInit, AfterViewInit {
         case 'channel': return String(r.channelname || '').toLowerCase();
         case 'duration': return this.durationSeconds(r);
         case 'size': return Number(r.filesize) || 0;
+        case 'keep': return Number(r.removal) || 0;
         case 'status': return String(r.status || r.sched_status || '');
         case 'errors': return (r.errors || 0) + (r.data_errors || 0);
         default: return Number(r[col]) || 0;
@@ -321,6 +340,7 @@ export class RecordingsComponent implements OnInit, AfterViewInit {
       [r.disp_title, r.title, r.disp_subtitle, r.channelname, r.status, r.sched_status]
         .some(v => String(v || '').toLowerCase().includes(filter));
     this.load();
+    this.loadKeepOptions();
   }
 
   ngAfterViewInit(): void {
@@ -495,6 +515,54 @@ export class RecordingsComponent implements OnInit, AfterViewInit {
     const shown = this.visible().filter(r => this.selection.isSelected(r)).length;
     const hidden = this.selection.count() - shown;
     return hidden > 0 ? `${hidden} not shown (other page or filtered out)` : '';
+  }
+
+  // ---------------------------------------------------------------- retention
+
+  private loadKeepOptions(): void {
+    this.tvh.idnodeClass('dvr/entry').pipe(catchError(() => of(null))).subscribe(cls => {
+      const p = cls?.params.find(x => x.id === 'removal');
+      if (!p?.enum || isDeferredEnum(p.enum)) return;
+      this.keepOptions.set(normalizeEnum(p.enum as any).map(o => ({ value: String(o.value), label: String(o.label) })));
+      // “Profile default” is only meaningful if we can say what it is.
+      this.tvh.getGrid('dvr/config/grid').pipe(catchError(() => of([]))).subscribe(cfgs => {
+        const def: any = cfgs.find((c: any) => !String(c?.name || '').trim()) || cfgs[0];
+        if (!def) return;
+        const v = String(def['removal-days'] ?? '');
+        this.profileKeep.set(this.keepOptions().find(o => o.value === v)?.label
+          || (Number(v) ? `${v} days` : ''));
+      });
+    });
+  }
+
+  /** How long this recording's file is kept: its own setting, or the DVR profile's. */
+  keepLabel(r: any): string {
+    const v = String(r?.removal ?? '0');
+    if (v === '0') return this.profileKeep() ? `${this.profileKeep()} (profile)` : 'Profile default';
+    return this.keepOptions().find(o => o.value === v)?.label || `${v} days`;
+  }
+
+  /** For a period the list doesn't offer, e.g. exactly 30 days. */
+  bulkKeepCustom(): void {
+    const answer = window.prompt(`Keep ${this.selection.count()} selected recording(s) for how many days?`, '30');
+    if (answer === null) return;
+    const days = Math.floor(Number(answer));
+    if (!Number.isFinite(days) || days < 1 || days > 36500) {
+      this.snack.open('Enter a whole number of days, 1 or more', 'Dismiss', { duration: 4000 });
+      return;
+    }
+    this.bulkKeep({ value: String(days), label: `${days} ${days === 1 ? 'day' : 'days'}` });
+  }
+
+  bulkKeep(option: { value: string; label: string }): void {
+    const rows = this.selection.rows();
+    this.busy.set(true);
+    runBulk(rows, r => this.tvh.idnodeSave(String(r.uuid), { removal: Number(option.value) })).subscribe(result => {
+      this.busy.set(false);
+      this.snack.open(`${describeBulk('Updated', result, 'recording')} — keep: ${option.label.toLowerCase()}`, undefined, { duration: 4500 });
+      this.selection.clear();
+      this.load();
+    });
   }
 
   // ---------------------------------------------------------------- bulk actions

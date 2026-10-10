@@ -118,6 +118,9 @@ class TvPlayer(context: Context) {
     private var subscription: HtspSubscription? = null
     /** Live TV over HTTP (no pause): HTSP wasn't available, or this TV needs a converting profile. */
     private var httpLive = false
+    /** The viewer paused or rewound live TV on purpose: staying behind live is what they asked for. */
+    private var shiftedOnPurpose = false
+    private var lastCatchUpAt = 0L
     private var playToken = 0
     private var growingStopSec = 0L
     private var lastGrowDurationMs = -1L
@@ -205,6 +208,7 @@ class TvPlayer(context: Context) {
     private fun startHtsp(channelId: Long) {
         val conn = htsp.connection ?: return startHttpLive()
         stopSubscription()
+        shiftedOnPurpose = false
         // Away from home: ask Tvheadend for the smaller, converted stream (first in the list).
         val profile = client?.convertProfile
         val sub = HtspSubscription(conn, channelId, profile = profile, timeshiftSeconds = TIMESHIFT_SECONDS)
@@ -250,6 +254,7 @@ class TvPlayer(context: Context) {
         sub.speed(0)
         exo.playWhenReady = false
         paused = true
+        shiftedOnPurpose = true
     }
 
     fun resumeLive() {
@@ -295,12 +300,14 @@ class TvPlayer(context: Context) {
         val earliest = sub.bufferStartUs / 1000 + 2000
         val target = exo.currentPosition + deltaMs
         if (edge >= 0 && target >= edge - LIVE_SLACK_MS) return goLive()
+        shiftedOnPurpose = true
         exo.seekTo(target.coerceAtLeast(earliest))
     }
 
     /** Back to the live picture. */
     fun goLive() {
         if (!canPause) return
+        shiftedOnPurpose = false
         val edge = liveEdgeMs()
         if (edge >= 0) exo.seekTo((edge - 1500).coerceAtLeast(0))
         if (paused) resumeLive()
@@ -334,6 +341,7 @@ class TvPlayer(context: Context) {
         if (trickSpeed != 0 || !canTrick(forward)) return
         trickOriginMs = exo.currentPosition
         trickPositionMs = trickOriginMs
+        if (isLive) shiftedOnPurpose = true
         trickWasPlaying = exo.playWhenReady && !paused
         if (isLive && paused) {
             // Tvheadend has to keep sending for the pictures to show.
@@ -536,8 +544,23 @@ class TvPlayer(context: Context) {
     private fun tick() {
         main.postDelayed({
             if (recordingUuid != null && growing && exo.playbackState == Player.STATE_READY) refreshGrowing(force = false)
+            catchUpToLive()
             tick()
         }, 2000)
+    }
+
+    /**
+     * Live TV drifts behind live: each stall (the picture waits while the buffer refills) costs a few
+     * seconds, and the live edge keeps moving, so "behind live" only grows. If the viewer didn't pause
+     * or rewind, jump back to live once it's more than [DRIFT_CATCHUP_MS] — at most every 30 s.
+     */
+    private fun catchUpToLive() {
+        if (recordingUuid != null || !isLive || httpLive || paused || shiftedOnPurpose || trickSpeed != 0) return
+        if (exo.playbackState != Player.STATE_READY || !canPause) return
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - lastCatchUpAt < 30_000L || behindLiveMs <= DRIFT_CATCHUP_MS) return
+        lastCatchUpAt = now
+        goLive()
     }
 
     /** Run on the main thread after [delayMs]; cancelled by the next play / stop. */
@@ -658,6 +681,8 @@ class TvPlayer(context: Context) {
         private const val TIMESHIFT_SECONDS = 3600
         /** Within this much of live counts as live. */
         const val LIVE_SLACK_MS = 8000L
+        /** Unintended drift further behind live than this is caught up automatically. */
+        private const val DRIFT_CATCHUP_MS = 12_000L
         /** Fast-forward / rewind speeds, slowest rewind … fastest forward. */
         val TRICK_SPEEDS = listOf(-32, -16, -8, -4, -2, 2, 4, 8, 16, 32)
         private const val TRICK_STEP_MS = 500L

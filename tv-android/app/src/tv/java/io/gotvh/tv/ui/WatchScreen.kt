@@ -264,7 +264,8 @@ fun WatchScreen(vm: AppViewModel) {
                 )
             }
             now < bannerUntil -> Banner { ChannelHeader(vm); TimeshiftProgress(vm, false); MiniGuide(vm, interactive = false, onPick = {}) }
-            shifted -> Badge(if (player.paused) "❚❚  Paused" else "▶  −" + clock(player.behindLiveMs))
+            // Only "Paused" stays on screen; the behind-live time shows with the banner for a few seconds, then clears.
+            player.paused -> Badge("❚❚  Paused")
         }
 
         if (padOpen) {
@@ -373,6 +374,11 @@ private fun ChannelHeader(vm: AppViewModel) {
 @Composable
 private fun TimeshiftProgress(vm: AppViewModel, focused: Boolean) {
     val p = vm.player
+    // The player's position and the live edge aren't Compose State, so nothing tells this to redraw;
+    // without its own ticker the readout stays frozen at whatever it first showed.
+    var tick by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(Unit) { while (true) { delay(500); tick = android.os.SystemClock.elapsedRealtime() } }
+    if (tick < 0) return // reads tick so this recomposes every tick
     if (!p.canPause) {
         Text(p.pauseUnavailable ?: "● LIVE", color = Tv.muted, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         return

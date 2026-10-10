@@ -113,6 +113,10 @@ fun LiveTab(vm: AppViewModel, fullScreen: Boolean) {
 private fun LiveControls(vm: AppViewModel, fullScreen: Boolean, onAction: () -> Unit) {
     val player = vm.player
     val activity = LocalContext.current as? Activity
+    // Player position / live edge aren't Compose State: tick so the readout redraws while shown.
+    var tick by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(Unit) { while (true) { delay(500); tick = android.os.SystemClock.elapsedRealtime() } }
+    if (tick < 0) return
     val shifted = player.paused || player.isBehindLive
     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0x66000000), Color(0x22000000), Color(0xAA000000))))) {
         // Middle: −10 s · play/pause · +30 s

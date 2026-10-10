@@ -47,6 +47,12 @@ apply (Configuration → Recording → Timeshift: how long and how much disk) an
 while you're paused. The account needs the HTSP streaming right. If HTSP can't be reached, or a
 channel needs converting for the TV, it plays over HTTP as before, without pause; the banner says so.
 
+**Filtering recordings** (TV): Left from the list (or Right of the tabs) moves to the Filter box in the
+header; OK types, using the on-screen keyboard or its microphone. Like the admin's filter it matches title,
+episode, channel and status words (new, watched, in progress, recording, scheduled), and every word must
+match: "buzzr new". It applies to Recorded and Upcoming and is kept while you move around the app. ▶ then OK
+clears it. The phone app has the same filter as a box under the Recorded / Upcoming tabs.
+
 Recordings still being made appear under Recorded (● recording) and play from the start, following
 the file as it grows.
 
@@ -96,9 +102,16 @@ for later, Resume or Play for a recording), so OK, OK does the obvious thing.
 | ▶ | Watch that channel |
 | Back | Back to what's playing |
 
-**Genres**: Up from the top channel moves to the genre chips (All · Sports · Movies · …). Left/Right pick
-one: the guide then lists only channels with that genre in the next 12 hours and fades other
-programmes. Down, OK or Back returns to the grid; the choice is kept until you change it.
+**Genres**: Left at the start of the guide (or Up from the top channel) moves to the genre chips
+(All · Sports · Movies · …). Left/Right pick one and wrap around, skipping genres with nothing in the
+next 12 hours: the guide then lists only channels with that genre and fades other programmes. Down, OK or
+Back returns to the grid; the choice is kept until you change it. From any programme's card, "Show only
+<genre>" applies that filter without leaving the grid.
+
+**Find in the guide**: after the last genre chip comes *Find* (title or description). OK types; the keyboard's
+Done applies. The guide then lists only channels with a matching programme in the next 12 hours and fades the
+others; it combines with the genre. ▶ then OK clears it. The phone's guide has a Find box on top: each
+channel row shows its first matching programme from the chosen time.
 
 **Recordings**: Up/Down move; OK on a show lists its recordings, OK on a recording opens its card
 (Resume / Play, From the start, Mark watched / unwatched, Delete or Stop recording); Back goes up a level,

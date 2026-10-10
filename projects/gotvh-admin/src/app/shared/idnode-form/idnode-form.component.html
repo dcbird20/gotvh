@@ -52,9 +52,19 @@
               @case ('select') {
                 <mat-form-field appearance="outline">
                   <mat-label>{{ f.label }}</mat-label>
-                  <mat-select [formControlName]="f.prop.id">
+                  <mat-select [formControlName]="f.prop.id" (openedChange)="onSelectOpened($event, f)">
+                    @if (searchable(f)) {
+                      <div class="select-search" style="position:sticky;top:0;z-index:1;padding:8px 12px;background:var(--mat-sys-surface-container, var(--mat-select-panel-background-color, #fff))">
+                        <input type="search" placeholder="Search…" autocomplete="off" aria-label="Search choices"
+                               style="width:100%;box-sizing:border-box;padding:6px 8px;border-radius:6px;font:inherit;border:1px solid var(--mat-sys-outline, #888);background:transparent;color:inherit"
+                               [value]="selectQuery()[f.prop.id] || ''"
+                               (input)="setSelectQuery(f, $any($event.target).value)"
+                               (keydown)="$event.stopPropagation()">
+                      </div>
+                      @if (!shownOptions(f).length) { <div style="padding:8px 16px;opacity:.7">No matches</div> }
+                    }
                     @if (missingOption(f); as m) { <mat-option [value]="m.value">{{ m.label }}</mat-option> }
-                    @for (o of f.options || []; track o.value) { <mat-option [value]="o.value">{{ o.label }}</mat-option> }
+                    @for (o of shownOptions(f); track o.value) { <mat-option [value]="o.value">{{ o.label }}</mat-option> }
                   </mat-select>
                   @if (f.optionsLoading) { <mat-hint>Loading choices…</mat-hint> }
                   @else if (f.optionsError) { <mat-hint class="warn">Couldn’t load choices.</mat-hint> }
@@ -74,8 +84,18 @@
                 }
                 <mat-form-field appearance="outline">
                   <mat-label>{{ listLabel(f) }}</mat-label>
-                  <mat-select [formControlName]="f.prop.id" multiple>
-                    @for (o of f.options || []; track o.value) { <mat-option [value]="o.value">{{ o.label }}</mat-option> }
+                  <mat-select [formControlName]="f.prop.id" multiple (openedChange)="onSelectOpened($event, f)">
+                    @if (searchable(f)) {
+                      <div class="select-search" style="position:sticky;top:0;z-index:1;padding:8px 12px;background:var(--mat-sys-surface-container, var(--mat-select-panel-background-color, #fff))">
+                        <input type="search" placeholder="Search…" autocomplete="off" aria-label="Search choices"
+                               style="width:100%;box-sizing:border-box;padding:6px 8px;border-radius:6px;font:inherit;border:1px solid var(--mat-sys-outline, #888);background:transparent;color:inherit"
+                               [value]="selectQuery()[f.prop.id] || ''"
+                               (input)="setSelectQuery(f, $any($event.target).value)"
+                               (keydown)="$event.stopPropagation()">
+                      </div>
+                      @if (!shownOptions(f).length) { <div style="padding:8px 16px;opacity:.7">No matches</div> }
+                    }
+                    @for (o of shownOptions(f); track o.value) { <mat-option [value]="o.value">{{ o.label }}</mat-option> }
                   </mat-select>
                   @if (f.optionsLoading) { <mat-hint>Loading choices…</mat-hint> }
                   @if (f.prop.description) {

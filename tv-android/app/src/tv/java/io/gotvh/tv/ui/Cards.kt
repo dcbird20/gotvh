@@ -77,10 +77,11 @@ fun DetailsCard(
 
 /**
  * A programme. [onWatch] null = you're already watching it (the player's Info). Airing now: Watch
- * first; later: Record first. Empty guide time (a placeholder) can only be watched.
+ * first; later: Record first. Empty guide time (a placeholder) can only be watched. [onGenre] (the
+ * guide only) adds "Show only <genre>".
  */
 @Composable
-fun ProgramCard(vm: AppViewModel, p: Program, onClose: () -> Unit, onWatch: (() -> Unit)?) {
+fun ProgramCard(vm: AppViewModel, p: Program, onClose: () -> Unit, onWatch: (() -> Unit)?, onGenre: ((Genre) -> Unit)? = null) {
     val context = LocalContext.current
     val now = nowSec()
     val channel = vm.channels.firstOrNull { it.uuid == p.channelUuid }
@@ -96,6 +97,8 @@ fun ProgramCard(vm: AppViewModel, p: Program, onClose: () -> Unit, onWatch: (() 
             }
         }
         if (onWatch != null && !p.isAiring(now) && !p.placeholder) add("Watch channel" to { onClose(); onWatch() })
+        // The guide passes this so a genre filter is one OK away from any programme, not a long climb to the chips.
+        if (onGenre != null && !p.placeholder) Genre.of(p)?.let { g -> add("Show only ${g.label}" to { onClose(); onGenre(g) }) }
         add("Close" to onClose)
     }
     DetailsCard(
