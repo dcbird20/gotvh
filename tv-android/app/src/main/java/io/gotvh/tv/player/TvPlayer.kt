@@ -465,6 +465,7 @@ class TvPlayer(context: Context) {
         growingStopSec = recordingUntilSec
         growing = recordingUntilSec > 0
         lastGrowDurationMs = -1
+        recordingOriginal = false
         startRecording(client, uuid, startMs)
     }
 
@@ -524,10 +525,13 @@ class TvPlayer(context: Context) {
      * version, made piece by piece on the server as it plays (seeking and resume work as usual).
      */
     private fun recordingSource(client: TvhClient, uuid: String) =
-        if (client.convertProfile != null)
+        if (client.convertProfile != null && !recordingOriginal)
             androidx.media3.exoplayer.hls.HlsMediaSource.Factory(OkHttpDataSource.Factory(client.http))
                 .createMediaSource(MediaItem.fromUri(client.convertedRecordingUrl(uuid)))
         else httpSource(client, client.recordingUrl(uuid))
+
+    /** This recording plays as the original file: converting it didn't work (set per recording). */
+    private var recordingOriginal = false
 
     /** Streams and files go through the app's HTTP client, so they carry the same sign-in (Basic or Digest). */
     private fun httpSource(client: TvhClient, url: String) =
@@ -611,6 +615,18 @@ class TvPlayer(context: Context) {
                 (error.cause?.message?.let { " — ${it.take(160)}" } ?: ""),
         )
         when {
+            // Away from home, the converted recording didn't work (converter not running, or not
+            // reachable through the away-from-home site): play the original file from the same spot.
+            recording != null && client?.convertProfile != null && !recordingOriginal -> {
+                val c = client!!
+                val pos = exo.currentPosition.coerceAtLeast(0)
+                noteProblem("Switched this recording to the original file (the converted version didn't load: ${error.errorCodeName}).")
+                recordingOriginal = true
+                status = "Couldn't get a converted copy of this recording from your server; playing the original instead."
+                holdStatusUntil = System.currentTimeMillis() + 8_000
+                later(8_000) { if (!tuning) status = null }
+                startRecording(c, recording, pos)
+            }
             code == 503 -> status = "No free tuner or stream right now: everything is in use (recordings, other viewers, or the IPTV stream limit)."
             code == 403 -> status = "Tvheadend won't stream this: it's switched off, or this account isn't allowed to watch it."
             code == 404 && recording != null -> status = "Tvheadend can't find this recording's file any more."
