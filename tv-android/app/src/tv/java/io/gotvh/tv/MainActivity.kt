@@ -31,6 +31,7 @@ import io.gotvh.tv.ui.RecordingsScreen
 import io.gotvh.tv.ui.RulesScreen
 import io.gotvh.tv.ui.SearchScreen
 import io.gotvh.tv.ui.SetupScreen
+import io.gotvh.tv.ui.SplitScreen
 import io.gotvh.tv.ui.Tv
 import io.gotvh.tv.ui.WatchScreen
 import kotlinx.coroutines.delay
@@ -54,6 +55,7 @@ class MainActivity : ComponentActivity() {
         super.onStop()
         if (vm.recordingLoaded) vm.saveRecordingPosition(force = true)
         vm.player.stop()
+        if (vm.splitOn) vm.player2.stop()
     }
 
     override fun onStart() {
@@ -67,8 +69,10 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun GoTvhApp(vm: AppViewModel) {
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        VideoSurface(vm.player)
+        // Split screen draws its own two pictures.
+        if (vm.screen != Screen.Split) VideoSurface(vm.player)
         when (vm.screen) {
+            Screen.Split -> SplitScreen(vm)
             Screen.Setup -> SetupScreen(vm)
             Screen.Watch -> WatchScreen(vm)
             Screen.Guide -> GuideScreen(vm)
@@ -96,6 +100,7 @@ private fun VideoSurface(player: TvPlayer) {
                 keepScreenOn = true
             }
         },
+        onRelease = { it.player = null },
         modifier = Modifier.fillMaxSize(),
     )
 }

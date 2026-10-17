@@ -97,6 +97,9 @@ fun ProgramCard(vm: AppViewModel, p: Program, onClose: () -> Unit, onWatch: (() 
             }
         }
         if (onWatch != null && !p.isAiring(now) && !p.placeholder) add("Watch channel" to { onClose(); onWatch() })
+        // On now on another channel: watch it next to what's playing.
+        if (onWatch != null && (p.isAiring(now) || p.placeholder) && p.channelUuid != vm.currentChannel?.uuid)
+            add("Split screen" to { onClose(); vm.openSplit(p.channelUuid) })
         // The guide passes this so a genre filter is one OK away from any programme, not a long climb to the chips.
         if (onGenre != null && !p.placeholder) Genre.of(p)?.let { g -> add("Show only ${g.label}" to { onClose(); onGenre(g) }) }
         add("Close" to onClose)

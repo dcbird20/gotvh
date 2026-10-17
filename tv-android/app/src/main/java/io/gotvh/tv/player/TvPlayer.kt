@@ -54,6 +54,13 @@ class TvPlayer(context: Context) {
     var status by mutableStateOf<String?>(null)
         private set
 
+    /** Sound off (split screen: only the highlighted picture is heard). */
+    var muted: Boolean = false
+        set(value) {
+            field = value
+            exo.volume = if (value) 0f else 1f
+        }
+
     /** Closed captions are switched on (see [showCaptions]). */
     var captions by mutableStateOf(false)
         private set
@@ -371,7 +378,7 @@ class TvPlayer(context: Context) {
         trickSpeed = speed
         val smooth = speed == 2 && recordingUuid != null
         exo.playbackParameters = androidx.media3.common.PlaybackParameters(if (smooth) 2f else 1f)
-        exo.volume = if (smooth) 0f else 1f
+        exo.volume = if (smooth || muted) 0f else 1f
         exo.playWhenReady = smooth
     }
 
@@ -439,7 +446,7 @@ class TvPlayer(context: Context) {
         if (trickSpeed == 0) return
         trickSpeed = 0
         exo.playbackParameters = androidx.media3.common.PlaybackParameters(1f)
-        exo.volume = 1f
+        exo.volume = if (muted) 0f else 1f
         exo.setSeekParameters(androidx.media3.exoplayer.SeekParameters.DEFAULT)
     }
 

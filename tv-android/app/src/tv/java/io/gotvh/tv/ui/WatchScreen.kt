@@ -249,6 +249,7 @@ fun WatchScreen(vm: AppViewModel) {
                     add("▦  Guide" to { openGuide(vm.currentIndex) })
                     add("☰  Channels" to { openList() })
                     add("⟲  Recent" to { openList(recent = true) })
+                    add("◫  Split screen" to { controls = false; vm.openSplit() })
                     add("123" to { controls = false; padOpen = true })
                     add("Recordings" to { controls = false; vm.open(Screen.Recordings) })
                     add("⌕  Search" to { controls = false; vm.open(Screen.Search) })

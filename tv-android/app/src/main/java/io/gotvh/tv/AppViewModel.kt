@@ -22,7 +22,7 @@ import java.io.IOException
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 
-enum class Screen { Setup, Watch, Guide, Recordings, Rules, Playback, Search }
+enum class Screen { Setup, Watch, Guide, Recordings, Rules, Playback, Search, Split }
 
 fun nowSec(): Long = System.currentTimeMillis() / 1000
 
@@ -350,6 +350,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun resumeIfStopped() {
         val c = client ?: return
+        splitChannel?.let { ch -> if (!player2.exo.isPlaying && !player2.tuning && !player2.paused) player2.play(c, ch, profiles) }
         if (screen == Screen.Playback || recordingLoaded) {
             val r = playing ?: return
             if (!player.exo.isPlaying && !player.tuning) player.playRecording(c, r.uuid, resumeMs(r), recordingUntil(r))
@@ -359,8 +360,101 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (!player.exo.isPlaying && !player.tuning && !player.paused) player.play(c, ch, profiles)
     }
 
+    // ------------------------------------------------------------------ split screen
+
+    /** Split screen: how the two pictures share the screen. */
+    enum class SplitLayout { SideBySide, PictureInPicture }
+
+    /** The second picture's player (made the first time split screen opens). */
+    private val player2Lazy = lazy { TvPlayer(getApplication()).also { it.showCaptions(settings.captions) } }
+    val player2: TvPlayer by player2Lazy
+    /** The channel in the second picture (null: split screen is off). */
+    var splitChannel by mutableStateOf<Channel?>(null)
+        private set
+    var splitLayout by mutableStateOf(SplitLayout.SideBySide)
+        private set
+    /** Which picture is highlighted (0 = the channel you were watching, 1 = the second); its sound plays. */
+    var splitActive by mutableIntStateOf(0)
+        private set
+    /** The pictures trade places (big ↔ small, left ↔ right) without retuning anything. */
+    var splitSwapped by mutableStateOf(false)
+        private set
+
+    val splitOn: Boolean get() = splitChannel != null
+
+    /** The player for picture [i] (0 = main, 1 = second). */
+    fun splitPlayer(i: Int): TvPlayer = if (i == 0) player else player2
+    fun splitChannelOf(i: Int): Channel? = if (i == 0) currentChannel else splitChannel
+
+    /**
+     * Open split screen: the channel you're on stays, the second picture starts on [secondUuid], or
+     * else the channel you watched before this one (or the next channel).
+     */
+    fun openSplit(secondUuid: String? = null) {
+        val c = client ?: return
+        if (channels.size < 2) { notice = "Split screen needs at least two channels."; return }
+        menuOpen = false
+        endRecordingPlayback()
+        val main = currentChannel ?: return
+        if (!player.isLive) player.play(c, main, profiles)
+        val second = channels.firstOrNull { it.uuid == secondUuid && it.uuid != main.uuid }
+            ?: recentChannels.firstOrNull()
+            ?: channels[Math.floorMod(currentIndex + 1, channels.size)]
+        if (splitChannel?.uuid != second.uuid || !player2.isLive) player2.play(c, second, profiles)
+        splitChannel = second
+        splitSwapped = false
+        focusSplit(0)
+        screen = Screen.Split
+    }
+
+    /** Highlight picture [i]: its sound plays, the other is muted. */
+    fun focusSplit(i: Int) {
+        splitActive = i
+        player.muted = i != 0
+        player2.muted = i != 1
+    }
+
+    /** Put [ch] in picture [i]. */
+    fun tuneSplit(i: Int, ch: Channel) {
+        val c = client ?: return
+        if (i == 0) tuneUuid(ch.uuid)
+        else {
+            splitChannel = ch
+            rememberWatched(ch.uuid)
+            player2.play(c, ch, profiles)
+        }
+        player.muted = splitActive != 0
+        player2.muted = splitActive != 1
+    }
+
+    /** Next / previous channel in picture [i]. */
+    fun stepSplit(i: Int, delta: Int) {
+        val ch = splitChannelOf(i) ?: return
+        val at = channels.indexOfFirst { it.uuid == ch.uuid }
+        if (at < 0) return
+        tuneSplit(i, channels[Math.floorMod(at + delta, channels.size)])
+    }
+
+    fun swapSplit() { splitSwapped = !splitSwapped }
+
+    fun toggleSplitLayout() {
+        splitLayout = if (splitLayout == SplitLayout.SideBySide) SplitLayout.PictureInPicture else SplitLayout.SideBySide
+    }
+
+    /** Leave split screen, keeping picture [keep] full screen (the other stops, freeing its tuner). */
+    fun closeSplit(keep: Int = splitActive) {
+        val second = splitChannel ?: run { screen = Screen.Watch; return }
+        splitChannel = null
+        player2.stop()
+        player2.muted = false
+        player.muted = false
+        if (keep == 1) tuneUuid(second.uuid)
+        if (screen == Screen.Split) screen = Screen.Watch
+    }
+
     /** Back to live TV from anywhere (restarts the channel if a recording was playing). */
     fun goLive() {
+        if (splitOn) closeSplit(0)
         menuOpen = false
         screen = Screen.Watch
         val c = client ?: return
@@ -373,7 +467,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun open(target: Screen) {
         menuOpen = false
+        // Somewhere else from split screen: keep the picture you were listening to.
+        if (splitOn && target != Screen.Split && target != Screen.Watch) closeSplit(splitActive)
         when (target) {
+            Screen.Split -> openSplit()
             Screen.Watch -> goLive()
             Screen.Guide -> {
                 guideRow = currentIndex
@@ -744,5 +841,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     override fun onCleared() {
         player.release()
+        if (player2Lazy.isInitialized()) player2.release()
     }
 }
