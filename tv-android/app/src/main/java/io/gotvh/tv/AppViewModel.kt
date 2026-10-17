@@ -350,7 +350,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun resumeIfStopped() {
         val c = client ?: return
-        splitChannel?.let { ch -> if (!player2.exo.isPlaying && !player2.tuning && !player2.paused) player2.play(c, ch, profiles) }
+        if (splitOn) resumeSplit(c)
         if (screen == Screen.Playback || recordingLoaded) {
             val r = playing ?: return
             if (!player.exo.isPlaying && !player.tuning) player.playRecording(c, r.uuid, resumeMs(r), recordingUntil(r))
@@ -362,33 +362,43 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     // ------------------------------------------------------------------ split screen
 
-    /** Split screen: how the two pictures share the screen. */
-    enum class SplitLayout { SideBySide, PictureInPicture }
+    /** Split screen: two pictures side by side, one big with a small one in a corner, or four in a grid. */
+    enum class SplitLayout { SideBySide, PictureInPicture, Grid }
 
-    /** The second picture's player (made the first time split screen opens). */
-    private val player2Lazy = lazy { TvPlayer(getApplication()).also { it.showCaptions(settings.captions) } }
-    val player2: TvPlayer by player2Lazy
-    /** The channel in the second picture (null: split screen is off). */
-    var splitChannel by mutableStateOf<Channel?>(null)
+    /** Players for pictures 2–4 (each made the first time it's needed). Picture 1 is [player]. */
+    private val extraPlayers = List(3) { lazy { TvPlayer(getApplication()).also { it.showCaptions(settings.captions) } } }
+    /** Channels in pictures 2–4 (null: not showing). Split screen is on while picture 2 has one. */
+    var splitChannels by mutableStateOf<List<Channel?>>(listOf(null, null, null))
         private set
-    var splitLayout by mutableStateOf(SplitLayout.SideBySide)
+    var splitLayout by mutableStateOf(
+        runCatching { SplitLayout.valueOf(settings.splitLayout) }.getOrDefault(SplitLayout.SideBySide),
+    )
         private set
-    /** Which picture is highlighted (0 = the channel you were watching, 1 = the second); its sound plays. */
+    /** Picture in picture: which corner the small picture sits in (0 top right, 1 bottom right, 2 bottom left, 3 top left). */
+    var pipCorner by mutableIntStateOf(settings.pipCorner.coerceIn(0, 3))
+        private set
+    /** Which picture is highlighted (0 = the channel you were watching); its sound plays. */
     var splitActive by mutableIntStateOf(0)
         private set
-    /** The pictures trade places (big ↔ small, left ↔ right) without retuning anything. */
+    /** Two pictures: they trade places (big ↔ small, left ↔ right) without retuning anything. */
     var splitSwapped by mutableStateOf(false)
         private set
 
-    val splitOn: Boolean get() = splitChannel != null
+    val splitOn: Boolean get() = splitChannels[0] != null
+    /** Pictures on screen in the current layout. */
+    val splitCount: Int get() = if (splitLayout == SplitLayout.Grid) 4 else 2
 
-    /** The player for picture [i] (0 = main, 1 = second). */
-    fun splitPlayer(i: Int): TvPlayer = if (i == 0) player else player2
-    fun splitChannelOf(i: Int): Channel? = if (i == 0) currentChannel else splitChannel
+    /** The player for picture [i] (0 = main). */
+    fun splitPlayer(i: Int): TvPlayer = if (i == 0) player else extraPlayers[i - 1].value
+    fun splitChannelOf(i: Int): Channel? = if (i == 0) currentChannel else splitChannels.getOrNull(i - 1)
+
+    /** Every extra player that exists (for stopping, captions, releasing). */
+    fun splitExtras(): List<TvPlayer> = extraPlayers.filter { it.isInitialized() }.map { it.value }
 
     /**
-     * Open split screen: the channel you're on stays, the second picture starts on [secondUuid], or
-     * else the channel you watched before this one (or the next channel).
+     * Open split screen in the last layout used: the channel you're on stays; picture 2 starts on
+     * [secondUuid], or else the channel you watched before (or the next one); a grid fills the rest
+     * from recent channels.
      */
     fun openSplit(secondUuid: String? = null) {
         val c = client ?: return
@@ -398,33 +408,53 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val main = currentChannel ?: return
         if (!player.isLive) player.play(c, main, profiles)
         val second = channels.firstOrNull { it.uuid == secondUuid && it.uuid != main.uuid }
+            ?: splitChannels[0]?.takeIf { it.uuid != main.uuid }
             ?: recentChannels.firstOrNull()
             ?: channels[Math.floorMod(currentIndex + 1, channels.size)]
-        if (splitChannel?.uuid != second.uuid || !player2.isLive) player2.play(c, second, profiles)
-        splitChannel = second
+        putInPicture(1, second)
         splitSwapped = false
+        if (splitLayout == SplitLayout.Grid) fillGrid()
         focusSplit(0)
         screen = Screen.Split
     }
 
-    /** Highlight picture [i]: its sound plays, the other is muted. */
+    /** Picture [i] (1–3) shows [ch], tuning only if it isn't already. */
+    private fun putInPicture(i: Int, ch: Channel) {
+        val c = client ?: return
+        val p = splitPlayer(i)
+        if (splitChannels[i - 1]?.uuid != ch.uuid || !p.isLive) p.play(c, ch, profiles)
+        splitChannels = splitChannels.toMutableList().also { it[i - 1] = ch }
+        p.muted = splitActive != i
+    }
+
+    /** Grid: pictures 3 and 4 get channels not already showing — recent ones first, then the next ones. */
+    private fun fillGrid() {
+        for (i in 2..3) {
+            if (splitChannels[i - 1] != null) continue
+            val showing = (0..3).mapNotNull { splitChannelOf(it)?.uuid }.toSet()
+            val pick = recentChannels.firstOrNull { it.uuid !in showing }
+                ?: channels.drop(currentIndex + 1).plus(channels).firstOrNull { it.uuid !in showing }
+                ?: return
+            putInPicture(i, pick)
+        }
+    }
+
+    /** Highlight picture [i]: its sound plays, the others are muted. */
     fun focusSplit(i: Int) {
-        splitActive = i
-        player.muted = i != 0
-        player2.muted = i != 1
+        splitActive = i.coerceIn(0, splitCount - 1)
+        player.muted = splitActive != 0
+        extraPlayers.forEachIndexed { k, lp -> if (lp.isInitialized()) lp.value.muted = splitActive != k + 1 }
     }
 
     /** Put [ch] in picture [i]. */
     fun tuneSplit(i: Int, ch: Channel) {
-        val c = client ?: return
-        if (i == 0) tuneUuid(ch.uuid)
-        else {
-            splitChannel = ch
+        if (i == 0) {
+            tuneUuid(ch.uuid)
+            player.muted = splitActive != 0
+        } else {
             rememberWatched(ch.uuid)
-            player2.play(c, ch, profiles)
+            putInPicture(i, ch)
         }
-        player.muted = splitActive != 0
-        player2.muted = splitActive != 1
     }
 
     /** Next / previous channel in picture [i]. */
@@ -437,19 +467,48 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun swapSplit() { splitSwapped = !splitSwapped }
 
-    fun toggleSplitLayout() {
-        splitLayout = if (splitLayout == SplitLayout.SideBySide) SplitLayout.PictureInPicture else SplitLayout.SideBySide
+    /** Switch layout (remembered for next time). Leaving the grid stops pictures 3 and 4. */
+    fun chooseSplitLayout(layout: SplitLayout) {
+        if (layout == splitLayout) return
+        splitLayout = layout
+        settings.splitLayout = layout.name
+        if (layout == SplitLayout.Grid) {
+            splitSwapped = false
+            fillGrid()
+        } else {
+            for (i in 2..3) stopPicture(i)
+            if (splitActive >= 2) focusSplit(0)
+        }
     }
 
-    /** Leave split screen, keeping picture [keep] full screen (the other stops, freeing its tuner). */
+    /** Picture in picture: put the small picture in [corner] (0 top right, 1 bottom right, 2 bottom left, 3 top left; remembered). */
+    fun placePip(corner: Int) {
+        pipCorner = corner.coerceIn(0, 3)
+        settings.pipCorner = pipCorner
+    }
+
+    private fun stopPicture(i: Int) {
+        if (extraPlayers[i - 1].isInitialized()) extraPlayers[i - 1].value.apply { stop(); muted = false }
+        splitChannels = splitChannels.toMutableList().also { it[i - 1] = null }
+    }
+
+    /** Leave split screen, keeping picture [keep] full screen (the others stop, freeing their tuners). */
     fun closeSplit(keep: Int = splitActive) {
-        val second = splitChannel ?: run { screen = Screen.Watch; return }
-        splitChannel = null
-        player2.stop()
-        player2.muted = false
+        if (!splitOn) { if (screen == Screen.Split) screen = Screen.Watch; return }
+        val kept = splitChannelOf(keep)
+        for (i in 1..3) stopPicture(i)
         player.muted = false
-        if (keep == 1) tuneUuid(second.uuid)
+        if (keep != 0 && kept != null) tuneUuid(kept.uuid)
         if (screen == Screen.Split) screen = Screen.Watch
+    }
+
+    /** Back in the app with split screen open: restart pictures that were stopped. */
+    private fun resumeSplit(c: TvhClient) {
+        for (i in 1..3) {
+            val ch = splitChannels[i - 1] ?: continue
+            val p = splitPlayer(i)
+            if (!p.exo.isPlaying && !p.tuning && !p.paused) p.play(c, ch, profiles)
+        }
     }
 
     /** Back to live TV from anywhere (restarts the channel if a recording was playing). */
@@ -841,6 +900,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     override fun onCleared() {
         player.release()
-        if (player2Lazy.isInitialized()) player2.release()
+        splitExtras().forEach { it.release() }
     }
 }

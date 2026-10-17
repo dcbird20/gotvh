@@ -125,11 +125,14 @@ Creating and editing rules is in the guide (Record series) and the admin app.
 Google TV remotes have no Menu key, so Back from full-screen TV opens the menu; Home leaves the app.
 
 **Split screen** (TV app; the controls' *Split screen* button, the menu, or *Split screen* on a
-program card for something on now): two live channels at once, side by side or one big with a
-small picture in the corner. The highlighted picture is the one you hear.
-◀ ▶ pick a picture · ▲ ▼, Ch± or digits change its channel · ⏯ pauses it · OK: change channel
-(list), swap (instant, no retuning), layout, full screen, captions · Back: the highlighted picture
-full screen. Each picture is its own stream, so it uses two tuners / IPTV connections.
+program card for something on now): live channels at once — two side by side, one big with a small
+picture in a corner (*Move small picture*, then the arrows, puts it in any corner), or four in a
+grid. It opens in the layout you used last. The highlighted picture is the one you hear.
+Two pictures: ◀ ▶ pick a picture, ▲ ▼ change its channel. Grid: the arrows move between the four,
+Ch± changes the channel. Digits tune the highlighted picture · ⏯ pauses it · OK: change channel
+(list), swap (instant, no retuning), layouts, full screen, captions · Back: the highlighted picture
+full screen. Each picture is its own stream (two or four tuners / IPTV connections); leaving the
+grid stops pictures 3 and 4.
 
 ## Playback
 

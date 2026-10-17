@@ -55,7 +55,7 @@ class MainActivity : ComponentActivity() {
         super.onStop()
         if (vm.recordingLoaded) vm.saveRecordingPosition(force = true)
         vm.player.stop()
-        if (vm.splitOn) vm.player2.stop()
+        if (vm.splitOn) vm.splitExtras().forEach { it.stop() }
     }
 
     override fun onStart() {

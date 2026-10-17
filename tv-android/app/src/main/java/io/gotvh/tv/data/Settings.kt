@@ -34,6 +34,16 @@ class Settings(context: Context) {
         get() = (prefs.getString("recentChannels", "") ?: "").split(',').filter { it.isNotBlank() }
         set(value) = prefs.edit().putString("recentChannels", value.joinToString(",")).apply()
 
+    /** Split screen's last layout (SideBySide, PictureInPicture, Grid). */
+    var splitLayout: String
+        get() = prefs.getString("splitLayout", "SideBySide") ?: "SideBySide"
+        set(value) = prefs.edit().putString("splitLayout", value).apply()
+
+    /** Picture in picture: the small picture's corner (0 top right, 1 bottom right, 2 bottom left, 3 top left). */
+    var pipCorner: Int
+        get() = prefs.getInt("pipCorner", 0)
+        set(value) = prefs.edit().putInt("pipCorner", value).apply()
+
     /** Search also looks in programme descriptions (on by default: teams, actors are often only there). */
     var searchDescriptions: Boolean
         get() = prefs.getBoolean("searchDescriptions", true)
